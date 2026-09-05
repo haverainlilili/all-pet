@@ -3,14 +3,13 @@
 一个 Codex 宠物风格的 macOS 桌面宠物，用一只宠物统一监控多个 AI 编码平台的活动状态，
 并驱动宠物动画（待机 / 奔跑 / 挥手 / 跳跃 / 失败 / 等待 / 审阅）。
 
-当前已落地（v1，核心库 + CLI）：
+当前已落地（v1，核心库 + CLI + macOS GUI）：
 
 - ✅ 配置系统：`~/.config/all-pet/config.json`，每个平台可独立开关、自定义路径
 - ✅ 多平台监控：**Codex** / **Claude Code** / **DSH (DeepSeek Harness)** / **Grok**
 - ✅ Codex 宠物格式：8 列 × 9/11 行图集，`pet.json` + `spritesheet.webp`，动画状态机
 - ✅ 宠物发现：自动扫描 `~/.codex/pets`、openpets / DSH 宠物目录
-
-> GUI 桌面宠物（透明悬浮窗 + 精灵动画 + 菜单栏）在下一阶段实现；先用 CLI 验证监控。
+- ✅ macOS 桌面宠物：透明悬浮窗 + 精灵动画 + 拖拽 + 菜单栏（显示/隐藏、换宠、平台状态、打开配置、退出）
 
 ## 参考与复用
 
@@ -47,6 +46,20 @@
 ```bash
 swift build -c release
 ```
+
+## 运行桌面宠物（GUI）
+
+```bash
+.build/release/allpet
+# 或 .build/release/allpet gui
+```
+
+启动后：
+
+- 宠物以透明悬浮窗显示在屏幕角落（默认右下），随各平台活动切换动画；
+- 气泡显示当前活跃平台（如「Codex 运行中 · DSH 运行中」）；
+- 拖拽宠物可移动位置；
+- 菜单栏 🐾 图标：显示/隐藏宠物、换宠、查看四平台状态、打开配置、退出。
 
 ## CLI 用法
 

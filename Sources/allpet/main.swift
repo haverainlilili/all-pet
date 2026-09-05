@@ -13,11 +13,13 @@ func printHelp() {
     allpet — Codex 风格的多平台桌面宠物
 
     用法:
-      allpet init             生成默认配置 (~/.config/all-pet/config.json)
-      allpet status           打印四个平台(Codex/Claude Code/DSH/Grok)的一次快照
-      allpet watch            持续监控，状态变化时打印
-      allpet pet list         列出发现的 Codex 宠物
-      allpet help             显示本帮助
+      allpet                   启动桌面宠物 (GUI)
+      allpet gui               同 `allpet`
+      allpet init              生成默认配置 (~/.config/all-pet/config.json)
+      allpet status            打印四个平台(Codex/Claude Code/DSH/Grok)的一次快照
+      allpet watch             持续监控，状态变化时打印
+      allpet pet list          列出发现的 Codex 宠物
+      allpet help              显示本帮助
     """)
 }
 
@@ -99,8 +101,8 @@ case "status": cmdStatus()
 case "watch": cmdWatch()
 case "pet":
     if args.count > 1 && args[1] == "list" { cmdPetList() } else { printHelp() }
+case "gui", "run": runGUI()
 case "help", "--help", "-h": printHelp()
-default:
-    printHelp()
-    print("提示：GUI 桌面宠物将在下一步实现；先用 `allpet status` / `allpet watch` 验证多平台监控。")
+case nil: runGUI()
+default: printHelp()
 }
