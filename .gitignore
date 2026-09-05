@@ -1,0 +1,13 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+.tmp/
+Package.resolved
+*.xcodeproj
+*.xcworkspace
+
+# macOS
+.DS_Store
+
+# Local runtime artifacts
+*.log

@@ -1,0 +1,19 @@
+{
+  "pet": {
+    "enabled": true,
+    "scale": 0.42,
+    "anchor": "bottom-right",
+    "bundlePath": null
+  },
+  "watch": {
+    "pollIntervalMilliseconds": 1000,
+    "activeWindowSeconds": 8,
+    "waitingWindowSeconds": 120
+  },
+  "platforms": {
+    "codex": { "enabled": true, "paths": ["~/.codex/sessions"] },
+    "claude": { "enabled": true, "paths": ["~/.claude/projects"] },
+    "dsh": { "enabled": true, "paths": ["~/.dsh/sessions"] },
+    "grok": { "enabled": true, "paths": ["~/.grok/logs/unified.jsonl", "~/.grok/active_sessions.json"] }
+  }
+}
