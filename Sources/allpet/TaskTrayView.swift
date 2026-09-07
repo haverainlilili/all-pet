@@ -106,6 +106,7 @@ final class TaskTrayView: NSView {
     var onWakeTask: ((TrayTaskItem) -> Void)?
     var onDismissTask: ((String) -> Void)?
     var onDismissPlatform: ((PlatformKind) -> Void)?
+    var onOpenPlatform: ((PlatformKind) -> Void)?
 
     private var statuses: [PlatformStatus] = []
     private var tasksByPlatform: [PlatformKind: [TrayTaskItem]] = [:]
@@ -230,7 +231,10 @@ final class TaskTrayView: NSView {
             setStage(.collapsed)
         case let .platform(platform):
             let tasks = orderedTasks(for: platform)
-            if tasks.count == 1, let task = tasks.first {
+            if tasks.isEmpty {
+                onOpenPlatform?(platform)
+                setStage(.collapsed)
+            } else if tasks.count == 1, let task = tasks.first {
                 wake(task)
             } else {
                 setStage(.tasks(platform))
@@ -527,7 +531,7 @@ final class TaskTrayView: NSView {
         }
         let visible = Array(tasks.prefix(5))
         if visible.isEmpty {
-            drawText("暂无会话", in: NSRect(x: rect.minX + 18, y: rect.minY + 28, width: rect.width - 62, height: 17), font: .systemFont(ofSize: 12, weight: .medium), color: palette.secondary)
+            drawText("暂无会话 · 点击打开", in: NSRect(x: rect.minX + 18, y: rect.minY + 28, width: rect.width - 62, height: 17), font: .systemFont(ofSize: 12, weight: .medium), color: palette.secondary)
         } else {
             var y = rect.minY + 26
             for task in visible {

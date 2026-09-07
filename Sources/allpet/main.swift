@@ -30,8 +30,8 @@ func printHelp() {
       ./allpet init            生成默认配置 (~/.config/all-pet/config.json)
       ./allpet status          打印四个平台(Codex/Claude Code/DSH/Grok)的一次快照
       ./allpet watch           持续监控，任务/工具/状态变化时打印
-      ./allpet pet list             列出已安装宠物与可安装的 GitHub 预设
-      ./allpet pet install 名称     从 GitHub 预设一键安装为默认宠物（cc-haha / clawd-on-desk / lingchat）
+      ./allpet pet list             列出已安装宠物、远程源与可安装的 GitHub 预设
+      ./allpet pet install 名称     从 GitHub 预设一键安装为默认宠物（cc-haha / clawd-on-desk / lingchat / petdex / awesome-codex-pet）
       ./allpet pet install 仓库URL  从任意 GitHub 宠物仓库一键安装
       ./allpet pet set 名称          在已安装宠物间切换（按显示名/ID）
       ./allpet pet import PATH      导入 cc-haha / clawd-on-desk / LingChat 本地宠物
@@ -161,12 +161,16 @@ func cmdPetList() {
             print("  \(terminalSafe(b.manifest.id, maximumLength: 160))\t\(terminalSafe(b.manifest.displayName, maximumLength: 160))\t\(b.atlas.pixelWidth)x\(b.atlas.pixelHeight)\t\(terminalSafe(b.directoryURL.path))")
         }
     }
+    print("\n远程宠物源（输入官方命令即可安装）：")
+    for source in RemotePetSource.allCases {
+        print("  \(source.label)\t输入 \(source.usageHint)")
+    }
     print("\n可从 GitHub 一键安装的预设：")
     for p in PetRegistry.presets {
         print("  \(terminalSafe(p.id, maximumLength: 160))\t\(terminalSafe(p.name, maximumLength: 160))\t\(terminalSafe(p.repositoryURL, maximumLength: 160))")
     }
     print("\n用法：")
-    print("  ./allpet pet install <预设ID 或 GitHub 仓库URL>")
+    print("  ./allpet pet install <预设ID / 远程源命令 / GitHub 仓库URL>")
     print("  ./allpet pet set <显示名或ID>")
     print("  ./allpet pet import <本地路径>")
 }

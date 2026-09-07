@@ -245,6 +245,9 @@ final class PetApp: NSObject, @unchecked Sendable {
         tray.onDismissPlatform = { [weak self] platform in
             self?.dismissPlatformBubbles(platform)
         }
+        tray.onOpenPlatform = { [weak self] platform in
+            self?.openPlatform(platform)
+        }
         content.addSubview(tray)
         self.taskTrayView = tray
 
@@ -618,6 +621,54 @@ final class PetApp: NSObject, @unchecked Sendable {
         }
     }
 
+    private func openPlatform(_ platform: PlatformKind) {
+        taskWakeQueue.async { [weak self] in
+            guard let self else { return }
+            if self.taskLauncher.platformAppIsRunning(platform) {
+                let evoked = self.taskLauncher.evokePlatform(platform)
+                if !evoked {
+                    DispatchQueue.main.async { [weak self] in
+                        self?.presentPlatformOpenFailure(platform)
+                    }
+                }
+            } else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.presentPlatformOpenPrompt(platform)
+                }
+            }
+        }
+    }
+
+    private func presentPlatformOpenPrompt(_ platform: PlatformKind) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "\(platform.label) 未在运行"
+        alert.informativeText = "是否打开 \(platform.label)？"
+        alert.addButton(withTitle: "打开")
+        alert.addButton(withTitle: "取消")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        taskWakeQueue.async { [weak self] in
+            guard let self else { return }
+            let launched = self.taskLauncher.launchPlatform(platform)
+            if !launched {
+                DispatchQueue.main.async { [weak self] in
+                    self?.presentPlatformOpenFailure(platform)
+                }
+            }
+        }
+    }
+
+    private func presentPlatformOpenFailure(_ platform: PlatformKind) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "无法打开 \(platform.label)"
+        alert.informativeText = "未找到 \(platform.label) 的可打开程序，或唤起失败。"
+        alert.addButton(withTitle: "好")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
     private struct PersistedTaskHistory: Codable {
         var platforms: [String: [TrayTaskItem]]
         var dismissedTaskIDs: [String]
@@ -905,13 +956,21 @@ final class PetApp: NSObject, @unchecked Sendable {
 
     private func makePetsMenu() -> NSMenu {
         let menu = NSMenu()
+        let configured = config.pet.bundlePath.map { URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path }
         for bundle in PetDiscovery.discover(home: home) {
-            let item = NSMenuItem(title: bundle.manifest.displayName, action: #selector(selectPet(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = bundle.directoryURL.path
-            item.image = petThumbnail(for: bundle)
-            let configured = config.pet.bundlePath.map { URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path }
-            item.state = (bundle.directoryURL.standardizedFileURL.path == configured) ? .on : .off
+            let item = NSMenuItem()
+            let view = PetMenuItemView(
+                thumbnail: petThumbnail(for: bundle),
+                title: bundle.manifest.displayName,
+                isCurrent: bundle.directoryURL.standardizedFileURL.path == configured
+            )
+            view.onSelect = { [weak self] in
+                self?.selectPet(bundle: bundle)
+            }
+            view.onDelete = { [weak self] in
+                self?.deletePet(bundle: bundle)
+            }
+            item.view = view
             menu.addItem(item)
         }
         if menu.numberOfItems > 0 { menu.addItem(.separator()) }
@@ -933,13 +992,14 @@ final class PetApp: NSObject, @unchecked Sendable {
         guard !petImportInProgress else { return }
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "从 GitHub 安装宠物"
+        alert.messageText = "安装宠物"
         let presets = PetRegistry.presets.map { "• \($0.id) — \($0.repositoryURL)" }.joined(separator: "\n")
-        alert.informativeText = "输入预设 ID 或 GitHub 仓库 URL，回车即可克隆并设为默认宠物。\n\n可用预设：\n\(presets)"
+        let remoteSources = RemotePetSource.allCases.map { "• \($0.label) — 输入 \($0.usageHint)" }.joined(separator: "\n")
+        alert.informativeText = "输入预设 ID、远程源官方命令或 GitHub 仓库 URL，即可安装并设为默认宠物。\n\n远程源：\n\(remoteSources)\n\nGitHub 预设：\n\(presets)"
         alert.addButton(withTitle: "安装")
         alert.addButton(withTitle: "取消")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
-        field.placeholderString = "例如：clawd-on-desk 或 https://github.com/…/…"
+        field.placeholderString = "例如：petdex install boba 或 firefly--lingxiaotian 或 https://github.com/…/…"
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
         NSApp.activate(ignoringOtherApps: true)
@@ -1040,23 +1100,70 @@ final class PetApp: NSObject, @unchecked Sendable {
         }
     }
 
-    @objc private func selectPet(_ sender: NSMenuItem) {
-        guard let path = sender.representedObject as? String else { return }
+    private func selectPet(bundle: PetBundle) {
         do {
-            try switchPet(to: URL(fileURLWithPath: path))
+            try switchPet(to: bundle.directoryURL)
         } catch {
             let alert = NSAlert(error: error)
             alert.messageText = "无法切换宠物"
+            NSApp.activate(ignoringOtherApps: true)
             alert.runModal()
         }
     }
 
-    private func refreshPetMenuChecks() {
-        guard let menu = statusItem?.menu?.items.first(where: { $0.title == "宠物" })?.submenu else { return }
-        let selected = config.pet.bundlePath.map { URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path }
-        for item in menu.items {
-            guard let path = item.representedObject as? String else { continue }
-            item.state = URL(fileURLWithPath: path).standardizedFileURL.path == selected ? .on : .off
+    private func deletePet(bundle: PetBundle) {
+        let confirm = NSAlert()
+        confirm.alertStyle = .warning
+        confirm.messageText = "删除宠物「\(bundle.manifest.displayName)」？"
+        confirm.informativeText = "将删除以下目录：\n\(bundle.directoryURL.path)\n\n此操作无法撤销。"
+        confirm.addButton(withTitle: "删除")
+        confirm.addButton(withTitle: "取消")
+        NSApp.activate(ignoringOtherApps: true)
+        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            try FileManager.default.removeItem(at: bundle.directoryURL)
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.messageText = "删除宠物失败"
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+            return
+        }
+
+        let deletedPath = bundle.directoryURL.standardizedFileURL.path
+        let currentPath = config.pet.bundlePath.map { URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path }
+        if deletedPath == currentPath {
+            if let replacement = PetDiscovery.discover(home: home).first {
+                do {
+                    try switchPet(to: replacement.directoryURL)
+                } catch {
+                    clearCurrentPet()
+                }
+            } else {
+                clearCurrentPet()
+            }
+        }
+        rebuildPetsMenu()
+    }
+
+    private func clearCurrentPet() {
+        var nextConfig = config
+        nextConfig.pet.bundlePath = nil
+        try? nextConfig.save(to: AllPetConfiguration.configURL(home: home))
+        config = nextConfig
+        self.bundle = nil
+        self.frames = []
+        frameTimer?.invalidate()
+        frameTimer = nil
+        playbackFrames.removeAll(keepingCapacity: true)
+        spriteView?.frameImage = nil
+        statusItem?.button?.title = "🐾(无宠物)"
+    }
+
+    private func rebuildPetsMenu() {
+        if let petsItem = statusItem?.menu?.items.first(where: { $0.title == "宠物" }) {
+            petsItem.submenu = makePetsMenu()
         }
     }
 
@@ -1069,7 +1176,7 @@ final class PetApp: NSObject, @unchecked Sendable {
         config = nextConfig
         self.bundle = bundle
         self.frames = frames
-        refreshPetMenuChecks()
+        rebuildPetsMenu()
 
         guard let window, let spriteView else { return }
         let oldSpriteScreenOrigin = NSPoint(

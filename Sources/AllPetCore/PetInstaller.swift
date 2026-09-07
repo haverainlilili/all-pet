@@ -15,6 +15,7 @@ public enum PetInstallError: Error, LocalizedError {
     case cloneFailed(String)
     case noEntrypoint(String)
     case unsafeSourcePath(String)
+    case downloadFailed(String, String)
 
     public var errorDescription: String? {
         switch self {
@@ -23,6 +24,7 @@ public enum PetInstallError: Error, LocalizedError {
         case .cloneFailed(let s): "克隆仓库失败：\(s)"
         case .noEntrypoint(let s): "仓库里未找到可导入的宠物入口（pet.json / theme.json / settings.yml）：\(s)"
         case .unsafeSourcePath(let s): "拒绝不安全的来源路径：\(s)"
+        case .downloadFailed(let s, let reason): "下载宠物失败（\(s)）：\(reason)"
         }
     }
 }
@@ -31,6 +33,18 @@ public enum PetInstallError: Error, LocalizedError {
 /// 只拉取用户明确选择的素材，不内置或重新分发第三方宠物。
 public enum PetInstaller {
     public static func install(source: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> PetInstallOutcome {
+        if let match = PetRemoteSourceResolver.parse(source) {
+            let bundle = try PetRemoteSourceInstaller.install(match: match, home: home)
+            return PetInstallOutcome(
+                preset: nil,
+                repositoryURL: match.source.repositoryURL,
+                sourceKind: .codexAtlas,
+                bundle: bundle,
+                installedBundles: [bundle],
+                note: "已从 \(match.source.label) 安装宠物「\(bundle.manifest.displayName)」"
+            )
+        }
+
         let preset = PetRegistry.preset(matching: source)
         let repoURL: String
         let kind: PetModelSourceKind

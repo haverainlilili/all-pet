@@ -88,6 +88,57 @@ final class TaskLauncher: @unchecked Sendable {
         }
     }
 
+    /// 平台程序是否已经在运行（GUI 应用或终端里的 CLI）。
+    func platformAppIsRunning(_ platform: PlatformKind) -> Bool {
+        switch platform {
+        case .codex:
+            return isApplicationRunning(bundleID: "com.openai.codex") || terminalProcessRunning(processNames: ["codex"])
+        case .claude:
+            return isApplicationRunning(bundleID: "com.anthropic.claudefordesktop") || terminalProcessRunning(processNames: ["claude"])
+        case .dsh:
+            return dshPageIsOpen()
+        case .grok:
+            return terminalProcessRunning(processNames: ["grok"])
+        }
+    }
+
+    /// 平台程序已运行时，把它带到最前面（唤起）。
+    func evokePlatform(_ platform: PlatformKind) -> Bool {
+        switch platform {
+        case .codex:
+            if isApplicationRunning(bundleID: "com.openai.codex") {
+                return activateApplication(bundleID: "com.openai.codex")
+            }
+            return focusAnyTerminal(processNames: ["codex"])
+        case .claude:
+            if isApplicationRunning(bundleID: "com.anthropic.claudefordesktop") {
+                return activateApplication(bundleID: "com.anthropic.claudefordesktop")
+            }
+            return focusAnyTerminal(processNames: ["claude"])
+        case .dsh:
+            return focusExistingBrowserPage(containing: ["http://127.0.0.1:3080/", "http://localhost:3080/"])
+        case .grok:
+            return focusAnyTerminal(processNames: ["grok"])
+        }
+    }
+
+    /// 平台程序未运行时，打开对应平台（GUI 应用优先，否则终端里启动 CLI）。
+    func launchPlatform(_ platform: PlatformKind) -> Bool {
+        switch platform {
+        case .codex:
+            if let app = codexAppURL, NSWorkspace.shared.open(app) { return true }
+            return launchTerminalExecutable(codexCLIExecutables, identifier: "codex-open")
+        case .claude:
+            if let app = claudeDesktopAppURL, NSWorkspace.shared.open(app) { return true }
+            return launchTerminalExecutable(claudeCLIExecutables, identifier: "claude-open")
+        case .dsh:
+            guard let url = URL(string: "http://127.0.0.1:3080/") else { return false }
+            return NSWorkspace.shared.open(url)
+        case .grok:
+            return launchTerminalExecutable([grokExecutable], identifier: "grok-open")
+        }
+    }
+
     /// 判断用户是否已手动打开/查看该已完成任务；用于让完成气泡自动消失。
     func isManuallyViewed(_ task: TrayTaskItem) -> Bool {
         switch task.platform {
@@ -586,6 +637,113 @@ final class TaskLauncher: @unchecked Sendable {
 
     private func isApplicationRunning(bundleID: String) -> Bool {
         !NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty
+    }
+
+    private var codexAppURL: URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex")
+    }
+
+    private var claudeDesktopAppURL: URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop")
+    }
+
+    private var codexCLIExecutables: [String] {
+        [
+            home.appendingPathComponent(".local/bin/codex").path,
+            home.appendingPathComponent(".npm-global/bin/codex").path,
+            "/opt/homebrew/bin/codex",
+            "/usr/local/bin/codex"
+        ]
+    }
+
+    private var claudeCLIExecutables: [String] {
+        [
+            home.appendingPathComponent(".local/bin/claude").path,
+            "/opt/homebrew/bin/claude",
+            "/usr/local/bin/claude"
+        ]
+    }
+
+    private var grokExecutable: String {
+        home.appendingPathComponent(".grok/bin/grok").path
+    }
+
+    private func activateApplication(bundleID: String) -> Bool {
+        guard isApplicationRunning(bundleID: bundleID) else { return false }
+        forceFrontmostPreservingWindow(bundleID: bundleID)
+        return true
+    }
+
+    private func terminalProcessRunning(processNames: [String]) -> Bool {
+        let rows = processRows().filter { $0.tty != "??" && $0.tty != "?" && !$0.tty.isEmpty }
+        for row in rows {
+            var identified = row
+            if let executable = processExecutablePath(row.pid) { identified.executable = executable }
+            if processNames.contains(where: { process(identified, matchesExecutableNamed: $0) }) { return true }
+        }
+        return false
+    }
+
+    private func focusAnyTerminal(processNames: [String]) -> Bool {
+        let rows = processRows().filter { $0.tty != "??" && $0.tty != "?" && !$0.tty.isEmpty }
+        for row in rows {
+            var identified = row
+            if let executable = processExecutablePath(row.pid) { identified.executable = executable }
+            guard processNames.contains(where: { process(identified, matchesExecutableNamed: $0) }) else { continue }
+            guard let binding = TerminalBindingResolver.binding(forAgentProcessID: row.pid),
+                  focusTerminal(tty: binding.tty) else { continue }
+            return true
+        }
+        return false
+    }
+
+    private func launchTerminalExecutable(_ candidates: [String], identifier: String) -> Bool {
+        guard let executable = candidates.first(where: FileManager.default.isExecutableFile(atPath:)) else { return false }
+        do {
+            try openNewTerminalCommand(shellQuote(executable), identifier: identifier)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func dshPageIsOpen() -> Bool {
+        let needles = ["http://127.0.0.1:3080/", "http://localhost:3080/"]
+        let condition = browserURLCondition(variable: "u", origins: needles)
+        for bundleID in ["com.google.Chrome", "com.google.Chrome.canary", "com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser"] {
+            let script = """
+            if application id \(appleScriptLiteral(bundleID)) is running then
+                tell application id \(appleScriptLiteral(bundleID))
+                    repeat with w in windows
+                        repeat with t in tabs of w
+                            try
+                                set u to URL of t as text
+                                if \(condition) then return "FOUND"
+                            end try
+                        end repeat
+                    end repeat
+                end tell
+            end if
+            return "MISS"
+            """
+            if runAppleScript(script) == "FOUND" { return true }
+        }
+        let safari = """
+        if application id "com.apple.Safari" is running then
+            tell application id "com.apple.Safari"
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        try
+                            set u to URL of t as text
+                            if \(condition) then return "FOUND"
+                        end try
+                    end repeat
+                end repeat
+            end tell
+        end if
+        return "MISS"
+        """
+        return runAppleScript(safari) == "FOUND"
     }
 
     // MARK: - Existing browser windows
