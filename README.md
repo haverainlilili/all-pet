@@ -4,6 +4,16 @@
 
 宠物会根据运行、等待、完成和失败状态切换动画；点击任务气泡可以回到对应会话。
 
+## 为什么同时看这么多平台？
+
+你现在真正用到的能力不是「某个模型」，而是 **harness（执行外壳）× 模型** 的组合。harness 决定模型看到什么上下文、能用哪些工具、什么时候重试或收尾——同一个模型套上不同的 harness，结果可以差很远：
+
+- 同一个 **Claude Sonnet 4.6**：在 Claude Code 里 SWE-bench Verified 约 71%，换成 Continue 外壳只剩约 52%。([TensorFeed](https://tensorfeed.ai/harnesses))
+- 同一个 **Claude Opus 4.5**：统一 SEAL 脚手架下 45.9%，放回自家 Claude Code 是 55.4%。([arXiv 2605.23950](https://arxiv.org/html/2605.23950))
+- 同一个 **Grok 4**：通用 SWE-agent 下 58.6%，换成 xAI 自家脚手架 72–75%。([arXiv 2605.23950](https://arxiv.org/html/2605.23950))
+
+规律很一致：**各家模型在自己的 harness 里最强**（系统提示、工具定义、上下文管理都围绕自家模型调过），换到别家外壳就掉分。所以「Claude 用 Claude Code、GPT 用 Codex、Grok 用 Grok」才是日常用法——这也是 AllPet 同时盯着 Codex、Claude Code、DSH、Grok 的原因。
+
 ## 快速开始
 
 要求：macOS 14+、Xcode Command Line Tools。
