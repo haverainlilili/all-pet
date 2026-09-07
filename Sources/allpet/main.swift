@@ -30,10 +30,13 @@ func printHelp() {
       ./allpet init            生成默认配置 (~/.config/all-pet/config.json)
       ./allpet status          打印四个平台(Codex/Claude Code/DSH/Grok)的一次快照
       ./allpet watch           持续监控，任务/工具/状态变化时打印
-      ./allpet pet list        列出发现的 Codex/热门项目宠物
-      ./allpet pet import PATH 导入 cc-haha / clawd-on-desk / LingChat 本地宠物
-      ./allpet self-test       检查四平台任务解析器与气泡模型
-      ./allpet help            显示本帮助
+      ./allpet pet list             列出已安装宠物与可安装的 GitHub 预设
+      ./allpet pet install 名称     从 GitHub 预设一键安装为默认宠物（cc-haha / clawd-on-desk / lingchat）
+      ./allpet pet install 仓库URL  从任意 GitHub 宠物仓库一键安装
+      ./allpet pet set 名称          在已安装宠物间切换（按显示名/ID）
+      ./allpet pet import PATH      导入 cc-haha / clawd-on-desk / LingChat 本地宠物
+      ./allpet self-test            检查四平台任务解析器与气泡模型
+      ./allpet help                 显示本帮助
     """)
 }
 
@@ -151,12 +154,76 @@ func cmdPetImport(_ path: String) {
 func cmdPetList() {
     let bundles = PetDiscovery.discover(home: home())
     if bundles.isEmpty {
-        print("未发现任何宠物。请把 pet.json 与其 spritesheetPath 指向的 PNG/WebP 图集放到 ~/.codex/pets/<id>/ 下。")
-        return
+        print("未发现已安装宠物。")
+    } else {
+        print("已安装宠物：")
+        for b in bundles {
+            print("  \(terminalSafe(b.manifest.id, maximumLength: 160))\t\(terminalSafe(b.manifest.displayName, maximumLength: 160))\t\(b.atlas.pixelWidth)x\(b.atlas.pixelHeight)\t\(terminalSafe(b.directoryURL.path))")
+        }
     }
-    for b in bundles {
-        print("\(terminalSafe(b.manifest.id, maximumLength: 160))\t\(terminalSafe(b.manifest.displayName, maximumLength: 160))\t\(b.atlas.pixelWidth)x\(b.atlas.pixelHeight)\t\(terminalSafe(b.directoryURL.path))")
+    print("\n可从 GitHub 一键安装的预设：")
+    for p in PetRegistry.presets {
+        print("  \(terminalSafe(p.id, maximumLength: 160))\t\(terminalSafe(p.name, maximumLength: 160))\t\(terminalSafe(p.repositoryURL, maximumLength: 160))")
     }
+    print("\n用法：")
+    print("  ./allpet pet install <预设ID 或 GitHub 仓库URL>")
+    print("  ./allpet pet set <显示名或ID>")
+    print("  ./allpet pet import <本地路径>")
+}
+
+func cmdPetSet(_ target: String) {
+    let bundles = PetDiscovery.discover(home: home())
+    let key = target.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    let matches = bundles.filter { b in
+        b.manifest.displayName.lowercased().contains(key)
+            || b.manifest.id.lowercased().contains(key)
+            || b.directoryURL.path.lowercased().contains(key)
+    }
+    guard let bundle = matches.first else {
+        print("❌ 未找到匹配的宠物：\(terminalSafe(target))")
+        print("   可执行 ./allpet pet list 查看已安装宠物。")
+        exit(EXIT_FAILURE)
+    }
+    do {
+        var config = loadConfig()
+        config.pet.bundlePath = bundle.directoryURL.path
+        try config.save(to: configURL())
+        print("✅ 已切换为默认宠物：\(terminalSafe(bundle.manifest.displayName, maximumLength: 160))")
+        print("   GUI 正在运行时请执行：./allpet restart")
+    } catch {
+        print("⚠️ 切换失败：\(terminalSafe(error.localizedDescription))")
+        exit(EXIT_FAILURE)
+    }
+}
+
+func cmdPetInstall(_ source: String) {
+    let expanded = source.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !expanded.isEmpty else {
+        print("❌ 请提供预设 ID 或 GitHub 仓库 URL（./allpet pet list 可查看预设）。")
+        exit(EXIT_FAILURE)
+    }
+    print("🐾 正在安装宠物：\(terminalSafe(expanded)) …")
+    let outcome: PetInstallOutcome
+    do {
+        outcome = try PetInstaller.install(source: expanded, home: home())
+    } catch {
+        print("❌ 安装失败：\(terminalSafe(error.localizedDescription))")
+        exit(EXIT_FAILURE)
+    }
+    do {
+        var config = loadConfig()
+        config.pet.bundlePath = outcome.bundle.directoryURL.path
+        try config.save(to: configURL())
+    } catch {
+        print("⚠️ 已安装，但无法设为默认宠物：\(terminalSafe(error.localizedDescription))")
+        print("   已保留路径：\(terminalSafe(outcome.bundle.directoryURL.path))")
+        exit(EXIT_FAILURE)
+    }
+    print("✅ 已安装并设为默认宠物：\(terminalSafe(outcome.bundle.manifest.displayName, maximumLength: 160))")
+    print("   来源：\(terminalSafe(outcome.repositoryURL, maximumLength: 160))")
+    print("   方式：\(terminalSafe(outcome.note))")
+    print("   授权：\(terminalSafe(outcome.sourceKind.licenseNotice))")
+    print("   GUI 正在运行时请执行：./allpet restart")
 }
 
 let args = Array(CommandLine.arguments.dropFirst())
@@ -170,6 +237,10 @@ case "pet":
         cmdPetList()
     } else if args.count > 2 && args[1] == "import" {
         cmdPetImport(args[2])
+    } else if args.count > 2 && args[1] == "install" {
+        cmdPetInstall(args[2])
+    } else if args.count > 2 && args[1] == "set" {
+        cmdPetSet(args[2])
     } else {
         printHelp()
     }

@@ -278,7 +278,7 @@ final class TaskTrayView: NSView {
             )
             let rect = NSRect(x: 4, y: y, width: bounds.width - 8, height: 58)
             drawPlatformBubble(bubble, in: rect, interactive: true)
-            hitRegions.append((rect, .openPlatforms))
+            hitRegions.append((rect, .task(task.id)))
             drawDismissButton(in: rect, target: .dismissTask(task.id))
             y += 65
         }

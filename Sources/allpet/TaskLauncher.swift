@@ -500,35 +500,56 @@ final class TaskLauncher: @unchecked Sendable {
     }
 
     private func isCodexDesktopThreadFocused(_ task: TrayTaskItem) -> Bool {
-        guard let sessionName = task.sessionName?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !sessionName.isEmpty else { return false }
+        guard let sessionName = task.sessionName.map({ normalizedAXText($0) }), !sessionName.isEmpty else { return false }
         guard let application = NSRunningApplication.runningApplications(withBundleIdentifier: "com.openai.codex")
                 .first(where: { $0.isActive }) else { return false }
         let root = AXUIElementCreateApplication(application.processIdentifier)
         guard let windows = axValue(root, attribute: kAXWindowsAttribute) as? [AXUIElement] else { return false }
         for window in windows {
-            guard (axValue(window, attribute: kAXMainAttribute) as? NSNumber)?.boolValue == true ||
-                  (axValue(window, attribute: kAXFocusedAttribute) as? NSNumber)?.boolValue == true else { continue }
+            let main = (axValue(window, attribute: kAXMainAttribute) as? NSNumber)?.boolValue == true
+            let focused = (axValue(window, attribute: kAXFocusedAttribute) as? NSNumber)?.boolValue == true
+            guard main || focused else { continue }
             var visited = 0
-            if codexElementShowsTitle(window, expected: sessionName, depth: 0, visited: &visited) { return true }
+            if codexMainHeaderShowsTitle(window, expected: sessionName, inNavigation: false, visited: &visited) {
+                return true
+            }
         }
         return false
     }
 
-    private func codexElementShowsTitle(_ element: AXUIElement, expected: String, depth: Int, visited: inout Int) -> Bool {
-        guard depth <= 30, visited < 8_000 else { return false }
+    /// 侧边栏（AXLandmarkNavigation）列出全部线程；主内容区里与「当前线程标题」一致的按钮才是正在查看的会话。
+    private func codexMainHeaderShowsTitle(
+        _ element: AXUIElement,
+        expected: String,
+        inNavigation: Bool,
+        visited: inout Int
+    ) -> Bool {
+        guard visited < 12_000 else { return false }
         visited += 1
-        if let role = axValue(element, attribute: kAXRoleAttribute) as? String,
-           role == kAXButtonRole as String,
+        let role = axValue(element, attribute: kAXRoleAttribute) as? String
+        let insideNavigation = inNavigation || role == "AXLandmarkNavigation"
+        if !insideNavigation, role == (kAXButtonRole as String),
            let title = axValue(element, attribute: kAXTitleAttribute) as? String,
-           title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") == expected {
+           normalizedAXText(title) == expected {
             return true
         }
         guard let children = axValue(element, attribute: kAXChildrenAttribute) as? [AXUIElement] else { return false }
-        for child in children where codexElementShowsTitle(child, expected: expected, depth: depth + 1, visited: &visited) {
+        for child in children where codexMainHeaderShowsTitle(
+            child, expected: expected, inNavigation: insideNavigation, visited: &visited) {
             return true
         }
         return false
+    }
+
+    private func normalizedAXText(_ value: String) -> String {
+        value.unicodeScalars.map { scalar -> String in
+            switch scalar.value {
+            case 0x00A0, 0x2007, 0x202F: " "
+            default: String(scalar)
+            }
+        }.joined()
+        .split(whereSeparator: { $0.isWhitespace })
+        .joined(separator: " ")
     }
 
     private func axValue(_ element: AXUIElement, attribute: String) -> CFTypeRef? {

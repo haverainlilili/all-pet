@@ -164,6 +164,23 @@ final class PetApp: NSObject, @unchecked Sendable {
         return out.isEmpty ? nil : out
     }
 
+    /// 从图集第 0 行第 0 列（idle 首帧）裁出小图，用作菜单缩略图。
+    private func petThumbnail(for bundle: PetBundle, maxDimension: CGFloat = 22) -> NSImage? {
+        guard let src = CGImageSourceCreateWithURL(bundle.spritesheetURL as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+        let atlas = bundle.atlas
+        let rect = CGRect(x: 0, y: 0, width: atlas.cellWidth, height: atlas.cellHeight)
+        guard let cropped = image.cropping(to: rect) else { return nil }
+        let scale = min(maxDimension / CGFloat(atlas.cellWidth), maxDimension / CGFloat(atlas.cellHeight))
+        let size = NSSize(width: CGFloat(atlas.cellWidth) * scale, height: CGFloat(atlas.cellHeight) * scale)
+        let result = NSImage(size: size)
+        result.lockFocus()
+        NSImage(cgImage: cropped, size: size).draw(in: NSRect(origin: .zero, size: size),
+            from: .zero, operation: .sourceOver, fraction: 1)
+        result.unlockFocus()
+        return result
+    }
+
     private func layoutMetrics(
         for bundle: PetBundle,
         traySize: NSSize? = nil
@@ -892,12 +909,17 @@ final class PetApp: NSObject, @unchecked Sendable {
             let item = NSMenuItem(title: bundle.manifest.displayName, action: #selector(selectPet(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = bundle.directoryURL.path
+            item.image = petThumbnail(for: bundle)
             let configured = config.pet.bundlePath.map { URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path }
             item.state = (bundle.directoryURL.standardizedFileURL.path == configured) ? .on : .off
             menu.addItem(item)
         }
         if menu.numberOfItems > 0 { menu.addItem(.separator()) }
-        let importItem = NSMenuItem(title: "导入热门项目宠物…", action: #selector(PetApp.importPetModel), keyEquivalent: "")
+        let installItem = NSMenuItem(title: "从 GitHub 安装宠物…", action: #selector(PetApp.installPetFromSource), keyEquivalent: "")
+        installItem.target = self
+        installItem.isEnabled = !petImportInProgress
+        menu.addItem(installItem)
+        let importItem = NSMenuItem(title: "导入本地宠物…", action: #selector(PetApp.importPetModel), keyEquivalent: "")
         importItem.target = self
         importItem.isEnabled = !petImportInProgress
         menu.addItem(importItem)
@@ -905,6 +927,64 @@ final class PetApp: NSObject, @unchecked Sendable {
         formats.isEnabled = false
         menu.addItem(formats)
         return menu
+    }
+
+    @objc private func installPetFromSource() {
+        guard !petImportInProgress else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "从 GitHub 安装宠物"
+        let presets = PetRegistry.presets.map { "• \($0.id) — \($0.repositoryURL)" }.joined(separator: "\n")
+        alert.informativeText = "输入预设 ID 或 GitHub 仓库 URL，回车即可克隆并设为默认宠物。\n\n可用预设：\n\(presets)"
+        alert.addButton(withTitle: "安装")
+        alert.addButton(withTitle: "取消")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))
+        field.placeholderString = "例如：clawd-on-desk 或 https://github.com/…/…"
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let source = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return }
+        runPetInstall(source: source)
+    }
+
+    private func runPetInstall(source: String) {
+        petImportInProgress = true
+        statusItem?.button?.title = "🐾 安装中…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = Result { try PetInstaller.install(source: source, home: self.home) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.petImportInProgress = false
+                self.statusItem?.button?.title = "🐾"
+                switch result {
+                case .success(let installed):
+                    do {
+                        try self.switchPet(to: installed.bundle.directoryURL)
+                    } catch {
+                        let alert = NSAlert(error: error)
+                        alert.messageText = "宠物已安装，但无法设为当前宠物"
+                        alert.informativeText = "安装包保留在：\(installed.bundle.directoryURL.path)\n\n\(error.localizedDescription)"
+                        alert.runModal()
+                        return
+                    }
+                    if let petsItem = self.statusItem?.menu?.items.first(where: { $0.title == "宠物" }) {
+                        petsItem.submenu = self.makePetsMenu()
+                    }
+                    let alert = NSAlert()
+                    alert.messageText = "已安装：\(installed.bundle.manifest.displayName)"
+                    alert.informativeText = "\(installed.note)\n\n授权提示：\(installed.sourceKind.licenseNotice)"
+                    alert.alertStyle = .informational
+                    alert.runModal()
+                case .failure(let error):
+                    let alert = NSAlert(error: error)
+                    alert.messageText = "宠物安装失败"
+                    alert.runModal()
+                }
+            }
+        }
     }
 
     @objc private func importPetModel() {

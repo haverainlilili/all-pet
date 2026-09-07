@@ -610,6 +610,37 @@ public enum AllPetSelfTest {
         }
         try? FileManager.default.removeItem(at: petAdapterFixture)
 
+        // PetRegistry：预设匹配与入口自动探测。
+        expect(PetRegistry.preset(matching: "cc-haha")?.id == "cc-haha", "Pet registry resolves preset by id")
+        expect(PetRegistry.preset(matching: "https://github.com/rullerzhou-afk/clawd-on-desk")?.id == "clawd-on-desk",
+               "Pet registry resolves preset by repository URL")
+        expect(PetRegistry.preset(matching: "lingchat")?.kind == .lingChat, "Pet registry resolves LingChat preset")
+        expect(PetRegistry.preset(matching: "totally-unknown-pet") == nil, "Pet registry rejects unknown preset")
+        let registryFixture = FileManager.default.temporaryDirectory
+            .appendingPathComponent("allpet-registry-\(UUID().uuidString)", isDirectory: true)
+        do {
+            for dir in ["themes/clawd", "themes/calico", "pets/demo"] {
+                try FileManager.default.createDirectory(at: registryFixture.appendingPathComponent(dir),
+                    withIntermediateDirectories: true)
+            }
+            try Data("{}".utf8).write(to: registryFixture.appendingPathComponent("themes/clawd/theme.json"))
+            try Data("{}".utf8).write(to: registryFixture.appendingPathComponent("themes/calico/theme.json"))
+            try Data("{}".utf8).write(to: registryFixture.appendingPathComponent("pets/demo/pet.json"))
+            try Data("name: demo".utf8).write(to: registryFixture.appendingPathComponent("settings.yml"))
+            let clawdEntry = PetRegistry.entrypoint(in: registryFixture, kind: .clawdOnDesk)
+            expect(clawdEntry?.path.contains("/themes/clawd/theme.json") == true,
+                   "Pet registry prefers canonical clawd theme entrypoint")
+            let codexEntry = PetRegistry.entrypoint(in: registryFixture, kind: .ccHaha)
+            expect(codexEntry?.path.contains("/pets/demo/pet.json") == true,
+                   "Pet registry prefers pet.json under pets/")
+            let lingEntry = PetRegistry.entrypoint(in: registryFixture, kind: .lingChat)
+            expect(lingEntry?.path.hasSuffix("/settings.yml") == true,
+                   "Pet registry finds LingChat settings.yml")
+        } catch {
+            expect(false, "Pet registry fixtures: \(error.localizedDescription)")
+        }
+        try? FileManager.default.removeItem(at: registryFixture)
+
         let bubble = PlatformStatus(
             platform: .dsh,
             phase: .running,

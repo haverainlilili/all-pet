@@ -18,6 +18,7 @@ public enum PetDiscovery {
             home.appendingPathComponent(".config/openpets/pets"),
             home.appendingPathComponent(".config/openpets/Pets"),
             home.appendingPathComponent(".config/all-pet/pets"),
+            home.appendingPathComponent(".config/all-pet/pet-sources"),
             home.appendingPathComponent(".dsh/pets"),
             claudeConfigRoot.appendingPathComponent("cc-haha/pets")
         ]
@@ -28,6 +29,8 @@ public enum PetDiscovery {
             for case let rel as String in enumerator {
                 let components = (rel as NSString).pathComponents
                 if components.contains(where: { $0.hasPrefix(".") }) { continue }
+                let lower = components.map { $0.lowercased() }
+                if lower.contains(where: { ["test", "tests", "fixtures", "fixture", "node_modules", "examples", "example"].contains($0) }) { continue }
                 if (rel as NSString).lastPathComponent == "pet.json" {
                     let dir = root.appendingPathComponent((rel as NSString).deletingLastPathComponent)
                     if let bundle = try? PetBundle.load(from: dir) {
