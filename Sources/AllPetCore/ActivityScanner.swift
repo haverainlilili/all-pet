@@ -4,6 +4,8 @@ import Foundation
 public struct ScanResult: Sendable {
     public var newestPath: String?
     public var newestMtime: Date?
+    public var newestSize: UInt64 = 0
+    public var newestPriority: Int = .min
     public var recentCount: Int = 0
 
     public init() {}
@@ -17,9 +19,19 @@ public enum ActivityScanner {
         roots: [String],
         isIncluded: (String) -> Bool,
         recentWindow: TimeInterval,
-        now: Date
+        now: Date,
+        selectionPriority: (String) -> Int = { _ in 0 },
+        priorityGrace: TimeInterval = 0
     ) -> ScanResult {
+        struct Candidate {
+            var path: String
+            var mtime: Date
+            var size: UInt64
+            var priority: Int
+        }
+
         var result = ScanResult()
+        var candidates: [Candidate] = []
         let fm = FileManager.default
 
         for root in roots {
@@ -42,15 +54,30 @@ public enum ActivityScanner {
                 guard isIncluded(path) else { continue }
                 guard let attrs = try? fm.attributesOfItem(atPath: path),
                       let mtime = attrs[.modificationDate] as? Date else { continue }
-
-                if result.newestMtime == nil || mtime > result.newestMtime! {
-                    result.newestMtime = mtime
-                    result.newestPath = path
-                }
+                let size = (attrs[.size] as? NSNumber)?.uint64Value ?? 0
+                candidates.append(Candidate(path: path, mtime: mtime, size: size, priority: selectionPriority(path)))
                 if now.timeIntervalSince(mtime) <= recentWindow {
                     result.recentCount += 1
                 }
             }
+        }
+
+        guard let globalNewest = candidates.map(\.mtime).max() else { return result }
+        let threshold = globalNewest.addingTimeInterval(-max(0, priorityGrace))
+        let selected = candidates
+            .filter { $0.mtime >= threshold }
+            .max { left, right in
+                if left.priority != right.priority { return left.priority < right.priority }
+                if left.mtime != right.mtime { return left.mtime < right.mtime }
+                if left.size != right.size { return left.size < right.size }
+                return left.path < right.path
+            }
+
+        if let selected {
+            result.newestPath = selected.path
+            result.newestMtime = selected.mtime
+            result.newestSize = selected.size
+            result.newestPriority = selected.priority
         }
         return result
     }
@@ -70,8 +97,13 @@ public enum ActivityScanner {
         let offset = size - readLen
         do {
             try handle.seek(toOffset: offset)
-            guard let data = try handle.read(upToCount: Int(readLen)) else { return "" }
-            return String(data: data, encoding: .utf8) ?? ""
+            guard var data = try handle.read(upToCount: Int(readLen)) else { return "" }
+            // 任意字节 offset 可能落在 UTF-8 多字节字符或 JSONL 行中间；丢弃首个残行并宽松解码。
+            if offset > 0 {
+                guard let newline = data.firstIndex(of: 0x0A) else { return "" }
+                data = Data(data[data.index(after: newline)...])
+            }
+            return String(decoding: data, as: UTF8.self)
         } catch {
             return ""
         }

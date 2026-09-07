@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+BUILD_DIR="$ROOT/.build"
+BINARY="$BUILD_DIR/release/allpet"
+CONFIG_DIR="$HOME/.config/all-pet"
+PID_FILE="$CONFIG_DIR/allpet.pid"
+LOG_FILE="$CONFIG_DIR/allpet.log"
+LOCK_FILE="$CONFIG_DIR/launcher.lock"
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/opt/homebrew/Caskroom/miniconda/base/bin:${PATH:-/usr/bin:/bin}"
+export SWIFTPM_MODULECACHE_OVERRIDE="${SWIFTPM_MODULECACHE_OVERRIDE:-$ROOT/.swiftpm/module-cache}"
+mkdir -p "$CONFIG_DIR" "$SWIFTPM_MODULECACHE_OVERRIDE"
+
+needs_build() {
+  [[ ! -x "$BINARY" ]] && return 0
+  [[ "$ROOT/Package.swift" -nt "$BINARY" ]] && return 0
+  while IFS= read -r source; do
+    [[ "$source" -nt "$BINARY" ]] && return 0
+  done < <(/usr/bin/find "$ROOT/Sources" -type f -name '*.swift' -print)
+  return 1
+}
+
+build_if_needed() {
+  if needs_build; then
+    echo "🐾 正在构建 AllPet…"
+    (cd "$ROOT" && swift build -c release --scratch-path "$BUILD_DIR" --disable-sandbox)
+  fi
+}
+
+running_pid() {
+  [[ -f "$PID_FILE" ]] || return 1
+  local pid command
+  pid="$(tr -dc '0-9' < "$PID_FILE")"
+  [[ -n "$pid" ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+  [[ "$command" == *"$BINARY"* ]] || return 1
+  printf '%s' "$pid"
+}
+
+stop_pet() {
+  local pid alive=1
+  if ! pid="$(running_pid)"; then
+    rm -f "$PID_FILE"
+    echo "🐾 AllPet 当前未运行"
+    return 0
+  fi
+
+  kill "$pid" 2>/dev/null || true
+  for _ in {1..50}; do
+    if ! kill -0 "$pid" 2>/dev/null; then alive=0; break; fi
+    sleep 0.1
+  done
+  if (( alive )); then
+    kill -KILL "$pid" 2>/dev/null || true
+    for _ in {1..20}; do
+      if ! kill -0 "$pid" 2>/dev/null; then alive=0; break; fi
+      sleep 0.1
+    done
+  fi
+
+  if (( alive )); then
+    echo "AllPet 进程 $pid 未能停止；保留 PID 文件以避免重复启动。" >&2
+    return 1
+  fi
+  rm -f "$PID_FILE"
+  echo "🐾 AllPet 已停止"
+}
+
+start_pet() {
+  local pid tmp_pid
+  if pid="$(running_pid)"; then
+    echo "🐾 AllPet 已在运行（PID ${pid}）"
+    return 0
+  fi
+
+  rm -f "$PID_FILE"
+  nohup "$BINARY" gui >"$LOG_FILE" 2>&1 &
+  pid=$!
+  tmp_pid="$PID_FILE.tmp.$$"
+  printf '%s\n' "$pid" > "$tmp_pid"
+  mv "$tmp_pid" "$PID_FILE"
+  sleep 0.8
+
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "🐾 AllPet 已启动（PID ${pid}）"
+    echo "   日志：$LOG_FILE"
+  else
+    rm -f "$PID_FILE"
+    echo "AllPet 启动失败，日志如下：" >&2
+    tail -40 "$LOG_FILE" >&2 || true
+    return 1
+  fi
+}
+
+command_name="${1:-}"
+if [[ "$command_name" == "logs" ]]; then
+  touch "$LOG_FILE"
+  exec tail -f "$LOG_FILE"
+fi
+
+# macOS lockf 使用内核 advisory lock，原子串行化 Swift 构建和 GUI 生命周期操作。
+if [[ "${ALLPET_BUILD_ONLY:-0}" == "1" ]]; then
+  build_if_needed
+  exit 0
+fi
+
+if [[ "${ALLPET_LAUNCHER_LOCK_HELD:-0}" != "1" ]]; then
+  case "$command_name" in
+    ""|gui|run|stop|restart)
+      exec /usr/bin/lockf -t 180 "$LOCK_FILE" \
+        /usr/bin/env ALLPET_LAUNCHER_LOCK_HELD=1 "$ROOT/allpet" "$@"
+      ;;
+    *)
+      /usr/bin/lockf -t 180 "$LOCK_FILE" \
+        /usr/bin/env ALLPET_LAUNCHER_LOCK_HELD=1 ALLPET_BUILD_ONLY=1 "$ROOT/allpet" "$@"
+      exec "$BINARY" "$@"
+      ;;
+  esac
+fi
+
+case "$command_name" in
+  stop)
+    stop_pet
+    ;;
+  restart)
+    stop_pet
+    build_if_needed
+    start_pet
+    ;;
+  ""|gui|run)
+    build_if_needed
+    start_pet
+    ;;
+  *)
+    build_if_needed
+    exec "$BINARY" "$@"
+    ;;
+esac

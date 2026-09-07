@@ -20,10 +20,18 @@ public struct PetManifest: Codable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        displayName = try c.decodeIfPresent(String.self, forKey: .displayName) ?? id
-        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        id = Self.cleaned(try c.decode(String.self, forKey: .id), limit: 128)
+        displayName = Self.cleaned(try c.decodeIfPresent(String.self, forKey: .displayName) ?? id, limit: 160)
+        description = Self.cleaned(try c.decodeIfPresent(String.self, forKey: .description) ?? "", limit: 1_024)
         spritesheetPath = try c.decodeIfPresent(String.self, forKey: .spritesheetPath) ?? "spritesheet.webp"
+    }
+
+    private static func cleaned(_ input: String, limit: Int) -> String {
+        let scalars = input.unicodeScalars.map { scalar -> String in
+            let code = scalar.value
+            return (code < 0x20 || (0x7f...0x9f).contains(code)) ? " " : String(scalar)
+        }.joined()
+        return String(scalars.prefix(limit)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

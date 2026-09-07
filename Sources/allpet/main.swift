@@ -1,8 +1,18 @@
 import Foundation
+import Darwin
 import AllPetCore
 
 func home() -> URL { FileManager.default.homeDirectoryForCurrentUser }
 func configURL() -> URL { AllPetConfiguration.configURL(home: home()) }
+
+func terminalSafe(_ value: String, maximumLength: Int = 1_024) -> String {
+    let filtered = value.unicodeScalars.map { scalar -> Character in
+        let code = scalar.value
+        return (code < 0x20 || (0x7f...0x9f).contains(code)) ? " " : Character(String(scalar))
+    }
+    return String(String(filtered).prefix(maximumLength))
+        .replacingOccurrences(of: "  +", with: " ", options: .regularExpression)
+}
 
 func loadConfig() -> AllPetConfiguration {
     AllPetConfiguration.load(from: configURL(), home: home())
@@ -13,13 +23,17 @@ func printHelp() {
     allpet — Codex 风格的多平台桌面宠物
 
     用法:
-      allpet                   启动桌面宠物 (GUI)
-      allpet gui               同 `allpet`
-      allpet init              生成默认配置 (~/.config/all-pet/config.json)
-      allpet status            打印四个平台(Codex/Claude Code/DSH/Grok)的一次快照
-      allpet watch             持续监控，状态变化时打印
-      allpet pet list          列出发现的 Codex 宠物
-      allpet help              显示本帮助
+      ./allpet                 自动构建并在后台启动桌面宠物
+      ./allpet stop            停止桌面宠物
+      ./allpet restart         重新构建并重启桌面宠物
+      ./allpet logs            持续查看 GUI 日志
+      ./allpet init            生成默认配置 (~/.config/all-pet/config.json)
+      ./allpet status          打印四个平台(Codex/Claude Code/DSH/Grok)的一次快照
+      ./allpet watch           持续监控，任务/工具/状态变化时打印
+      ./allpet pet list        列出发现的 Codex/热门项目宠物
+      ./allpet pet import PATH 导入 cc-haha / clawd-on-desk / LingChat 本地宠物
+      ./allpet self-test       检查四平台任务解析器与气泡模型
+      ./allpet help            显示本帮助
     """)
 }
 
@@ -41,8 +55,12 @@ func printSnapshot(_ s: PetSnapshot) {
     for p in s.platforms {
         let name = p.platform.label.padding(toLength: 12, withPad: " ", startingAt: 0)
         let phase = p.phase.label.padding(toLength: 5, withPad: " ", startingAt: 0)
-        let detail = p.detail.isEmpty ? "-" : p.detail
+        let detail = terminalSafe(p.detail.isEmpty ? "-" : p.detail)
         print("  \(name) \(phase)  \(detail)  · \(p.activeSessions) 会话 · \(formatAge(p.lastActivityAt, now: s.observedAt))")
+        let bubbleDetails = p.bubbleDetails.filter { $0 != detail }
+        if !bubbleDetails.isEmpty {
+            print("                  ↳ \(terminalSafe(bubbleDetails.joined(separator: " · ")))")
+        }
     }
 }
 
@@ -74,7 +92,9 @@ func cmdWatch() {
     print("AllPet watch 启动（\(intervalMs)ms 轮询，Ctrl-C 退出）")
     while true {
         let s = monitor.snapshot()
-        let key = s.summary + "|" + s.platforms.map { "\($0.platform.rawValue)=\($0.phase.rawValue)" }.joined(separator: "|")
+        let key = s.summary + "|" + s.platforms.map {
+            "\($0.platform.rawValue)=\($0.phase.rawValue)|\($0.task?.action ?? "")|\($0.task?.sessionName ?? "")|\($0.task?.progressLabel ?? "")"
+        }.joined(separator: "|")
         if key != lastKey {
             printSnapshot(s)
             lastKey = key
@@ -83,14 +103,59 @@ func cmdWatch() {
     }
 }
 
+
+func cmdSelfTest() {
+    let report = AllPetSelfTest.run()
+    if report.passed {
+        print("✅ AllPet self-test 通过（\(report.checks) 项）")
+    } else {
+        print("❌ AllPet self-test 失败（\(report.failures.count)/\(report.checks) 项）")
+        for failure in report.failures { print("  - \(failure)") }
+        exit(EXIT_FAILURE)
+    }
+}
+
+func cmdPetImport(_ path: String) {
+    let expanded = (path as NSString).expandingTildeInPath
+    let url: URL
+    if expanded.hasPrefix("/") {
+        url = URL(fileURLWithPath: expanded)
+    } else {
+        url = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+            .appendingPathComponent(expanded)
+    }
+    let result: PetModelImportResult
+    do {
+        result = try PetModelImporter.importModel(from: url, home: home())
+    } catch {
+        print("❌ 导入失败：\(terminalSafe(error.localizedDescription))")
+        exit(EXIT_FAILURE)
+    }
+    do {
+        var config = loadConfig()
+        config.pet.bundlePath = result.bundle.directoryURL.path
+        try config.save(to: configURL())
+    } catch {
+        print("⚠️ 已导入，但无法设为默认宠物：\(terminalSafe(error.localizedDescription))")
+        print("   已保留路径：\(terminalSafe(result.bundle.directoryURL.path))")
+        exit(EXIT_FAILURE)
+    }
+    print("✅ 已导入并设为默认宠物：\(terminalSafe(result.bundle.manifest.displayName, maximumLength: 160))")
+    print("   来源格式：\(terminalSafe(result.sourceKind.label, maximumLength: 160))")
+    print("   路径：\(terminalSafe(result.bundle.directoryURL.path))")
+    print("   方式：\(terminalSafe(result.note))")
+    print("   授权：\(terminalSafe(result.sourceKind.licenseNotice))")
+    print("   GUI 正在运行时请执行：./allpet restart")
+}
+
 func cmdPetList() {
     let bundles = PetDiscovery.discover(home: home())
     if bundles.isEmpty {
-        print("未发现任何宠物。请把 pet.json + spritesheet.webp 放到 ~/.codex/pets/<id>/ 下。")
+        print("未发现任何宠物。请把 pet.json 与其 spritesheetPath 指向的 PNG/WebP 图集放到 ~/.codex/pets/<id>/ 下。")
         return
     }
     for b in bundles {
-        print("\(b.manifest.id)\t\(b.manifest.displayName)\t\(b.atlas.pixelWidth)x\(b.atlas.pixelHeight)\t\(b.directoryURL.path)")
+        print("\(terminalSafe(b.manifest.id, maximumLength: 160))\t\(terminalSafe(b.manifest.displayName, maximumLength: 160))\t\(b.atlas.pixelWidth)x\(b.atlas.pixelHeight)\t\(terminalSafe(b.directoryURL.path))")
     }
 }
 
@@ -99,8 +164,15 @@ switch args.first {
 case "init": cmdInit()
 case "status": cmdStatus()
 case "watch": cmdWatch()
+case "self-test": cmdSelfTest()
 case "pet":
-    if args.count > 1 && args[1] == "list" { cmdPetList() } else { printHelp() }
+    if args.count > 1 && args[1] == "list" {
+        cmdPetList()
+    } else if args.count > 2 && args[1] == "import" {
+        cmdPetImport(args[2])
+    } else {
+        printHelp()
+    }
 case "gui", "run": runGUI()
 case "help", "--help", "-h": printHelp()
 case nil: runGUI()

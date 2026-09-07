@@ -1,7 +1,7 @@
 {
   "pet": {
     "enabled": true,
-    "scale": 0.42,
+    "scale": 0.5833333333,
     "anchor": "bottom-right",
     "bundlePath": null
   },

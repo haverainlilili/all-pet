@@ -22,7 +22,8 @@ public struct PetDisplayConfig: Codable, Sendable {
     public var anchor: String
     public var bundlePath: String?
 
-    public init(enabled: Bool = true, scale: Double = 0.42, anchor: String = "bottom-right", bundlePath: String? = nil) {
+    /// Codex 原生默认宽度为 112px；精灵单帧宽度为 192px。
+    public init(enabled: Bool = true, scale: Double = 112.0 / 192.0, anchor: String = "bottom-right", bundlePath: String? = nil) {
         self.enabled = enabled
         self.scale = scale
         self.anchor = anchor

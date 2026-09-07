@@ -17,4 +17,22 @@ public enum PhaseClassifier {
         }
         return .idle
     }
+
+    /// 活跃日志事件只能覆盖 activeWindow；完成/失败/等待可在 waitingWindow 内保留。
+    public static func resolved(
+        inferred: AgentPhase,
+        parsed: AgentPhase?,
+        age: TimeInterval,
+        config: WatchConfig
+    ) -> AgentPhase {
+        guard let parsed else { return inferred }
+        switch parsed {
+        case .running, .thinking:
+            return age <= config.activeWindowSeconds ? parsed : inferred
+        case .waiting, .done, .failed:
+            return age <= config.waitingWindowSeconds ? parsed : inferred
+        case .idle:
+            return .idle
+        }
+    }
 }

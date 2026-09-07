@@ -4,18 +4,30 @@ import Foundation
 public enum PetDiscovery {
 
     public static func discover(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [PetBundle] {
+        let claudeConfigRoot: URL = {
+            guard let configured = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !configured.isEmpty else {
+                return home.appendingPathComponent(".claude", isDirectory: true)
+            }
+            if configured == "~" { return home }
+            if configured.hasPrefix("~/") { return home.appendingPathComponent(String(configured.dropFirst(2)), isDirectory: true) }
+            return URL(fileURLWithPath: configured, isDirectory: true)
+        }()
         let roots: [URL] = [
             home.appendingPathComponent(".codex/pets"),
             home.appendingPathComponent(".local/share/openpets/pets"),
             home.appendingPathComponent(".config/openpets/pets"),
             home.appendingPathComponent(".config/openpets/Pets"),
-            home.appendingPathComponent(".dsh/pets")
+            home.appendingPathComponent(".config/all-pet/pets"),
+            home.appendingPathComponent(".dsh/pets"),
+            claudeConfigRoot.appendingPathComponent("cc-haha/pets")
         ]
 
         var bundles: [PetBundle] = []
         for root in roots {
             guard let enumerator = FileManager.default.enumerator(atPath: root.path) else { continue }
             for case let rel as String in enumerator {
+                let components = (rel as NSString).pathComponents
+                if components.contains(where: { $0.hasPrefix(".") }) { continue }
                 if (rel as NSString).lastPathComponent == "pet.json" {
                     let dir = root.appendingPathComponent((rel as NSString).deletingLastPathComponent)
                     if let bundle = try? PetBundle.load(from: dir) {

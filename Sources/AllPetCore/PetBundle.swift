@@ -6,6 +6,8 @@ public enum PetError: Error, LocalizedError {
     case missingSpritesheet(URL)
     case invalidSpritesheet(URL)
     case invalidAtlasDimensions(width: Int, height: Int)
+    case unsafeBundlePath(URL)
+    case bundleResourceTooLarge(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -13,6 +15,8 @@ public enum PetError: Error, LocalizedError {
         case .missingSpritesheet(let url): "缺少精灵图：\(url.path)"
         case .invalidSpritesheet(let url): "无法读取精灵图：\(url.path)"
         case .invalidAtlasDimensions(let w, let h): "精灵图尺寸 \(w)x\(h) 无法整除为 8 列 × 9/11 行图集"
+        case .unsafeBundlePath(let url): "宠物包包含不安全路径或符号链接：\(url.path)"
+        case .bundleResourceTooLarge(let url): "宠物包资源超出安全限制：\(url.path)"
         }
     }
 }
@@ -33,19 +37,53 @@ public struct PetBundle: Sendable {
     }
 
     public static func load(from directoryURL: URL) throws -> PetBundle {
-        let manifestURL = directoryURL.appendingPathComponent("pet.json")
-        guard FileManager.default.fileExists(atPath: manifestURL.path) else {
-            throw PetError.missingManifest(manifestURL)
+        let directory = directoryURL.standardizedFileURL
+        let directoryValues = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard directoryValues.isDirectory == true, directoryValues.isSymbolicLink != true,
+              directory.resolvingSymlinksInPath().path == directory.path else {
+            throw PetError.unsafeBundlePath(directory)
         }
-        let manifest = try JSONDecoder().decode(PetManifest.self, from: Data(contentsOf: manifestURL))
+        let manifestURL = directory.appendingPathComponent("pet.json")
+        guard FileManager.default.fileExists(atPath: manifestURL.path) else { throw PetError.missingManifest(manifestURL) }
+        let manifestValues = try manifestURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+        guard manifestValues.isRegularFile == true, manifestValues.isSymbolicLink != true else { throw PetError.unsafeBundlePath(manifestURL) }
+        guard (manifestValues.fileSize ?? 0) <= 262_144 else { throw PetError.bundleResourceTooLarge(manifestURL) }
+        let manifestData = try Data(contentsOf: manifestURL, options: [.mappedIfSafe])
+        let manifest: PetManifest
+        if var object = try JSONSerialization.jsonObject(with: manifestData) as? [String: Any],
+           (object["id"] as? String)?.isEmpty != false {
+            object["id"] = directory.lastPathComponent
+            manifest = try JSONDecoder().decode(PetManifest.self, from: JSONSerialization.data(withJSONObject: object))
+        } else {
+            manifest = try JSONDecoder().decode(PetManifest.self, from: manifestData)
+        }
 
-        let spritesheetURL = directoryURL.appendingPathComponent(manifest.spritesheetPath)
-        guard FileManager.default.fileExists(atPath: spritesheetURL.path) else {
-            throw PetError.missingSpritesheet(spritesheetURL)
+        guard !manifest.id.isEmpty else { throw PetError.unsafeBundlePath(manifestURL) }
+        let relative = manifest.spritesheetPath
+        guard !relative.isEmpty, !relative.hasPrefix("/"), !relative.contains("\\") else {
+            throw PetError.unsafeBundlePath(URL(fileURLWithPath: relative))
         }
+        let parts = relative.split(separator: "/", omittingEmptySubsequences: false)
+        guard !parts.contains(".."), !parts.contains("."), !parts.contains("") else {
+            throw PetError.unsafeBundlePath(URL(fileURLWithPath: relative))
+        }
+        var spritesheetURL = directory
+        for (index, part) in parts.enumerated() {
+            spritesheetURL.appendPathComponent(String(part), isDirectory: index < parts.count - 1)
+            let values = try spritesheetURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
+            guard values.isSymbolicLink != true else { throw PetError.unsafeBundlePath(spritesheetURL) }
+            if index < parts.count - 1 {
+                guard values.isDirectory == true else { throw PetError.missingSpritesheet(spritesheetURL) }
+            } else {
+                guard values.isRegularFile == true else { throw PetError.missingSpritesheet(spritesheetURL) }
+                guard (values.fileSize ?? 0) <= 128 * 1_024 * 1_024 else { throw PetError.bundleResourceTooLarge(spritesheetURL) }
+            }
+        }
+        guard spritesheetURL.resolvingSymlinksInPath().path == spritesheetURL.path,
+              spritesheetURL.path.hasPrefix(directory.path + "/") else { throw PetError.unsafeBundlePath(spritesheetURL) }
         let atlas = try readAtlas(from: spritesheetURL)
 
-        return PetBundle(directoryURL: directoryURL, manifest: manifest, spritesheetURL: spritesheetURL, atlas: atlas)
+        return PetBundle(directoryURL: directory, manifest: manifest, spritesheetURL: spritesheetURL, atlas: atlas)
     }
 
     private static func readAtlas(from url: URL) throws -> PetAtlas {
@@ -56,6 +94,11 @@ public struct PetBundle: Sendable {
             let height = props[kCGImagePropertyPixelHeight] as? Int
         else {
             throw PetError.invalidSpritesheet(url)
+        }
+
+        let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
+        guard !overflow, width > 0, height > 0, width <= 16_384, height <= 16_384, pixels <= 40_000_000 else {
+            throw PetError.bundleResourceTooLarge(url)
         }
 
         let columns = PetAtlas.codexColumns
