@@ -1,6 +1,6 @@
 # AllPet 🐾
 
-一只运行在 macOS 桌面的 AI 编码宠物，同时查看 **Codex、Claude Code / Desktop、DeepSeek Harness（DSH）和 Grok** 的任务状态。
+一只 AI 编码桌面宠物（GUI 仅 macOS），同时查看 **Codex、Claude Code / Desktop、DeepSeek Harness（DSH）和 Grok** 的任务状态。核心监控与 `status`/`watch` 等 CLI 支持 macOS / Linux / Windows。
 
 宠物会根据运行、等待、完成和失败状态切换动画；点击任务气泡可以回到对应会话。
 
@@ -16,7 +16,7 @@
 
 ## 快速开始
 
-要求：macOS 14+、Xcode Command Line Tools。
+要求：GUI 需 macOS 14+、Xcode Command Line Tools；`status`/`watch`/`help`/`pet list` 等 CLI 可在 Linux（Swift 5.10+）与 Windows 上构建运行（Linux 已用 Docker `swift:latest` 镜像验证）。
 
 ```bash
 git clone git@github.com:haverainlilili/all-pet.git
