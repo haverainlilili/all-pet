@@ -1,6 +1,10 @@
-import AppKit
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
+#if canImport(ImageIO)
 import ImageIO
+#endif
 
 public enum PetModelSourceKind: String, Codable, Sendable {
     case codexAtlas = "codex-atlas"
@@ -63,6 +67,7 @@ public enum PetModelImportError: Error, LocalizedError {
 }
 
 /// 只读取用户明确选择的本地素材，不下载、内置或重新分发第三方宠物。
+#if os(macOS)
 public enum PetModelImporter {
     private static let columns = 8, rows = 9, cellWidth = 192, cellHeight = 208
     private static let maxManifest = 262_144, maxAsset = 128 * 1_024 * 1_024, maxPixels = 40_000_000
@@ -527,3 +532,10 @@ public enum PetModelImporter {
         return root.appendingPathComponent("\(id)-\(UUID().uuidString.lowercased())", isDirectory: true)
     }
 }
+#else
+public enum PetModelImporter {
+    public static func importModel(from inputURL: URL, home: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> PetModelImportResult {
+        throw PetModelImportError.installFailed("当前平台暂不支持导入本地宠物")
+    }
+}
+#endif

@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ApplicationServices
 import CoreGraphics
@@ -1552,3 +1553,4 @@ final class TaskLauncher: @unchecked Sendable {
 
 
 }
+#endif

@@ -1,6 +1,10 @@
 import Foundation
+#if canImport(AppKit)
 import AppKit
+#endif
+#if canImport(ImageIO)
 import ImageIO
+#endif
 
 public struct AllPetSelfTestReport: Sendable {
     public var checks: Int
@@ -10,6 +14,7 @@ public struct AllPetSelfTestReport: Sendable {
 }
 
 /// 无需 XCTest 的内建解析器检查；适配仅安装 Command Line Tools 的 macOS。
+#if os(macOS)
 public enum AllPetSelfTest {
     public static func run() -> AllPetSelfTestReport {
         var checks = 0
@@ -656,3 +661,10 @@ public enum AllPetSelfTest {
         return AllPetSelfTestReport(checks: checks, failures: failures)
     }
 }
+#else
+public enum AllPetSelfTest {
+    public static func run() -> AllPetSelfTestReport {
+        AllPetSelfTestReport(checks: 0, failures: ["self-test 仅支持 macOS"])
+    }
+}
+#endif

@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 
 struct DSHDecodedTranscript {
@@ -286,7 +290,11 @@ final class DSHTranscriptDecoder: @unchecked Sendable {
     ) {
         if process.isRunning { process.terminate() }
         if terminated.wait(timeout: .now() + 0.5) == .timedOut, process.isRunning {
-            Darwin.kill(process.processIdentifier, SIGKILL)
+            #if os(macOS) || os(Linux)
+            kill(process.processIdentifier, SIGKILL)
+            #else
+            process.terminate()
+            #endif
             _ = terminated.wait(timeout: .now() + 1)
         }
         try? handle.close()

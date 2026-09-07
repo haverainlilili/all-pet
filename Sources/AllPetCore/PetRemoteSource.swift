@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// 远程宠物源：无需 git clone，直接下载 `pet.json` + 精灵图即可安装的社区目录。
 public enum RemotePetSource: String, CaseIterable, Sendable {

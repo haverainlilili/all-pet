@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 
 /// 菜单栏「宠物」子菜单中单个宠物的自定义行视图：缩略图 + 名称 + 右侧删除按钮。
@@ -130,3 +131,4 @@ final class PetMenuItemView: NSView {
         )
     }
 }
+#endif

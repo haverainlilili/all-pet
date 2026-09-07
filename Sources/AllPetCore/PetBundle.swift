@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(ImageIO)
 import ImageIO
+#endif
 
 public enum PetError: Error, LocalizedError {
     case missingManifest(URL)
@@ -87,14 +89,26 @@ public struct PetBundle: Sendable {
     }
 
     private static func readAtlas(from url: URL) throws -> PetAtlas {
+        let width: Int
+        let height: Int
+        #if canImport(ImageIO)
         guard
             let source = CGImageSourceCreateWithURL(url as CFURL, nil),
             let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-            let width = props[kCGImagePropertyPixelWidth] as? Int,
-            let height = props[kCGImagePropertyPixelHeight] as? Int
+            let w = props[kCGImagePropertyPixelWidth] as? Int,
+            let h = props[kCGImagePropertyPixelHeight] as? Int
         else {
             throw PetError.invalidSpritesheet(url)
         }
+        width = w
+        height = h
+        #else
+        guard let dims = ImageDimensions.read(at: url) else {
+            throw PetError.invalidSpritesheet(url)
+        }
+        width = dims.width
+        height = dims.height
+        #endif
 
         let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
         guard !overflow, width > 0, height > 0, width <= 16_384, height <= 16_384, pixels <= 40_000_000 else {

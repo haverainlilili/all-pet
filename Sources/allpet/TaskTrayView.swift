@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import AllPetCore
 
@@ -809,3 +810,4 @@ final class TaskTrayView: NSView {
         )
     }
 }
+#endif

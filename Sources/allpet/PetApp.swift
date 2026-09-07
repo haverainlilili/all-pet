@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import ImageIO
 import AllPetCore
@@ -1243,3 +1244,4 @@ func runGUI() {
     let petApp = PetApp(config: config, home: home)
     petApp.run()
 }
+#endif

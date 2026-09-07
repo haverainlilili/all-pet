@@ -1,4 +1,6 @@
+#if canImport(Darwin)
 import Darwin
+#endif
 import Foundation
 
 /// A terminal tab binding that remains valid after its agent child exits, while its login shell survives.
@@ -14,6 +16,7 @@ public struct TerminalBinding: Codable, Sendable, Equatable {
     }
 }
 
+#if os(macOS)
 public enum TerminalBindingResolver {
     public static func binding(forAgentProcessID processID: Int32) -> TerminalBinding? {
         guard let agentTTY = tty(for: processID) else { return nil }
@@ -81,3 +84,4 @@ public enum TerminalBindingResolver {
         tty.hasPrefix("/dev/") ? tty : "/dev/\(tty)"
     }
 }
+#endif

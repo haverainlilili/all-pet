@@ -1,5 +1,11 @@
 import Foundation
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(CRT)
+import CRT
+#endif
 import AllPetCore
 
 func home() -> URL { FileManager.default.homeDirectoryForCurrentUser }
@@ -22,11 +28,13 @@ func printHelp() {
     print("""
     allpet — Codex 风格的多平台桌面宠物
 
+    桌面宠物 GUI 仅支持 macOS；status/watch 等 CLI 支持 macOS / Linux / Windows。
+
     用法:
-      ./allpet                 自动构建并在后台启动桌面宠物
-      ./allpet stop            停止桌面宠物
-      ./allpet restart         重新构建并重启桌面宠物
-      ./allpet logs            持续查看 GUI 日志
+      ./allpet                 构建并在后台启动桌面宠物（仅 macOS）
+      ./allpet stop            停止桌面宠物（仅 macOS）
+      ./allpet restart         重新构建并重启桌面宠物（仅 macOS）
+      ./allpet logs            持续查看 GUI 日志（仅 macOS）
       ./allpet init            生成默认配置 (~/.config/all-pet/config.json)
       ./allpet status          打印四个平台(Codex/Claude Code/DSH/Grok)的一次快照
       ./allpet watch           持续监控，任务/工具/状态变化时打印
@@ -248,8 +256,19 @@ case "pet":
     } else {
         printHelp()
     }
-case "gui", "run": runGUI()
+case "gui", "run":
+    #if os(macOS)
+    runGUI()
+    #else
+    fputs("当前平台暂不支持 GUI（仅 macOS）\n", stderr)
+    exit(EXIT_FAILURE)
+    #endif
 case "help", "--help", "-h": printHelp()
-case nil: runGUI()
+case nil:
+    #if os(macOS)
+    runGUI()
+    #else
+    printHelp()
+    #endif
 default: printHelp()
 }

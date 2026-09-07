@@ -1,4 +1,6 @@
+#if canImport(Darwin)
 import Darwin
+#endif
 import Foundation
 
 struct GrokTerminalTarget: Sendable, Equatable {
@@ -6,6 +8,7 @@ struct GrokTerminalTarget: Sendable, Equatable {
     var binding: TerminalBinding
 }
 
+#if os(macOS)
 final class GrokTerminalTargetResolver: @unchecked Sendable {
     private let home: URL
     private let lock = NSLock()
@@ -52,3 +55,9 @@ final class GrokTerminalTargetResolver: @unchecked Sendable {
             && name.contains("-macos-")
     }
 }
+#else
+final class GrokTerminalTargetResolver: @unchecked Sendable {
+    init(home: URL = FileManager.default.homeDirectoryForCurrentUser) {}
+    func resolve(originalPID: Int32?, activePID: Int32?) -> GrokTerminalTarget? { nil }
+}
+#endif
