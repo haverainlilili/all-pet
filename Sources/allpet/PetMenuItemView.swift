@@ -132,26 +132,34 @@ final class PetMenuItemView: NSView {
     }
 }
 
-/// 菜单栏「宠物」子菜单中「未安装的默认宠物」行视图：下载图标 + 名称 + 右侧「下载」提示。
+/// 菜单栏「宠物」子菜单中「未安装的默认宠物」行视图：缩略图 + 名称 + 右侧「下载」提示。
 /// 点击整行即可自动下载并设为当前宠物；无需进入二级菜单或手动输入命令。
 final class PetMenuDownloadItemView: NSView {
     var onDownload: (() -> Void)?
 
     private let title: String
     private let slug: String
+    private var thumbnail: NSImage?
 
     private var trackingArea: NSTrackingArea?
     private var isHighlighted = false {
         didSet { if isHighlighted != oldValue { needsDisplay = true } }
     }
 
-    init(title: String, slug: String) {
+    init(thumbnail: NSImage?, title: String, slug: String) {
+        self.thumbnail = thumbnail
         self.title = title
         self.slug = slug
         super.init(frame: NSRect(x: 0, y: 0, width: 288, height: 26))
     }
 
     required init?(coder: NSCoder) { nil }
+
+    /// 缩略图按需异步加载完成后回填；加载前显示下载图标占位。
+    func setThumbnail(_ image: NSImage?) {
+        thumbnail = image
+        needsDisplay = true
+    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -189,19 +197,24 @@ final class PetMenuDownloadItemView: NSView {
             ? .selectedMenuItemTextColor.withAlphaComponent(0.72)
             : .secondaryLabelColor
 
-        // 下载图标
-        let iconRect = NSRect(x: 8, y: (bounds.height - 16) / 2, width: 16, height: 16)
-        ("↓" as NSString).draw(
-            with: iconRect,
-            options: [.usesLineFragmentOrigin],
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
-                .foregroundColor: textColor
-            ]
-        )
+        // 缩略图（未加载完成前用下载图标占位）
+        if let thumbnail {
+            let thumbRect = NSRect(x: 8, y: (bounds.height - 20) / 2, width: 20, height: 20)
+            thumbnail.draw(in: thumbRect, from: .zero, operation: .sourceOver, fraction: 1)
+        } else {
+            let iconRect = NSRect(x: 8, y: (bounds.height - 16) / 2, width: 16, height: 16)
+            ("↓" as NSString).draw(
+                with: iconRect,
+                options: [.usesLineFragmentOrigin],
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+                    .foregroundColor: textColor
+                ]
+            )
+        }
 
         // 名称
-        let titleRect = NSRect(x: 28, y: 4, width: 150, height: 18)
+        let titleRect = NSRect(x: 32, y: 4, width: 142, height: 18)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
         (title as NSString).draw(

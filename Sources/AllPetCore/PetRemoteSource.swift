@@ -129,6 +129,11 @@ public enum PetRemoteSourceInstaller {
 
     // MARK: - Petdex
 
+    /// 获取某个 petdex 宠物的精灵图下载地址，供列表缩略图按需预取（无需下载完整 zip）。
+    public static func petdexSpritesheetURL(slug: String) -> URL? {
+        (try? petdexPet(slug: slug, base: "https://petdex.dev"))?.spritesheetURL
+    }
+
     private static func installPetdex(slug: String, home: URL) throws -> PetBundle {
         let base = "https://petdex.dev"
         let pet = try petdexPet(slug: slug, base: base)

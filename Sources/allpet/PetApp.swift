@@ -97,6 +97,8 @@ final class PetApp: NSObject, @unchecked Sendable {
     private var statusItem: NSStatusItem?
     private var petImportInProgress = false
     private var statusMenuItems: [PlatformKind: NSMenuItem] = [:]
+    private var defaultPetThumbnailCache: [String: NSImage] = [:]
+    private var defaultPetThumbnailRequests: Set<String> = []
 
     private var animation: PetAnimation = .idle
     private var statusAnimation: PetAnimation = .idle
@@ -183,6 +185,104 @@ final class PetApp: NSObject, @unchecked Sendable {
         NSImage(cgImage: cropped, size: size).draw(in: NSRect(origin: .zero, size: size),
             from: .zero, operation: .sourceOver, fraction: 1)
         result.unlockFocus()
+        return result
+    }
+
+    // MARK: - Default pet thumbnails
+
+    /// 默认宠物（未安装）的列表缩略图：先内存缓存，再本地文件缓存，均无则返回 nil（异步预取后回填）。
+    private func defaultPetThumbnail(_ pet: DefaultPet) -> NSImage? {
+        if let cached = defaultPetThumbnailCache[pet.slug] { return cached }
+        let file = home.appendingPathComponent(".config/all-pet/thumbnails/\(pet.slug).png")
+        if let image = NSImage(contentsOf: file) {
+            defaultPetThumbnailCache[pet.slug] = image
+            return image
+        }
+        return nil
+    }
+
+    /// 异步下载默认宠物的精灵图并裁出 idle 首帧作为缩略图，缓存后回填到对应菜单行。
+    private func prefetchDefaultPetThumbnail(_ pet: DefaultPet, onLoaded: @escaping (NSImage) -> Void) {
+        if let cached = defaultPetThumbnailCache[pet.slug] {
+            onLoaded(cached)
+            return
+        }
+        guard defaultPetThumbnailRequests.insert(pet.slug).inserted else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            // 后台只做网络 I/O（拉 manifest + 下载精灵图）；裁帧与 NSImage 绘制回主线程，避免 AppKit 跨线程。
+            let spritesheetURL = PetRemoteSourceInstaller.petdexSpritesheetURL(slug: pet.slug)
+            let data = spritesheetURL.flatMap { self.downloadData(from: $0, maxBytes: 128 * 1024 * 1024) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.defaultPetThumbnailRequests.remove(pet.slug)
+                if let data, let thumbnail = self.thumbnail(fromSpritesheetData: data, slug: pet.slug, maxDimension: 20) {
+                    self.defaultPetThumbnailCache[pet.slug] = thumbnail
+                    onLoaded(thumbnail)
+                }
+            }
+        }
+    }
+
+    /// 从下载到的精灵图数据裁出 idle 首帧缩略图，并写入本地缓存（`~/.config/all-pet/thumbnails/<slug>.png`）。
+    private func thumbnail(fromSpritesheetData data: Data, slug: String, maxDimension: CGFloat) -> NSImage? {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("allpet-thumb-\(slug)-\(UUID().uuidString).webp")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        do { try data.write(to: tmp, options: .atomic) } catch { return nil }
+        guard let src = CGImageSourceCreateWithURL(tmp as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(src, 0, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? Int,
+              let height = props[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        let columns = PetAtlas.codexColumns
+        let rows: Int
+        if width % columns == 0 && height % PetAtlas.codexRowsV2 == 0 && height % PetAtlas.codexRowsV1 != 0 {
+            rows = PetAtlas.codexRowsV2
+        } else if width % columns == 0 && height % PetAtlas.codexRowsV1 == 0 {
+            rows = PetAtlas.codexRowsV1
+        } else {
+            return nil
+        }
+        let cellWidth = width / columns
+        let cellHeight = height / rows
+        guard let cropped = image.cropping(to: CGRect(x: 0, y: 0, width: cellWidth, height: cellHeight)) else { return nil }
+        let scale = min(maxDimension / CGFloat(cellWidth), maxDimension / CGFloat(cellHeight))
+        let size = NSSize(width: CGFloat(cellWidth) * scale, height: CGFloat(cellHeight) * scale)
+        let result = NSImage(size: size)
+        result.lockFocus()
+        NSImage(cgImage: cropped, size: size).draw(in: NSRect(origin: .zero, size: size),
+            from: .zero, operation: .sourceOver, fraction: 1)
+        result.unlockFocus()
+        if let tiff = result.tiffRepresentation,
+           let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:]) {
+            let dir = home.appendingPathComponent(".config/all-pet/thumbnails", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? png.write(to: dir.appendingPathComponent("\(slug).png"), options: .atomic)
+        }
+        return result
+    }
+
+    private func downloadData(from url: URL, maxBytes: Int) -> Data? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 30
+        request.setValue("allpet/1.0", forHTTPHeaderField: "User-Agent")
+        if url.host == "assets.petdex.dev" {
+            request.setValue("https://petdex.dev/", forHTTPHeaderField: "Referer")
+        }
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: Data?
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            if let http = response as? HTTPURLResponse, http.statusCode == 200,
+               let data, !data.isEmpty, data.count <= maxBytes {
+                result = data
+            }
+            semaphore.signal()
+        }
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + 30)
+        task.cancel()
         return result
     }
 
@@ -998,12 +1098,19 @@ final class PetApp: NSObject, @unchecked Sendable {
             if menu.numberOfItems > 0 { menu.addItem(.separator()) }
             for pet in pendingDefaults {
                 let item = NSMenuItem()
-                let view = PetMenuDownloadItemView(title: pet.displayName, slug: pet.slug)
+                let view = PetMenuDownloadItemView(
+                    thumbnail: defaultPetThumbnail(pet),
+                    title: pet.displayName,
+                    slug: pet.slug
+                )
                 view.onDownload = { [weak self] in
                     self?.installDefaultPet(pet)
                 }
                 item.view = view
                 menu.addItem(item)
+                prefetchDefaultPetThumbnail(pet) { [weak view] image in
+                    view?.setThumbnail(image)
+                }
             }
         }
         menu.addItem(.separator())
