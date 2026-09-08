@@ -973,7 +973,8 @@ final class PetApp: NSObject, @unchecked Sendable {
     private func makePetsMenu() -> NSMenu {
         let menu = NSMenu()
         let configured = config.pet.bundlePath.map { URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path }
-        for bundle in PetDiscovery.discover(home: home) {
+        let discovered = PetDiscovery.discover(home: home)
+        for bundle in discovered {
             let item = NSMenuItem()
             let view = PetMenuItemView(
                 thumbnail: petThumbnail(for: bundle),
@@ -989,19 +990,22 @@ final class PetApp: NSObject, @unchecked Sendable {
             item.view = view
             menu.addItem(item)
         }
-        if menu.numberOfItems > 0 { menu.addItem(.separator()) }
-        // 默认宠物目录：开箱即可一键安装的社区宠物。
-        let defaultsItem = NSMenuItem(title: "默认宠物", action: nil, keyEquivalent: "")
-        let defaultsMenu = NSMenu()
-        for pet in DefaultPets.catalog {
-            let item = NSMenuItem(title: "\(pet.displayName)（\(pet.slug)）", action: #selector(PetApp.installDefaultPet(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = pet.slug
-            item.isEnabled = !petImportInProgress
-            defaultsMenu.addItem(item)
+        // 未安装的默认宠物直接列在选择界面里（不是二级「默认宠物」菜单），点一下自动下载并设为当前。
+        let installedSlugs = Set(discovered.map { $0.manifest.id.lowercased() })
+            .union(discovered.map { $0.directoryURL.lastPathComponent.lowercased() })
+        let pendingDefaults = DefaultPets.catalog.filter { !installedSlugs.contains($0.slug.lowercased()) }
+        if !pendingDefaults.isEmpty {
+            if menu.numberOfItems > 0 { menu.addItem(.separator()) }
+            for pet in pendingDefaults {
+                let item = NSMenuItem()
+                let view = PetMenuDownloadItemView(title: pet.displayName, slug: pet.slug)
+                view.onDownload = { [weak self] in
+                    self?.installDefaultPet(pet)
+                }
+                item.view = view
+                menu.addItem(item)
+            }
         }
-        defaultsItem.submenu = defaultsMenu
-        menu.addItem(defaultsItem)
         menu.addItem(.separator())
         let installItem = NSMenuItem(title: "从 GitHub 安装宠物…", action: #selector(PetApp.installPetFromSource), keyEquivalent: "")
         installItem.target = self
@@ -1017,9 +1021,9 @@ final class PetApp: NSObject, @unchecked Sendable {
         return menu
     }
 
-    @objc private func installDefaultPet(_ sender: NSMenuItem) {
-        guard !petImportInProgress, let slug = sender.representedObject as? String else { return }
-        runPetInstall(source: "petdex install \(slug)")
+    private func installDefaultPet(_ pet: DefaultPet) {
+        guard !petImportInProgress else { return }
+        runPetInstall(source: pet.installCommand)
     }
 
     @objc private func installPetFromSource() {

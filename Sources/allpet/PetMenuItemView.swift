@@ -131,4 +131,101 @@ final class PetMenuItemView: NSView {
         )
     }
 }
+
+/// 菜单栏「宠物」子菜单中「未安装的默认宠物」行视图：下载图标 + 名称 + 右侧「下载」提示。
+/// 点击整行即可自动下载并设为当前宠物；无需进入二级菜单或手动输入命令。
+final class PetMenuDownloadItemView: NSView {
+    var onDownload: (() -> Void)?
+
+    private let title: String
+    private let slug: String
+
+    private var trackingArea: NSTrackingArea?
+    private var isHighlighted = false {
+        didSet { if isHighlighted != oldValue { needsDisplay = true } }
+    }
+
+    init(title: String, slug: String) {
+        self.title = title
+        self.slug = slug
+        super.init(frame: NSRect(x: 0, y: 0, width: 288, height: 26))
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInActiveApp, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) { isHighlighted = true }
+    override func mouseExited(with event: NSEvent) { isHighlighted = false }
+
+    override func mouseDown(with event: NSEvent) {
+        enclosingMenuItem?.menu?.cancelTracking()
+        if let onDownload {
+            DispatchQueue.main.async { onDownload() }
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        if isHighlighted {
+            NSColor.selectedContentBackgroundColor.setFill()
+            bounds.fill()
+        }
+        let textColor: NSColor = isHighlighted ? .selectedMenuItemTextColor : .labelColor
+        let secondary: NSColor = isHighlighted
+            ? .selectedMenuItemTextColor.withAlphaComponent(0.72)
+            : .secondaryLabelColor
+
+        // 下载图标
+        let iconRect = NSRect(x: 8, y: (bounds.height - 16) / 2, width: 16, height: 16)
+        ("↓" as NSString).draw(
+            with: iconRect,
+            options: [.usesLineFragmentOrigin],
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+                .foregroundColor: textColor
+            ]
+        )
+
+        // 名称
+        let titleRect = NSRect(x: 28, y: 4, width: 150, height: 18)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        (title as NSString).draw(
+            with: titleRect,
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: textColor,
+                .paragraphStyle: paragraph
+            ]
+        )
+
+        // 右侧「下载」提示 + slug
+        let hintText = "下载 · \(slug)"
+        let hintRect = NSRect(x: 178, y: 4, width: max(10, bounds.maxX - 178 - 12), height: 18)
+        (hintText as NSString).draw(
+            with: hintRect,
+            options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .regular),
+                .foregroundColor: secondary,
+                .paragraphStyle: paragraph
+            ]
+        )
+    }
+}
 #endif
