@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  package:
+    name: 打包 · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 构建 Swift 核心
+        run: swift build -c release
+
+      - name: 准备 sidecar 二进制
+        shell: bash
+        run: |
+          mkdir -p desktop/sidecar
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp .build/release/allpet.exe desktop/sidecar/allpet.exe
+          else
+            cp .build/release/allpet desktop/sidecar/allpet
+          fi
+
+      - name: 安装依赖
+        run: npm ci
+        working-directory: desktop
+
+      - name: 打包（electron-builder）
+        run: npm run dist -- --publish never
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: allpet-${{ matrix.os }}
+          path: desktop/dist/**
+          if-no-files-found: ignore

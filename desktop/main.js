@@ -6,6 +6,12 @@ const path = require('path')
 const fs = require('fs')
 const os = require('os')
 
+// CI / 无头环境：禁用沙箱与 GPU，便于 xvfb 下冒烟测试。
+if (process.env.ALLPET_NO_SANDBOX) {
+  app.commandLine.appendSwitch('no-sandbox')
+  app.commandLine.appendSwitch('disable-gpu')
+}
+
 let mainWindow = null
 let tray = null
 let watchProc = null
@@ -15,13 +21,18 @@ let pet = null // { bundlePath, spritesheetPath, manifestId, displayName }
 // ---- 路径解析 ----
 
 function allpetBinary() {
-  const root = path.join(__dirname, '..')
   const exe = process.platform === 'win32' ? 'allpet.exe' : 'allpet'
-  const candidates = [
+  const candidates = []
+  // 打包后：sidecar 二进制位于 resourcesPath/sidecar/。
+  if (app.isPackaged) {
+    candidates.push(path.join(process.resourcesPath, 'sidecar', exe))
+  }
+  const root = path.join(__dirname, '..')
+  candidates.push(
     path.join(root, '.build', 'release', exe),
     path.join(root, '.build', 'debug', exe),
     path.join(root, exe)
-  ]
+  )
   for (const c of candidates) if (fs.existsSync(c)) return c
   return 'allpet' // 回退到 PATH
 }

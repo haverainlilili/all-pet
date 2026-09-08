@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  swift:
+    name: Swift 核心 · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.0'
+      - name: 构建
+        run: swift build
+      - name: status --json 冒烟测试
+        shell: bash
+        run: |
+          swift run allpet status --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.animation||!Array.isArray(j.platforms)){console.error('bad json');process.exit(1)}console.log('OK:',j.animation,j.platforms.length+' platforms')})"
+
+  desktop:
+    name: Electron 壳 · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 安装依赖
+        run: npm ci
+        working-directory: desktop
+      - name: JS 语法检查
+        shell: bash
+        run: |
+          node -c main.js && node -c preload.js && node -c src/renderer.js && echo "syntax OK"
+        working-directory: desktop
+
+  desktop-smoke:
+    name: Electron 冒烟（Linux + xvfb）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: '6.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: 构建 Swift 核心
+        run: swift build -c release
+      - name: 安装 Electron
+        run: npm ci
+        working-directory: desktop
+      - name: 安装无头依赖
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y xvfb libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2
+      - name: 无头启动 + 截图
+        working-directory: desktop
+        run: |
+          xvfb-run -a --server-args="-screen 0 1024x768x24" \
+            env ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT=/tmp/shot.png ELECTRON_ENABLE_LOGGING=1 npm start
+      - name: 校验截图
+        run: test -s /tmp/shot.png && echo "截图已生成，Electron 启动成功"

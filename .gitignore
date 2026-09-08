@@ -15,3 +15,4 @@ Package.resolved
 # Electron / Node
 node_modules/
 desktop/dist/
+desktop/sidecar/
