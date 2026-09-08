@@ -317,12 +317,25 @@ final class TaskLauncher: @unchecked Sendable {
                 message: "该会话没有可精确定位的 Claude Desktop 原任务；为避免创建副本，请改选 Claude CLI"
             )
         }
+        // 冷启动：Claude Desktop 关闭时，仅靠 claude:// 深链可能无法拉起应用本体；
+        // 先直接打开 .app 并等它运行，再发深链定位到原会话。
+        if !isApplicationRunning(bundleID: "com.anthropic.claudefordesktop") {
+            guard let app = claudeDesktopAppURL else {
+                return Result(succeeded: false, message: "找不到 Claude Desktop 应用，无法唤起")
+            }
+            NSWorkspace.shared.open(app)
+            guard waitForApplicationRunning(bundleID: "com.anthropic.claudefordesktop", timeout: 12) else {
+                return Result(succeeded: false, message: "Claude Desktop 未能启动；任务气泡已保留")
+            }
+            // 等应用完成启动并注册 URL handler 后再发深链。
+            Thread.sleep(forTimeInterval: 1.0)
+        }
         var components = URLComponents()
         components.scheme = "claude"
         components.host = "claude.ai"
         components.path = "/epitaxy/\(record.sessionID)"
         guard let url = components.url, NSWorkspace.shared.open(url),
-              waitForApplicationRunning(bundleID: "com.anthropic.claudefordesktop", timeout: 12) else {
+              waitForApplicationRunning(bundleID: "com.anthropic.claudefordesktop", timeout: 8) else {
             return Result(succeeded: false, message: "Claude Desktop 未能打开到原任务；任务气泡已保留")
         }
         return Result(succeeded: true, message: nil)

@@ -975,6 +975,19 @@ final class PetApp: NSObject, @unchecked Sendable {
             menu.addItem(item)
         }
         if menu.numberOfItems > 0 { menu.addItem(.separator()) }
+        // 默认宠物目录：开箱即可一键安装的社区宠物。
+        let defaultsItem = NSMenuItem(title: "默认宠物", action: nil, keyEquivalent: "")
+        let defaultsMenu = NSMenu()
+        for pet in DefaultPets.catalog {
+            let item = NSMenuItem(title: "\(pet.displayName)（\(pet.slug)）", action: #selector(PetApp.installDefaultPet(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = pet.slug
+            item.isEnabled = !petImportInProgress
+            defaultsMenu.addItem(item)
+        }
+        defaultsItem.submenu = defaultsMenu
+        menu.addItem(defaultsItem)
+        menu.addItem(.separator())
         let installItem = NSMenuItem(title: "从 GitHub 安装宠物…", action: #selector(PetApp.installPetFromSource), keyEquivalent: "")
         installItem.target = self
         installItem.isEnabled = !petImportInProgress
@@ -989,6 +1002,11 @@ final class PetApp: NSObject, @unchecked Sendable {
         return menu
     }
 
+    @objc private func installDefaultPet(_ sender: NSMenuItem) {
+        guard !petImportInProgress, let slug = sender.representedObject as? String else { return }
+        runPetInstall(source: "petdex install \(slug)")
+    }
+
     @objc private func installPetFromSource() {
         guard !petImportInProgress else { return }
         let alert = NSAlert()
@@ -996,7 +1014,8 @@ final class PetApp: NSObject, @unchecked Sendable {
         alert.messageText = "安装宠物"
         let presets = PetRegistry.presets.map { "• \($0.id) — \($0.repositoryURL)" }.joined(separator: "\n")
         let remoteSources = RemotePetSource.allCases.map { "• \($0.label) — 输入 \($0.usageHint)" }.joined(separator: "\n")
-        alert.informativeText = "输入预设 ID、远程源官方命令或 GitHub 仓库 URL，即可安装并设为默认宠物。\n\n远程源：\n\(remoteSources)\n\nGitHub 预设：\n\(presets)"
+        let defaultPets = DefaultPets.catalog.map { "• \($0.displayName) — 输入 \($0.installCommand)" }.joined(separator: "\n")
+        alert.informativeText = "输入预设 ID、默认宠物名、远程源官方命令或 GitHub 仓库 URL，即可安装并设为默认宠物。\n\n默认宠物：\n\(defaultPets)\n\n远程源：\n\(remoteSources)\n\nGitHub 预设：\n\(presets)"
         alert.addButton(withTitle: "安装")
         alert.addButton(withTitle: "取消")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 360, height: 24))

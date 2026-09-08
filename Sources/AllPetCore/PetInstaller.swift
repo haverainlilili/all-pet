@@ -34,14 +34,13 @@ public enum PetInstallError: Error, LocalizedError {
 public enum PetInstaller {
     public static func install(source: String, home: URL = FileManager.default.homeDirectoryForCurrentUser) throws -> PetInstallOutcome {
         if let match = PetRemoteSourceResolver.parse(source) {
-            let bundle = try PetRemoteSourceInstaller.install(match: match, home: home)
-            return PetInstallOutcome(
-                preset: nil,
-                repositoryURL: match.source.repositoryURL,
-                sourceKind: .codexAtlas,
-                bundle: bundle,
-                installedBundles: [bundle],
-                note: "已从 \(match.source.label) 安装宠物「\(bundle.manifest.displayName)」"
+            return try installRemote(match: match, home: home)
+        }
+        // 内置默认宠物：支持裸 slug / 显示名直接安装（如 `hoops`、`奶龙`）。
+        if let defaultPet = DefaultPets.match(source) {
+            return try installRemote(
+                match: RemotePetSourceMatch(source: defaultPet.source, slug: defaultPet.slug),
+                home: home
             )
         }
 
@@ -84,6 +83,18 @@ public enum PetInstaller {
             bundle: primary.bundle,
             installedBundles: imported.map(\.bundle),
             note: imported.count > 1 ? "已导入 \(imported.count) 个宠物；当前使用 \(primary.bundle.manifest.displayName)" : primary.note
+        )
+    }
+
+    private static func installRemote(match: RemotePetSourceMatch, home: URL) throws -> PetInstallOutcome {
+        let bundle = try PetRemoteSourceInstaller.install(match: match, home: home)
+        return PetInstallOutcome(
+            preset: nil,
+            repositoryURL: match.source.repositoryURL,
+            sourceKind: .codexAtlas,
+            bundle: bundle,
+            installedBundles: [bundle],
+            note: "已从 \(match.source.label) 安装宠物「\(bundle.manifest.displayName)」"
         )
     }
 
