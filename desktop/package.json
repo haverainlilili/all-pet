@@ -12,7 +12,10 @@
     "type": "git",
     "url": "https://github.com/haverainlilili/all-pet.git"
   },
-  "author": "haverainlilili",
+  "author": {
+    "name": "haverainlilili",
+    "email": "haverainlilili@users.noreply.github.com"
+  },
   "license": "MIT",
   "build": {
     "appId": "com.haverainlilili.allpet",
