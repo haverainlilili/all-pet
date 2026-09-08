@@ -56,6 +56,16 @@ public enum ClaudeDesktopSessionLookup {
             .first
     }
 
+    /// 当前焦点会话：全部会话里 `lastFocusedAt` 最大的那一个。
+    public static func mostRecentlyFocusedSession(
+        roots: [URL],
+        maximumFiles: Int = 4_000
+    ) -> ClaudeDesktopSessionRecord? {
+        records(roots: roots, maximumFiles: maximumFiles)
+            .filter { !$0.isArchived }
+            .max { $0.lastFocusedAt < $1.lastFocusedAt }
+    }
+
     private static func records(roots: [URL], maximumFiles: Int) -> [ClaudeDesktopSessionRecord] {
         guard maximumFiles > 0 else { return [] }
         var records: [ClaudeDesktopSessionRecord] = []

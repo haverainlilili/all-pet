@@ -116,6 +116,10 @@ final class PetApp: NSObject, @unchecked Sendable {
     private var localClickMonitor: Any?
     private var lastInternalMouseDownTimestamp: TimeInterval = -.infinity
     private var lastManualViewCheckAt: Date = .distantPast
+    /// 最近一次通过宠物唤起任务的时间；完成气泡的自动消失会跳过其后的一小段窗口，
+    /// 避免应用冷启动时短暂停留在「上一个会话」而把别的已完成任务误判为已查看。
+    private var lastEvokeAt: Date = .distantPast
+    private let manualViewGraceInterval: TimeInterval = 15
 
     init(config: AllPetConfiguration, home: URL) {
         let loadedHistory = Self.loadTaskHistory(home: home)
@@ -382,6 +386,8 @@ final class PetApp: NSObject, @unchecked Sendable {
         let now = Date()
         guard now.timeIntervalSince(lastManualViewCheckAt) >= 3 else { return }
         lastManualViewCheckAt = now
+        // 刚唤起过任务：应用可能还停在「上一个会话」上，跳过该窗口以免误判别的已完成任务已查看。
+        guard now.timeIntervalSince(lastEvokeAt) >= manualViewGraceInterval else { return }
         let doneTasks = taskHistory.values.flatMap { $0 }.filter { $0.phase == .done }
         guard !doneTasks.isEmpty else { return }
         taskWakeQueue.async { [weak self] in
@@ -525,6 +531,7 @@ final class PetApp: NSObject, @unchecked Sendable {
     }
 
     private func wakeTask(_ task: TrayTaskItem) {
+        lastEvokeAt = Date()
         taskWakeQueue.async { [weak self] in
             guard let self else { return }
             let result = self.taskLauncher.wake(task)
@@ -538,6 +545,7 @@ final class PetApp: NSObject, @unchecked Sendable {
         _ task: TrayTaskItem,
         target: TaskLauncher.StrongWakeTarget = .automatic
     ) {
+        lastEvokeAt = Date()
         taskWakeQueue.async { [weak self] in
             guard let self else { return }
             let result = self.taskLauncher.strongWake(task, target: target)

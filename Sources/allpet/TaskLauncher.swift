@@ -442,8 +442,12 @@ final class TaskLauncher: @unchecked Sendable {
 
     private func isClaudeDesktopFocusedSinceBaseline(_ task: TrayTaskItem) -> Bool {
         guard let record = claudeDesktopRecord(for: task) else { return false }
-        let current = record.lastFocusedAt
         let key = task.canonicalID
+        // 只把「当前焦点会话」视为已查看：应用启动时自动回落到上一个会话，
+        // 会短暂顶高那个会话的 lastFocusedAt，但那并非用户主动查看，不能误判。
+        guard let mostRecent = ClaudeDesktopSessionLookup.mostRecentlyFocusedSession(roots: claudeDesktopSessionRoots),
+              mostRecent.sessionID == record.sessionID else { return false }
+        let current = record.lastFocusedAt
         if let baseline = claudeDesktopFocusBaseline[key] {
             return current > baseline + 1
         }
