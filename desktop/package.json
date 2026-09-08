@@ -1,0 +1,13 @@
+{
+  "name": "allpet-desktop",
+  "version": "1.0.0",
+  "description": "AllPet 跨平台桌面宠物（Electron 壳，复用 Swift AllPetCore 监控）",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.2.0"
+  }
+}

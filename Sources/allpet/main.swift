@@ -95,6 +95,12 @@ func cmdStatus() {
     printSnapshot(monitor.snapshot())
 }
 
+func snapshotKey(_ s: PetSnapshot) -> String {
+    s.summary + "|" + s.platforms.map {
+        "\($0.platform.rawValue)=\($0.phase.rawValue)|\($0.task?.action ?? "")|\($0.task?.sessionName ?? "")|\($0.task?.progressLabel ?? "")"
+    }.joined(separator: "|")
+}
+
 func cmdWatch() {
     let config = loadConfig()
     let monitor = AllPetMonitor(configuration: config)
@@ -103,11 +109,103 @@ func cmdWatch() {
     print("AllPet watch 启动（\(intervalMs)ms 轮询，Ctrl-C 退出）")
     while true {
         let s = monitor.snapshot()
-        let key = s.summary + "|" + s.platforms.map {
-            "\($0.platform.rawValue)=\($0.phase.rawValue)|\($0.task?.action ?? "")|\($0.task?.sessionName ?? "")|\($0.task?.progressLabel ?? "")"
-        }.joined(separator: "|")
+        let key = snapshotKey(s)
         if key != lastKey {
             printSnapshot(s)
+            lastKey = key
+        }
+        Thread.sleep(forTimeInterval: Double(intervalMs) / 1000.0)
+    }
+}
+
+// MARK: - JSON 输出（供跨平台 GUI 消费）
+
+private struct TaskJSON: Codable {
+    var sessionName: String?
+    var action: String?
+    var toolName: String?
+    var progressLabel: String?
+    var sessionID: String?
+    var workingDirectory: String?
+}
+
+private struct PlatformJSON: Codable {
+    var platform: String
+    var label: String
+    var phase: String
+    var phaseLabel: String
+    var detail: String
+    var activeSessions: Int
+    var enabled: Bool
+    var task: TaskJSON?
+    var bubbleHeader: String
+    var bubbleDetails: [String]
+}
+
+private struct SnapshotJSON: Codable {
+    var observedAt: String
+    var animation: String
+    var phase: String
+    var summary: String
+    var platforms: [PlatformJSON]
+}
+
+private func toJSON(_ s: PetSnapshot) -> SnapshotJSON {
+    let df = ISO8601DateFormatter()
+    return SnapshotJSON(
+        observedAt: df.string(from: s.observedAt),
+        animation: s.animation.rawValue,
+        phase: s.phase.rawValue,
+        summary: s.summary,
+        platforms: s.platforms.map { p in
+            PlatformJSON(
+                platform: p.platform.rawValue,
+                label: p.platform.label,
+                phase: p.phase.rawValue,
+                phaseLabel: p.phase.label,
+                detail: p.detail,
+                activeSessions: p.activeSessions,
+                enabled: p.enabled,
+                task: p.task.map {
+                    TaskJSON(
+                        sessionName: $0.sessionName,
+                        action: $0.action,
+                        toolName: $0.toolName,
+                        progressLabel: $0.progressLabel,
+                        sessionID: $0.sessionID,
+                        workingDirectory: $0.workingDirectory
+                    )
+                },
+                bubbleHeader: p.bubbleHeader,
+                bubbleDetails: p.bubbleDetails
+            )
+        }
+    )
+}
+
+private func emitJSON(_ s: PetSnapshot) {
+    let encoder = JSONEncoder()
+    guard let data = try? encoder.encode(toJSON(s)),
+          let line = String(data: data, encoding: .utf8) else { return }
+    print(line)
+    fflush(stdout)
+}
+
+func cmdStatusJSON() {
+    let monitor = AllPetMonitor(configuration: loadConfig())
+    emitJSON(monitor.snapshot())
+}
+
+func cmdWatchJSON() {
+    let config = loadConfig()
+    let monitor = AllPetMonitor(configuration: config)
+    let intervalMs = max(200, config.watch.pollIntervalMilliseconds)
+    var lastKey: String? = nil
+    while true {
+        let s = monitor.snapshot()
+        let key = snapshotKey(s)
+        if key != lastKey {
+            emitJSON(s)
             lastKey = key
         }
         Thread.sleep(forTimeInterval: Double(intervalMs) / 1000.0)
@@ -239,10 +337,13 @@ func cmdPetInstall(_ source: String) {
 }
 
 let args = Array(CommandLine.arguments.dropFirst())
+let jsonRequested = args.contains("--json")
 switch args.first {
 case "init": cmdInit()
-case "status": cmdStatus()
-case "watch": cmdWatch()
+case "status":
+    if jsonRequested { cmdStatusJSON() } else { cmdStatus() }
+case "watch":
+    if jsonRequested { cmdWatchJSON() } else { cmdWatch() }
 case "self-test": cmdSelfTest()
 case "pet":
     if args.count > 1 && args[1] == "list" {

@@ -11,3 +11,7 @@ Package.resolved
 
 # Local runtime artifacts
 *.log
+
+# Electron / Node
+node_modules/
+desktop/dist/
