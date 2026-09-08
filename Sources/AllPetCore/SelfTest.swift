@@ -525,6 +525,19 @@ public enum AllPetSelfTest {
                    && ccV2Result.bundle.atlas.rows == 11,
                    "cc-haha V2 derives omitted id from directory")
 
+            let petdexDefault = petAdapterFixture.appendingPathComponent("petdex-default", isDirectory: true)
+            try FileManager.default.createDirectory(at: petdexDefault, withIntermediateDirectories: true)
+            try writeAtlasImage(petdexDefault.appendingPathComponent("spritesheet.webp"), width: 1_536, height: 2_288,
+                                color: NSColor(deviceRed: 0.1, green: 0.8, blue: 0.3, alpha: 1))
+            try JSONSerialization.data(withJSONObject: [
+                "id": "cat-hamster-duo", "displayName": "团团和米粒", "description": "自定义宠物"
+            ]).write(to: petdexDefault.appendingPathComponent("pet.json"))
+            let petdexResult = try PetModelImporter.importModel(from: petdexDefault, home: home)
+            expect(petdexResult.sourceKind == .codexAtlas && !petdexResult.normalized
+                   && petdexResult.bundle.manifest.id == "cat-hamster-duo"
+                   && petdexResult.bundle.atlas.rows == 11,
+                   "petdex default spritesheet.webp without spritesheetPath field")
+
             let generic = petAdapterFixture.appendingPathComponent("generic-single", isDirectory: true)
             try FileManager.default.createDirectory(at: generic, withIntermediateDirectories: true)
             try writeImage(generic.appendingPathComponent("pet.png"), NSColor(deviceRed: 1, green: 0.5, blue: 0, alpha: 1))

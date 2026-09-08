@@ -107,8 +107,13 @@ public enum PetModelImporter {
         let json = try readObject(url)
         let declaredID = (json["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let id = (declaredID?.isEmpty == false ? declaredID : nil) ?? safeSlug(dir.lastPathComponent)
-        if let relative = json["spritesheetPath"] as? String {
+        // 原生 Codex/petdex 图集：显式 spritesheetPath，或目录下存在默认 spritesheet.webp（petdex 约定）。
+        let declaredSheet = json["spritesheetPath"] as? String
+        let hasDefaultSheet = FileManager.default.fileExists(atPath: dir.appendingPathComponent("spritesheet.webp").path)
+        if let relative = declaredSheet {
             _ = try checkedAsset(relative, in: dir)
+        }
+        if declaredSheet != nil || hasDefaultSheet {
             let bundle = try PetBundle.load(from: dir)
             let text = ((json["sourceProject"] as? String) ?? "") + dir.path
             let kind: PetModelSourceKind = text.localizedCaseInsensitiveContains("cc-haha") ? .ccHaha : (text.localizedCaseInsensitiveContains("clawd-on-desk") ? .clawdOnDesk : .codexAtlas)
