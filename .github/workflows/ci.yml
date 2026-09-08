@@ -15,7 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
+      - uses: SwiftyLab/setup-swift@latest
         with:
           swift-version: '6.0.3'
       - name: 构建
@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: swift-actions/setup-swift@v2
+      - uses: SwiftyLab/setup-swift@latest
         with:
           swift-version: '6.0.3'
       - uses: actions/setup-node@v4
@@ -70,6 +70,7 @@ jobs:
         working-directory: desktop
         run: |
           xvfb-run -a --server-args="-screen 0 1024x768x24" \
-            env ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT=/tmp/shot.png ELECTRON_ENABLE_LOGGING=1 npm start
+            env ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT=/tmp/shot.png ELECTRON_ENABLE_LOGGING=1 \
+            ./node_modules/.bin/electron . --no-sandbox
       - name: 校验截图
         run: test -s /tmp/shot.png && echo "截图已生成，Electron 启动成功"
