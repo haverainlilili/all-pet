@@ -946,9 +946,7 @@ final class TaskLauncher: @unchecked Sendable {
     private func selectDSHSessionInChromium(bundleID: String, needles: [String], sessionID: String) -> Bool {
         guard let scripts = dshSelectionJavaScripts(sessionID: sessionID) else { return false }
         guard runChromiumJavaScript(bundleID: bundleID, origins: needles, source: scripts.injection) else { return false }
-        Thread.sleep(forTimeInterval: 0.5)
-        guard runChromiumJavaScript(bundleID: bundleID, origins: needles, source: scripts.verification) else { return false }
-        Thread.sleep(forTimeInterval: 0.25)
+        Thread.sleep(forTimeInterval: 1.0)
         return consumeChromiumDSHMarker(bundleID: bundleID, origins: needles, marker: scripts.marker)
     }
 
@@ -1009,6 +1007,7 @@ final class TaskLauncher: @unchecked Sendable {
     private func consumeChromiumDSHMarker(bundleID: String, origins: [String], marker: String) -> Bool {
         let originCondition = browserURLCondition(variable: "u", origins: origins)
         let markerCondition = "u contains \(appleScriptLiteral("#" + marker))"
+        let cleanupJS = "history.replaceState(null,'',location.pathname+location.search);void(0)"
         let source = """
         if application id \(appleScriptLiteral(bundleID)) is running then
             tell application id \(appleScriptLiteral(bundleID))
@@ -1020,12 +1019,10 @@ final class TaskLauncher: @unchecked Sendable {
                         if (\(originCondition)) and \(markerCondition) then
                             set active tab index of w to tabIndex
                             set index of w to 1
-                            if u starts with "http://localhost:3080/" then
-                                set URL of t to "http://localhost:3080/"
-                            else
-                                set URL of t to "http://127.0.0.1:3080/"
-                            end if
                             activate
+                            try
+                                execute tab tabIndex of w javascript \(appleScriptLiteral(cleanupJS))
+                            end try
                             return "VERIFIED"
                         end if
                     end repeat
@@ -1040,9 +1037,7 @@ final class TaskLauncher: @unchecked Sendable {
     private func selectDSHSessionInSafari(needles: [String], sessionID: String) -> Bool {
         guard let scripts = dshSelectionJavaScripts(sessionID: sessionID) else { return false }
         guard runSafariJavaScript(origins: needles, source: scripts.injection) else { return false }
-        Thread.sleep(forTimeInterval: 0.5)
-        guard runSafariJavaScript(origins: needles, source: scripts.verification) else { return false }
-        Thread.sleep(forTimeInterval: 0.25)
+        Thread.sleep(forTimeInterval: 1.0)
         return consumeSafariDSHMarker(origins: needles, marker: scripts.marker)
     }
 
@@ -1075,6 +1070,7 @@ final class TaskLauncher: @unchecked Sendable {
     private func consumeSafariDSHMarker(origins: [String], marker: String) -> Bool {
         let originCondition = browserURLCondition(variable: "u", origins: origins)
         let markerCondition = "u contains \(appleScriptLiteral("#" + marker))"
+        let cleanupJS = "history.replaceState(null,'',location.pathname+location.search);void(0)"
         let source = """
         tell application id "com.apple.Safari"
             repeat with w in windows
@@ -1085,12 +1081,10 @@ final class TaskLauncher: @unchecked Sendable {
                     if (\(originCondition)) and \(markerCondition) then
                         set current tab of w to tab tabIndex of w
                         set index of w to 1
-                        if u starts with "http://localhost:3080/" then
-                            set URL of t to "http://localhost:3080/"
-                        else
-                            set URL of t to "http://127.0.0.1:3080/"
-                        end if
                         activate
+                        try
+                            do JavaScript \(appleScriptLiteral(cleanupJS)) in current tab of w
+                        end try
                         return "VERIFIED"
                     end if
                 end repeat
@@ -1101,7 +1095,7 @@ final class TaskLauncher: @unchecked Sendable {
         return runAppleScript(source) == "VERIFIED"
     }
 
-    private func dshSelectionJavaScripts(sessionID: String) -> (injection: String, verification: String, marker: String)? {
+    private func dshSelectionJavaScripts(sessionID: String) -> (injection: String, marker: String)? {
         guard let selectionData = try? JSONEncoder().encode(["sessionId": sessionID]),
               let selection = String(data: selectionData, encoding: .utf8),
               let selectionLiteralData = try? JSONEncoder().encode(selection),
@@ -1113,9 +1107,11 @@ final class TaskLauncher: @unchecked Sendable {
         let marker = "allpet-session-\(encodedID)"
         guard let markerData = try? JSONEncoder().encode(marker),
               let markerLiteral = String(data: markerData, encoding: .utf8) else { return nil }
-        let injection = "localStorage.setItem('dsh.sessions.current', \(selectionLiteral));location.reload();void(0)"
-        let verification = "location.hash=(localStorage.getItem('dsh.sessions.current')===\(selectionLiteral)?\(markerLiteral):'allpet-invalid');void(0)"
-        return (injection, verification, marker)
+        // 一次性完成：写会话 → 打 hash marker → reload。reload 保留 hash，
+        // 重载后 URL 稳定携带 marker，供 consume 定位并用 history.replaceState 清掉，
+        // 不再像旧实现那样改写标签 URL（那会再触发一次页面导航/刷新）。
+        let injection = "localStorage.setItem('dsh.sessions.current', \(selectionLiteral));location.hash=\(markerLiteral);location.reload();void(0)"
+        return (injection, marker)
     }
 
     // MARK: - Existing terminal windows
