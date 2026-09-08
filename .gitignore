@@ -12,6 +12,9 @@ Package.resolved
 # Local runtime artifacts
 *.log
 
+# 对话轨迹（本地记录，不提交）
+桌面宠物对话-*.md
+
 # Electron / Node
 node_modules/
 desktop/dist/
