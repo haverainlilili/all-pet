@@ -5,8 +5,14 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/haverainlilili/all-pet.git"
+  },
+  "author": "haverainlilili",
   "license": "MIT",
   "build": {
     "appId": "com.haverainlilili.allpet",

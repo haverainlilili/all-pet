@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   package:
@@ -40,15 +44,28 @@ jobs:
         run: npm ci
         working-directory: desktop
 
-      - name: 打包（electron-builder）
-        run: npm run dist -- --publish never
+      - name: 打包（tag 发布 Release，手动只出产物）
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            npx electron-builder --publish always
+          else
+            npx electron-builder --publish never
+          fi
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - name: 上传产物
+      - name: 上传产物（兜底）
         uses: actions/upload-artifact@v4
         with:
           name: allpet-${{ matrix.os }}
-          path: desktop/dist/**
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+            desktop/dist/*.exe
+            desktop/dist/*.yml
           if-no-files-found: ignore
