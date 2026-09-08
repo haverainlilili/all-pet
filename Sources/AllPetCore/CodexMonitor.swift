@@ -26,7 +26,8 @@ private final class CodexSessionClassifier: @unchecked Sendable {
                 if let payload = object["payload"] as? [String: Any] {
                     let originator = (payload["originator"] as? String ?? "").lowercased()
                     let threadSource = (payload["thread_source"] as? String ?? "").lowercased()
-                    included = !originator.contains("dsh") && !threadSource.contains("dsh")
+                    // 排除 DSH 起源，以及 Codex 子代理 rollout（thread_source == "subagent"）。
+                    included = !originator.contains("dsh") && !threadSource.contains("dsh") && threadSource != "subagent"
                 } else {
                     included = true
                 }

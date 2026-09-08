@@ -297,16 +297,19 @@ public enum AllPetSelfTest {
             let genuine = codexOriginFixture.appendingPathComponent("genuine.jsonl")
             let dshBacked = codexOriginFixture.appendingPathComponent("dsh.jsonl")
             let partial = codexOriginFixture.appendingPathComponent("partial.jsonl")
+            let subagent = codexOriginFixture.appendingPathComponent("subagent.jsonl")
             let genuineText = #"{"type":"session_meta","payload":{"id":"genuine-codex","originator":"Codex Desktop","thread_source":"vscode"}}"# + "\n"
                 + #"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"真实 Codex 任务"}]}}"# + "\n"
             try Data(genuineText.utf8).write(to: genuine)
             try Data((#"{"type":"session_meta","payload":{"id":"dsh-copy","originator":"dsh-arm64-provider-test","thread_source":"dsh-arm64-provider-test"}}"# + "\n").utf8).write(to: dshBacked)
             try Data("{\"type\":\"session_meta\"".utf8).write(to: partial)
-            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-2)], ofItemAtPath: genuine.path)
-            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-1)], ofItemAtPath: dshBacked.path)
-            try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: partial.path)
+            try Data((#"{"type":"session_meta","payload":{"id":"sub-codex","originator":"Codex Desktop","thread_source":"subagent"}}"# + "\n").utf8).write(to: subagent)
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-3)], ofItemAtPath: genuine.path)
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-2)], ofItemAtPath: dshBacked.path)
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-1)], ofItemAtPath: partial.path)
+            try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: subagent.path)
             let status = CodexMonitor(roots: [codexOriginFixture.path]).snapshot(config: watch, now: now)
-            expect(status.task?.sessionID == "genuine-codex" && status.activeSessions == 1, "Codex excludes DSH and partial origins")
+            expect(status.task?.sessionID == "genuine-codex" && status.activeSessions == 1, "Codex excludes DSH, partial and subagent origins")
             expect(status.task?.launchOrigin == "codex-desktop", "Codex Desktop origin is persisted for wake routing")
             let cli = codexOriginFixture.appendingPathComponent("cli.jsonl")
             try Data((#"{"type":"session_meta","payload":{"session_id":"cli-codex","originator":"codex_cli_rs","source":"cli"}}"# + "\n").utf8).write(to: cli)
@@ -316,6 +319,26 @@ public enum AllPetSelfTest {
             expect(false, "Codex origin fixture")
         }
         try? FileManager.default.removeItem(at: codexOriginFixture)
+
+        let claudeSubagentFixture = FileManager.default.temporaryDirectory
+            .appendingPathComponent("allpet-claude-subagent-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(at: claudeSubagentFixture, withIntermediateDirectories: true)
+            let now = Date()
+            let top = claudeSubagentFixture.appendingPathComponent("main.jsonl")
+            let subdir = claudeSubagentFixture.appendingPathComponent("subagents")
+            try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
+            let sub = subdir.appendingPathComponent("agent-1.jsonl")
+            try Data((#"{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"顶层任务"}}"# + "\n").utf8).write(to: top)
+            try Data((#"{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"子代理任务"}}"# + "\n").utf8).write(to: sub)
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-1)], ofItemAtPath: top.path)
+            try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: sub.path)
+            let status = ClaudeMonitor(roots: [claudeSubagentFixture.path]).snapshot(config: watch, now: now)
+            expect(status.task?.title == "顶层任务" && status.activeSessions == 1, "Claude excludes subagents transcript files")
+        } catch {
+            expect(false, "Claude subagent fixture")
+        }
+        try? FileManager.default.removeItem(at: claudeSubagentFixture)
 
         let scanFixture = FileManager.default.temporaryDirectory
             .appendingPathComponent("allpet-scan-\(UUID().uuidString)")

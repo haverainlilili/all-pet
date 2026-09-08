@@ -14,10 +14,10 @@ public struct ClaudeMonitor: PlatformMonitor {
     public func snapshot(config: WatchConfig, now: Date) -> PlatformStatus {
         let scan = ActivityScanner.scan(
             roots: roots,
-            isIncluded: { $0.hasSuffix(".jsonl") },
+            isIncluded: { $0.hasSuffix(".jsonl") && !$0.contains("/subagents/") },
             recentWindow: config.waitingWindowSeconds,
             now: now,
-            selectionPriority: { $0.contains("/subagents/") ? 0 : 1 },
+            selectionPriority: { _ in 1 },
             priorityGrace: config.waitingWindowSeconds
         )
 
