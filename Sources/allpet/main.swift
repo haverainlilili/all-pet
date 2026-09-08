@@ -42,6 +42,7 @@ func printHelp() {
       ./allpet pet install 名称     从默认宠物/预设/远程源一键安装为默认宠物（默认宠物如 hoops、奶龙、deepseek酱；预设 cc-haha / clawd-on-desk / lingchat；远程源 petdex / awesome-codex-pet）
       ./allpet pet install 仓库URL  从任意 GitHub 宠物仓库一键安装
       ./allpet pet set 名称          在已安装宠物间切换（按显示名/ID）
+      ./allpet pet delete 名称      删除已安装宠物（删除当前宠物时回退到第一个）
       ./allpet pet import PATH      导入 cc-haha / clawd-on-desk / LingChat 本地宠物
       ./allpet self-test            检查四平台任务解析器与气泡模型
       ./allpet help                 显示本帮助
@@ -340,6 +341,101 @@ func cmdPetInstall(_ source: String) {
     print("   GUI 正在运行时请执行：./allpet restart")
 }
 
+func cmdPetDelete(_ target: String) {
+    let key = target.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    let bundles = PetDiscovery.discover(home: home())
+    let matches = bundles.filter { b in
+        b.manifest.displayName.lowercased().contains(key)
+            || b.manifest.id.lowercased().contains(key)
+            || b.directoryURL.path.lowercased().contains(key)
+    }
+    guard let bundle = matches.first else {
+        print("❌ 未找到匹配的宠物：\(terminalSafe(target))")
+        print("   可执行 ./allpet pet list 查看已安装宠物。")
+        exit(EXIT_FAILURE)
+    }
+    let deletedPath = bundle.directoryURL.standardizedFileURL.path
+    do {
+        try FileManager.default.removeItem(at: bundle.directoryURL)
+    } catch {
+        print("❌ 删除失败：\(terminalSafe(error.localizedDescription))")
+        exit(EXIT_FAILURE)
+    }
+    let config = loadConfig()
+    let currentPath = config.pet.bundlePath.map { URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path }
+    if currentPath == deletedPath {
+        var next = config
+        let remaining = PetDiscovery.discover(home: home())
+        next.pet.bundlePath = remaining.first?.directoryURL.standardizedFileURL.path
+        do {
+            try next.save(to: configURL())
+        } catch {
+            print("⚠️ 已删除，但无法更新默认宠物：\(terminalSafe(error.localizedDescription))")
+            exit(EXIT_FAILURE)
+        }
+        if let replacement = remaining.first {
+            print("✅ 已删除「\(terminalSafe(bundle.manifest.displayName, maximumLength: 160))」，回退到「\(terminalSafe(replacement.manifest.displayName, maximumLength: 160))」")
+        } else {
+            print("✅ 已删除「\(terminalSafe(bundle.manifest.displayName, maximumLength: 160))」，当前无默认宠物")
+        }
+    } else {
+        print("✅ 已删除「\(terminalSafe(bundle.manifest.displayName, maximumLength: 160))」")
+    }
+}
+
+private struct PetListJSON: Encodable {
+    struct Pet: Encodable {
+        let id: String
+        let displayName: String
+        let description: String
+        let spritesheetPath: String
+        let columns: Int
+        let rows: Int
+        let cellWidth: Int
+        let cellHeight: Int
+        let current: Bool
+        let builtin: Bool
+        let directoryPath: String
+    }
+    struct DefaultPet: Encodable {
+        let slug: String
+        let displayName: String
+        let installCommand: String
+    }
+    let pets: [Pet]
+    let defaults: [DefaultPet]
+}
+
+func cmdPetListJSON() {
+    let config = loadConfig()
+    let bundles = PetDiscovery.discover(home: home())
+    let currentPath = config.pet.bundlePath.map { URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path }
+    var installedIDs = Set(bundles.map { $0.manifest.id.lowercased() })
+    for b in bundles { installedIDs.insert(b.directoryURL.lastPathComponent.lowercased()) }
+    let pets = bundles.map { b in
+        PetListJSON.Pet(
+            id: b.manifest.id,
+            displayName: b.manifest.displayName,
+            description: b.manifest.description,
+            spritesheetPath: b.spritesheetURL.path,
+            columns: b.atlas.columns,
+            rows: b.atlas.rows,
+            cellWidth: b.atlas.cellWidth,
+            cellHeight: b.atlas.cellHeight,
+            current: currentPath == b.directoryURL.standardizedFileURL.path,
+            builtin: BundledPets.slugs.contains(b.manifest.id.lowercased()),
+            directoryPath: b.directoryURL.path
+        )
+    }
+    let defaults = DefaultPets.catalog
+        .filter { !installedIDs.contains($0.slug.lowercased()) }
+        .map { PetListJSON.DefaultPet(slug: $0.slug, displayName: $0.displayName, installCommand: $0.installCommand) }
+    let payload = PetListJSON(pets: pets, defaults: defaults)
+    if let data = try? JSONEncoder().encode(payload), let line = String(data: data, encoding: .utf8) {
+        print(line)
+    }
+}
+
 let args = Array(CommandLine.arguments.dropFirst())
 let jsonRequested = args.contains("--json")
 switch args.first {
@@ -351,13 +447,15 @@ case "watch":
 case "self-test": cmdSelfTest()
 case "pet":
     if args.count > 1 && args[1] == "list" {
-        cmdPetList()
+        if jsonRequested { cmdPetListJSON() } else { cmdPetList() }
     } else if args.count > 2 && args[1] == "import" {
         cmdPetImport(args[2])
     } else if args.count > 2 && args[1] == "install" {
         cmdPetInstall(args[2])
     } else if args.count > 2 && args[1] == "set" {
         cmdPetSet(args[2])
+    } else if args.count > 2 && args[1] == "delete" {
+        cmdPetDelete(args[2])
     } else {
         printHelp()
     }

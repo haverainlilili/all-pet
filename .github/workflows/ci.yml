@@ -44,7 +44,7 @@ jobs:
       - name: JS 语法检查
         shell: bash
         run: |
-          node -c main.js && node -c preload.js && node -c src/renderer.js && echo "syntax OK"
+          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/pets.js && echo "syntax OK"
         working-directory: desktop
 
   desktop-smoke:
@@ -74,5 +74,13 @@ jobs:
           xvfb-run -a --server-args="-screen 0 1024x768x24" \
             env ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT=/tmp/shot.png ELECTRON_ENABLE_LOGGING=1 \
             ./node_modules/.bin/electron . --no-sandbox
+      - name: 无头启动宠物管理窗口 + 截图
+        working-directory: desktop
+        run: |
+          xvfb-run -a --server-args="-screen 0 1024x768x24" \
+            env ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_PET_MANAGER_SCREENSHOT=/tmp/pets.png ELECTRON_ENABLE_LOGGING=1 \
+            ./node_modules/.bin/electron . --no-sandbox
       - name: 校验截图
         run: test -s /tmp/shot.png && echo "截图已生成，Electron 启动成功"
+      - name: 校验宠物管理截图
+        run: test -s /tmp/pets.png && echo "宠物管理窗口截图已生成"

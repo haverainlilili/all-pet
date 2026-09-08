@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'" />
+  <title>AllPet 宠物管理</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; padding: 16px; background: #f5f5f7; color: #1d1d1f; }
+    h1 { font-size: 16px; margin: 0 0 12px; }
+    #status { color: #888; font-size: 12px; margin-bottom: 12px; min-height: 16px; }
+    .section-title { font-size: 12px; color: #888; margin: 16px 0 8px; text-transform: uppercase; letter-spacing: .5px; }
+    #pets { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+    .pet-card { position: relative; background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 8px; text-align: center; cursor: pointer; transition: box-shadow .15s; }
+    .pet-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+    .pet-card.current { border-color: #0a84ff; box-shadow: 0 0 0 2px rgba(10,132,255,.25); }
+    .pet-card img { width: 64px; height: 64px; object-fit: contain; display: block; margin: 0 auto; }
+    .pet-card .name { font-size: 12px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pet-card .badge { position: absolute; top: 4px; left: 4px; font-size: 10px; background: #0a84ff; color: #fff; border-radius: 4px; padding: 1px 4px; }
+    .pet-card .del { position: absolute; top: 2px; right: 4px; font-size: 13px; color: #999; background: none; border: none; cursor: pointer; padding: 2px 4px; }
+    .pet-card .del:hover { color: #ff3b30; }
+    #defaults .row { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; }
+    #defaults .row:hover { border-color: #0a84ff; }
+    #defaults .row .dot { color: #0a84ff; font-weight: bold; }
+    #defaults .row .info { flex: 1; min-width: 0; }
+    #defaults .row .info .n { font-size: 13px; }
+    #defaults .row .info .s { font-size: 11px; color: #999; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .actions { margin-top: 18px; display: flex; gap: 8px; }
+    button { flex: 1; padding: 9px; border-radius: 8px; border: 1px solid #d0d0d0; background: #fff; cursor: pointer; font-size: 13px; }
+    button.primary { background: #0a84ff; color: #fff; border-color: #0a84ff; }
+    button:hover { opacity: .88; }
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
+    .modal.hidden { display: none; }
+    .modal-box { width: 320px; background: #fff; border-radius: 12px; padding: 16px; }
+    #modalText { font-size: 14px; margin-bottom: 12px; }
+    #modalInput { width: 100%; padding: 8px; border: 1px solid #d0d0d0; border-radius: 8px; font-size: 13px; margin-bottom: 12px; }
+    #modalInput.hidden { display: none; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .modal-actions button { flex: 0 0 auto; padding: 7px 14px; }
+  </style>
+</head>
+<body>
+  <h1>🐾 宠物管理</h1>
+  <div id="status"></div>
+  <div class="section-title">已安装宠物（点击切换）</div>
+  <div id="pets"></div>
+  <div class="section-title">默认宠物（点击下载）</div>
+  <div id="defaults"></div>
+  <div class="actions">
+    <button id="importBtn">导入本地宠物…</button>
+    <button id="installBtn" class="primary">安装宠物…</button>
+  </div>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-box">
+      <div id="modalText"></div>
+      <input id="modalInput" class="hidden" type="text" />
+      <div class="modal-actions">
+        <button id="modalCancel">取消</button>
+        <button id="modalOk" class="primary">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="pets.js"></script>
+</body>
+</html>

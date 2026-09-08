@@ -1,6 +1,6 @@
 // AllPet 跨平台桌宠（Electron 主进程）
 // 复用 Swift AllPetCore：以子进程跑 `allpet watch --json`，把 NDJSON 快照转发给渲染层。
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require('electron')
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
@@ -13,6 +13,7 @@ if (process.env.ALLPET_NO_SANDBOX) {
 }
 
 let mainWindow = null
+let petManagerWindow = null
 let tray = null
 let watchProc = null
 let currentSnapshot = null
@@ -68,6 +69,27 @@ function spritesheetDataUrl(filePath) {
     : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
     : 'application/octet-stream'
   return `data:${mime};base64,${buf.toString('base64')}`
+}
+
+// 同步跑一次 allpet CLI 子命令，返回 { code, out, err }。
+function runAllpet(args) {
+  return new Promise((resolve, reject) => {
+    const bin = allpetBinary()
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let out = ''
+    let err = ''
+    child.stdout.on('data', c => { out += c.toString('utf8') })
+    child.stderr.on('data', c => { err += c.toString('utf8') })
+    child.on('error', reject)
+    child.on('exit', code => resolve({ code, out, err }))
+  })
+}
+
+function refreshPet() {
+  pushPet()
+  if (petManagerWindow && !petManagerWindow.isDestroyed()) {
+    petManagerWindow.webContents.send('pets-changed')
+  }
 }
 
 // ---- 窗口 ----
@@ -190,6 +212,91 @@ function launchPlatform(platform) {
   }
 }
 
+// ---- 宠物管理 ----
+
+function createPetManagerWindow() {
+  if (petManagerWindow && !petManagerWindow.isDestroyed()) {
+    petManagerWindow.show()
+    petManagerWindow.focus()
+    return
+  }
+  petManagerWindow = new BrowserWindow({
+    width: 440,
+    height: 600,
+    title: 'AllPet 宠物管理',
+    resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  petManagerWindow.loadFile(path.join(__dirname, 'src', 'pets.html'))
+  petManagerWindow.on('closed', () => { petManagerWindow = null })
+}
+
+function registerPetIpc() {
+  ipcMain.handle('pets:list', async () => {
+    const { code, out } = await runAllpet(['pet', 'list', '--json'])
+    if (code !== 0) return { ok: false, error: out || 'list failed' }
+    try {
+      const data = JSON.parse(out)
+      const pets = (data.pets || []).map(p => {
+        let spritesheet = null
+        try { spritesheet = spritesheetDataUrl(p.spritesheetPath) } catch { /* 忽略 */ }
+        return {
+          id: p.id,
+          displayName: p.displayName,
+          description: p.description,
+          current: !!p.current,
+          builtin: !!p.builtin,
+          cellWidth: p.cellWidth,
+          cellHeight: p.cellHeight,
+          spritesheet
+        }
+      })
+      return { ok: true, pets, defaults: data.defaults || [] }
+    } catch (e) {
+      return { ok: false, error: String(e && e.message || e) }
+    }
+  })
+
+  ipcMain.handle('pets:set', async (_e, id) => {
+    const { code, out } = await runAllpet(['pet', 'set', id])
+    if (code !== 0) return { ok: false, error: out || 'set failed' }
+    refreshPet()
+    return { ok: true }
+  })
+
+  ipcMain.handle('pets:delete', async (_e, id) => {
+    const { code, out } = await runAllpet(['pet', 'delete', id])
+    if (code !== 0) return { ok: false, error: out || 'delete failed' }
+    refreshPet()
+    return { ok: true }
+  })
+
+  ipcMain.handle('pets:import', async () => {
+    const result = await dialog.showOpenDialog(petManagerWindow || undefined, {
+      title: '导入本地宠物',
+      properties: ['openFile', 'openDirectory']
+    })
+    if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true }
+    const { code, out } = await runAllpet(['pet', 'import', result.filePaths[0]])
+    if (code !== 0) return { ok: false, error: out || 'import failed' }
+    refreshPet()
+    return { ok: true }
+  })
+
+  ipcMain.handle('pets:install', async (_e, source) => {
+    const source2 = String(source || '').trim()
+    if (!source2) return { ok: false, error: '请输入安装来源' }
+    const { code, out } = await runAllpet(['pet', 'install', source2])
+    if (code !== 0) return { ok: false, error: out || 'install failed' }
+    refreshPet()
+    return { ok: true }
+  })
+}
+
 // ---- 托盘 ----
 
 function createTray() {
@@ -227,6 +334,7 @@ function updateTrayMenu() {
     template.push({ type: 'separator' })
   }
   if (pet) template.push({ label: `当前宠物：${pet.displayName}`, enabled: false })
+  template.push({ label: '宠物管理…', click: () => createPetManagerWindow() })
   template.push({ label: '刷新宠物', click: () => pushPet() })
   template.push({ type: 'separator' })
   template.push({ label: '退出 AllPet', click: () => quit() })
@@ -243,6 +351,7 @@ function quit() {
 
 app.whenReady().then(() => {
   app.isQuitting = false
+  registerPetIpc()
   createWindow()
   createTray()
   startWatch()
@@ -260,6 +369,24 @@ app.whenReady().then(() => {
         quit()
       }
     }, 5000)
+  }
+
+  // 调试：ALLPET_PET_MANAGER_SCREENSHOT=/path.png 时，打开宠物管理窗口并截图退出。
+  if (process.env.ALLPET_PET_MANAGER_SCREENSHOT) {
+    const target = process.env.ALLPET_PET_MANAGER_SCREENSHOT
+    setTimeout(() => {
+      createPetManagerWindow()
+      setTimeout(() => {
+        if (petManagerWindow && !petManagerWindow.isDestroyed()) {
+          petManagerWindow.webContents.capturePage().then((img) => {
+            fs.writeFileSync(target, img.toPNG())
+            console.log('[allpet] 宠物管理截图已保存:', target)
+          }).catch((e) => console.error('[allpet] 宠物管理截图失败:', e)).finally(() => quit())
+        } else {
+          quit()
+        }
+      }, 4000)
+    }, 1500)
   }
 })
 

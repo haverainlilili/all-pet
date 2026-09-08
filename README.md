@@ -2,7 +2,7 @@
 
 **One desktop pet that watches all your AI coding agents — Codex, Claude Code / Desktop, DeepSeek Harness (DSH), and Grok — with a cross-platform status / watch CLI.**
 
-> GUI is macOS; the core monitoring and `status` / `watch` CLI build and run on macOS, Linux, and Windows.
+> The native pet GUI is macOS; the cross-platform Electron shell (`desktop/`) shows the pet plus a graphical pet manager on macOS, Linux, and Windows. Core monitoring and the `status` / `watch` CLI build and run everywhere.
 
 The pet switches animation based on what your agents are doing — idle, running, waiting, done, failed — and each task bubble lets you jump straight back into the originating session.
 
@@ -27,6 +27,7 @@ The pattern is consistent: **each model is strongest inside its own harness.** S
 - **Task bubbles** — three levels (summary → platform → session); each platform uses its own brand colors.
 - **Wake & strong-wake** — click a bubble to focus the original task; if the app was closed, confirm and it reopens to the same task.
 - **Cross-platform CLI** — `status` / `watch` / `self-test` build on macOS, Linux, and Windows.
+- **Cross-platform desktop shell** — an Electron shell (`desktop/`) shows the pet and a graphical pet manager (switch / install / import / delete pets) on Windows, Linux, and macOS.
 - **Bring your own pet** — one-command install from GitHub, or import local Codex / OpenPets / cc-haha / clawd-on-desk / LingChat / single-image pets.
 
 ## Quick start

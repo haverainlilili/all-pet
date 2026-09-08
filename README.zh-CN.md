@@ -2,7 +2,7 @@
 
 # AllPet 🐾
 
-一只 AI 编码桌面宠物（GUI 仅 macOS），同时查看 **Codex、Claude Code / Desktop、DeepSeek Harness（DSH）和 Grok** 的任务状态。核心监控与 `status`/`watch` 等 CLI 支持 macOS / Linux / Windows。
+一只 AI 编码桌面宠物，同时查看 **Codex、Claude Code / Desktop、DeepSeek Harness（DSH）和 Grok** 的任务状态。原生宠物 GUI 仅 macOS；跨平台 Electron 壳（`desktop/`）可在 macOS / Linux / Windows 显示宠物并提供图形化宠物管理。核心监控与 `status`/`watch` 等 CLI 支持全平台。
 
 宠物会根据运行、等待、完成和失败状态切换动画；点击任务气泡可以回到对应会话。
 
@@ -88,6 +88,18 @@ cd all-pet
 | 本地单图 | 兼容的 single-image `pet.json` |
 
 GitHub 素材只会克隆到用户电脑的 `~/.config/all-pet/pet-sources/`，不会打包进 AllPet 仓库。第三方角色和素材仍遵守原项目许可。
+
+### 方法四：Windows / Linux（Electron 壳）
+
+macOS 之外，跨平台 Electron 壳提供同一套图形化宠物管理：
+
+```bash
+cd desktop
+npm ci
+npm start
+```
+
+在系统托盘中打开 **宠物管理…**，即可图形化地切换 / 安装 / 导入 / 删除宠物（含缩略图与默认宠物一键下载）。
 
 ## 任务气泡
 
