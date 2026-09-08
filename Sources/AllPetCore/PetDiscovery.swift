@@ -4,6 +4,7 @@ import Foundation
 public enum PetDiscovery {
 
     public static func discover(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [PetBundle] {
+        BundledPets.materialize(home: home)
         let claudeConfigRoot: URL = {
             guard let configured = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"], !configured.isEmpty else {
                 return home.appendingPathComponent(".claude", isDirectory: true)
@@ -39,6 +40,17 @@ public enum PetDiscovery {
                 }
             }
         }
-        return bundles
+        return order(bundles)
+    }
+
+    /// 内置宠物按声明顺序排最前（首个即开箱默认），其余按 id 字母序稳定排序。
+    private static func order(_ bundles: [PetBundle]) -> [PetBundle] {
+        let builtin = BundledPets.slugs
+        return bundles.sorted { left, right in
+            let li = builtin.firstIndex(of: left.manifest.id.lowercased()) ?? builtin.count
+            let ri = builtin.firstIndex(of: right.manifest.id.lowercased()) ?? builtin.count
+            if li != ri { return li < ri }
+            return left.manifest.id.lowercased() < right.manifest.id.lowercased()
+        }
     }
 }

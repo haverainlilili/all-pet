@@ -645,7 +645,8 @@ public enum AllPetSelfTest {
             try FileManager.default.copyItem(at: ccResult.bundle.spritesheetURL, to: stale.appendingPathComponent("spritesheet.png"))
             try JSONSerialization.data(withJSONObject: ["id": "stale", "spritesheetPath": "spritesheet.png"])
                 .write(to: stale.appendingPathComponent("pet.json"))
-            expect(PetDiscovery.discover(home: home).count == 5, "Imported pets are discoverable and hidden staging is ignored")
+            expect(PetDiscovery.discover(home: home).count == 5 + BundledPets.slugs.count,
+                   "Imported pets are discoverable; hidden staging ignored and bundled pets materialize")
         } catch {
             expect(false, "Pet adapter fixtures: \(error.localizedDescription)")
         }

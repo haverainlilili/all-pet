@@ -20,6 +20,15 @@
   agent 活动状态（运行 / 思考 / 完成 / 报错 / 中断）到宠物姿势的映射思路，
   DSH 活动信号（`~/.dsh/sessions/**/session.jsonl.zstd`）的来源确认。
 
+## 内置宠物素材
+
+随 AllPet 分发的默认宠物位于 `Sources/AllPetCore/Resources/BundledPets/`，首次启动时物化到用户的
+`~/.config/all-pet/pets/` 用于开箱即用展示：
+
+- `boba`、`tiko`、`hoops`：来自 [petdex](https://github.com/crafter-station/petdex)（MIT），
+  具体素材版权以 petdex 仓库及原作者声明为准。
+- `cat-hamster-duo`（团团和米粒）：本项目作者自产素材。
+
 ## 本地格式适配目标（未 vendoring）
 
 以下项目仅作为 `PetModelImporter` 的**用户本地输入格式**。AllPet 不链接其代码、不下载、不在仓库中
