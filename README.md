@@ -1,22 +1,37 @@
 # AllPet 🐾
 
-一只 AI 编码桌面宠物（GUI 仅 macOS），同时查看 **Codex、Claude Code / Desktop、DeepSeek Harness（DSH）和 Grok** 的任务状态。核心监控与 `status`/`watch` 等 CLI 支持 macOS / Linux / Windows。
+**One desktop pet that watches all your AI coding agents — Codex, Claude Code / Desktop, DeepSeek Harness (DSH), and Grok — with a cross-platform status / watch CLI.**
 
-宠物会根据运行、等待、完成和失败状态切换动画；点击任务气泡可以回到对应会话。
+> GUI is macOS; the core monitoring and `status` / `watch` CLI build and run on macOS, Linux, and Windows.
 
-## 为什么同时看这么多平台？
+The pet switches animation based on what your agents are doing — idle, running, waiting, done, failed — and each task bubble lets you jump straight back into the originating session.
 
-你现在真正用到的能力不是「某个模型」，而是 **harness（执行外壳）× 模型** 的组合。harness 决定模型看到什么上下文、能用哪些工具、什么时候重试或收尾——同一个模型套上不同的 harness，结果可以差很远：
+[中文文档](./README.zh-CN.md) · English
 
-- 同一个 **Claude Sonnet 4.6**：在 Claude Code 里 SWE-bench Verified 约 71%，换成 Continue 外壳只剩约 52%。([TensorFeed](https://tensorfeed.ai/harnesses))
-- 同一个 **Claude Opus 4.5**：统一 SEAL 脚手架下 45.9%，放回自家 Claude Code 是 55.4%。([arXiv 2605.23950](https://arxiv.org/html/2605.23950))
-- 同一个 **Grok 4**：通用 SWE-agent 下 58.6%，换成 xAI 自家脚手架 72–75%。([arXiv 2605.23950](https://arxiv.org/html/2605.23950))
+---
 
-规律很一致：**各家模型在自己的 harness 里最强**（系统提示、工具定义、上下文管理都围绕自家模型调过），换到别家外壳就掉分。所以「Claude 用 Claude Code、GPT 用 Codex、Grok 用 Grok」才是日常用法——这也是 AllPet 同时盯着 Codex、Claude Code、DSH、Grok 的原因。
+## Why one pet for all these platforms?
 
-## 快速开始
+What you actually use every day is not "a model" — it's a **harness × model** combination. The harness decides what context the model sees, which tools it gets, and when it retries or wraps up. The same model behind a different harness can produce very different results:
 
-要求：GUI 需 macOS 14+、Xcode Command Line Tools；`status`/`watch`/`help`/`pet list` 等 CLI 可在 Linux（Swift 5.10+）与 Windows 上构建运行（Linux 已用 Docker `swift:latest` 镜像验证）。
+- The same **Claude Sonnet 4.6** scores ~71% on SWE-bench Verified inside Claude Code, but only ~52% behind the Continue shell. ([TensorFeed](https://tensorfeed.ai/harnesses))
+- The same **Claude Opus 4.5** scores 45.9% under the unified SEAL scaffold, and 55.4% back in its own Claude Code. ([arXiv 2605.23950](https://arxiv.org/html/2605.23950))
+- The same **Grok 4** scores 58.6% under a generic SWE-agent, and 72–75% with xAI's own scaffold. ([arXiv 2605.23950](https://arxiv.org/html/2605.23950))
+
+The pattern is consistent: **each model is strongest inside its own harness.** So "Claude in Claude Code, GPT in Codex, Grok in Grok" is the everyday reality — which is exactly why AllPet watches Codex, Claude Code, DSH, and Grok at the same time.
+
+## Features
+
+- **One pet, four platforms** — natively reads Codex, Claude Code / Desktop, DSH, and Grok task state from your local session logs (no accounts, no API keys).
+- **Live state animation** — the pet switches between idle / running / waiting / done / failed as tasks progress.
+- **Task bubbles** — three levels (summary → platform → session); each platform uses its own brand colors.
+- **Wake & strong-wake** — click a bubble to focus the original task; if the app was closed, confirm and it reopens to the same task.
+- **Cross-platform CLI** — `status` / `watch` / `self-test` build on macOS, Linux, and Windows.
+- **Bring your own pet** — one-command install from GitHub, or import local Codex / OpenPets / cc-haha / clawd-on-desk / LingChat / single-image pets.
+
+## Quick start
+
+Requirements: GUI needs macOS 14+ with Xcode Command Line Tools. The `status` / `watch` / `help` / `pet list` CLI builds and runs on Linux (Swift 5.10+) and Windows (verified with the `swift:latest` Docker image on Linux).
 
 ```bash
 git clone git@github.com:haverainlilili/all-pet.git
@@ -24,29 +39,27 @@ cd all-pet
 ./allpet
 ```
 
-第一次启动会自动构建，之后继续使用 `./allpet` 即可。
+The first launch builds automatically; afterwards just run `./allpet` again.
 
 ```bash
-./allpet status       # 查看当前任务状态
-./allpet restart      # 重新构建并重启
-./allpet stop         # 停止宠物
-./allpet logs         # 查看日志
-./allpet self-test    # 运行内建检查
+./allpet status       # current task state
+./allpet restart      # rebuild and restart
+./allpet stop         # stop the pet
+./allpet logs         # view logs
+./allpet self-test    # run built-in checks
 ```
 
-## 更换宠物
+## Changing the pet
 
-### 方法一：在菜单中选择（最简单）
+### Option 1: menu (easiest)
 
-1. 点击 macOS 菜单栏的 **🐾**。
-2. 打开 **宠物**。
-3. 每个已安装宠物都会显示缩略图；点击即可立即切换。
+1. Click the **🐾** in the macOS menu bar.
+2. Open **Pet**.
+3. Every installed pet shows a thumbnail; click to switch instantly.
 
-### 方法二：从 GitHub 一键安装
+### Option 2: install from GitHub
 
-菜单栏选择 **🐾 → 宠物 → 从 GitHub 安装宠物…**，在输入框中填写预设名称或支持格式的 GitHub 仓库 URL。
-
-也可以执行一条命令：
+Choose **🐾 → Pet → Install pet from GitHub…** and enter a preset name or a compatible repository URL. Or run:
 
 ```bash
 ./allpet pet install cc-haha
@@ -54,79 +67,79 @@ cd all-pet
 ./allpet pet install lingchat
 ```
 
-查看全部可选项：
+List everything available:
 
 ```bash
 ./allpet pet list
 ```
 
-切换已安装宠物：
+Switch an installed pet:
 
 ```bash
 ./allpet pet set "搭搭"
 ./allpet pet set cloudling
 ```
 
-如果 GUI 已在运行，命令行更换后执行 `./allpet restart`。
+If the GUI is already running, run `./allpet restart` after switching.
 
-### 方法三：导入本地宠物
+### Option 3: import a local pet
 
-菜单栏选择 **🐾 → 宠物 → 导入本地宠物…**，或执行：
+Choose **🐾 → Pet → Import local pet…**, or run:
 
 ```bash
-./allpet pet import "/本地/宠物路径"
+./allpet pet import "/path/to/pet"
 ```
 
-| 来源 | AllPet 读取方式 |
+| Source | How AllPet reads it |
 |---|---|
-| Codex / OpenPets | `pet.json` + 8×9 或 8×11 PNG/WebP 图集 |
-| cc-haha | 自动读取仓库中的 V2 `spritesheet.webp`，一次导入多个宠物 |
-| clawd-on-desk | `theme.json` + GIF/SVG 状态素材 |
-| LingChat | `settings.yml` + `avatar/` 表情素材 |
-| 本地单图 | 兼容的 single-image `pet.json` |
+| Codex / OpenPets | `pet.json` + 8×9 or 8×11 PNG/WebP atlas |
+| cc-haha | reads the repo's V2 `spritesheet.webp`, imports multiple pets at once |
+| clawd-on-desk | `theme.json` + GIF/SVG state assets |
+| LingChat | `settings.yml` + `avatar/` expression assets |
+| Local single image | a compatible single-image `pet.json` |
 
-GitHub 素材只会克隆到用户电脑的 `~/.config/all-pet/pet-sources/`，不会打包进 AllPet 仓库。第三方角色和素材仍遵守原项目许可。
+GitHub assets are cloned only into your local `~/.config/all-pet/pet-sources/` — never bundled into the AllPet repo. Third-party characters and assets remain under their original licenses.
 
-## 任务气泡
+## Task bubbles
 
-气泡有三层：
+A bubble has three levels:
 
-1. **收起**：显示平台概况；
-2. **平台**：选择 Codex、Claude、DSH 或 Grok；
-3. **会话**：选择具体会话并唤起原任务。
+1. **Collapsed** — platform overview;
+2. **Platform** — choose Codex, Claude, DSH, or Grok;
+3. **Session** — choose a specific session and wake the original task.
 
-标题只显示稳定的**会话名称**，当前动作和进度显示在副标题中。
+The title shows the stable **session name**; the current action and progress appear in the subtitle.
 
-- 点击窗口外部回到收起状态；
-- 每个任务气泡右上角可以关闭；
-- 完成或失败任务在成功唤起后自动消失；
-- 用户自己手动打开已完成任务时，对应气泡也会消失。
+- Click outside the window to collapse;
+- Close button in the top-right of every bubble;
+- Done or failed tasks disappear after being woken;
+- A bubble also disappears when you open a finished task manually.
 
-## 唤起与强唤起
+## Wake & strong-wake
 
-- **唤起**：程序仍在运行，只聚焦此前打开的原任务。
-- **强唤起**：程序已经关闭；经用户确认后重新打开程序，并定位到原任务。
+- **Wake** — the app is still running; just focus the already-open original task.
+- **Strong-wake** — the app was closed; after you confirm, it reopens the app and navigates to the original task.
 
-Claude 强唤起会让用户选择 **Claude Desktop / Claude CLI / 取消**。Desktop 只打开已有 `/epitaxy/<local-id>` 原任务，不使用会创建副本的 `claude://resume`；打开失败后会回到选择界面。
+Claude strong-wake asks you to choose **Claude Desktop / Claude CLI / Cancel**. Desktop opens only an existing `/epitaxy/<local-id>` task (never a duplicated `claude://resume`); on failure it returns to the picker.
 
-终端类任务优先复用原 Terminal / iTerm 标签页；没有用户确认时不会新建终端或执行 resume。
+Terminal tasks prefer to reuse the original Terminal / iTerm tab; nothing new is opened or resumed without your confirmation.
 
-## 状态从哪里来
+## Where the state comes from
 
-AllPet 读取各平台已经保存在本机的会话日志，不需要账号密码或额外 API：
+AllPet reads session logs already stored locally by each platform — no passwords or extra APIs:
 
-| 平台 | 默认数据位置 |
+| Platform | Default data location |
 |---|---|
 | Codex | `~/.codex/sessions` |
 | Claude Code | `~/.claude/projects` |
 | DSH | `~/.dsh/sessions` |
-| Grok | `~/.grok/logs/unified.jsonl`、`active_sessions.json` |
+| Grok | `~/.grok/logs/unified.jsonl`, `active_sessions.json` |
 
-日志中的任务事件优先决定状态；没有明确事件时，再根据最近写入时间判断运行、等待或空闲。扫描、缓存和 zstd 解压都在后台进行，不影响宠物动画。
+Explicit task events in the logs win; when there is no clear event, AllPet falls back to recent-write time to infer running / waiting / idle. Scanning, caching, and zstd decompression all run in the background so the pet animation never stutters.
 
-## 配置
+## Configuration
 
-配置文件：`~/.config/all-pet/config.json`，示例见 [`config.example.json`](./config.example.json)。
+Config file: `~/.config/all-pet/config.json` (see [`config.example.json`](./config.example.json)).
 
 ```json
 {
@@ -139,33 +152,33 @@ AllPet 读取各平台已经保存在本机的会话日志，不需要账号密�
 }
 ```
 
-- `scale`：宠物大小；
-- `anchor`：`bottom-right`、`bottom-left`、`top-right` 或 `top-left`；
-- `bundlePath`：当前宠物目录；通常不需要手动修改，菜单和 `pet set` 会自动保存。
+- `scale` — pet size;
+- `anchor` — `bottom-right`, `bottom-left`, `top-right`, or `top-left`;
+- `bundlePath` — current pet directory; usually you don't need to set it — the menu and `pet set` save it automatically.
 
-## 常见问题
+## FAQ
 
-### 点击任务无法定位
+### Clicking a task doesn't focus it
 
-在“系统设置 → 隐私与安全性 → 辅助功能”中允许 AllPet / Terminal 控制窗口。浏览器还需要允许 Apple Events / JavaScript 自动化。
+Allow AllPet / Terminal to control windows in "System Settings → Privacy & Security → Accessibility". Browsers additionally need Apple Events / JavaScript automation.
 
-### DSH 只显示时间，没有任务内容
+### DSH only shows times, no task content
 
 ```bash
 brew install zstd
 ```
 
-### 查看问题
+### Debugging
 
 ```bash
 ./allpet self-test
 ./allpet logs
 ```
 
-日志位于 `~/.config/all-pet/allpet.log`。
+Logs live at `~/.config/all-pet/allpet.log`.
 
-## 许可
+## License
 
-AllPet 使用 MIT License。开源参考与第三方许可说明见 [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md)。
+MIT. See [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) for open-source references and third-party notices.
 
-项目参考：[openpets](https://github.com/alterhq/openpets)、[codex-to-dsh-pet](https://github.com/Signalight/codex-to-dsh-pet)。cc-haha、clawd-on-desk 和 LingChat 仅作为用户主动安装的格式来源，素材不随本仓库分发。
+Built with reference to [openpets](https://github.com/alterhq/openpets) and [codex-to-dsh-pet](https://github.com/Signalight/codex-to-dsh-pet). cc-haha, clawd-on-desk, and LingChat are only install-time format sources; their assets are not distributed with this repository.
