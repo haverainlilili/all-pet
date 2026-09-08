@@ -37,6 +37,7 @@ final class TaskLauncher: @unchecked Sendable {
     private let home: URL
     private var cachedBindingByTask: [String: TerminalBinding] = [:]
     private var recentWakeAt: [String: Date] = [:]
+    private let claudeBaselineLock = NSLock()
     private var claudeDesktopFocusBaseline: [String: Double] = [:]
 
     init(home: URL) {
@@ -448,11 +449,20 @@ final class TaskLauncher: @unchecked Sendable {
         guard let mostRecent = ClaudeDesktopSessionLookup.mostRecentlyFocusedSession(roots: claudeDesktopSessionRoots),
               mostRecent.sessionID == record.sessionID else { return false }
         let current = record.lastFocusedAt
+        claudeBaselineLock.lock()
+        defer { claudeBaselineLock.unlock() }
         if let baseline = claudeDesktopFocusBaseline[key] {
             return current > baseline + 1
         }
         claudeDesktopFocusBaseline[key] = current
         return false
+    }
+
+    /// 任务转成「已完成」时重置该会话的焦点基线，避免同一会话再次完成后沿用旧基线被过早判为已查看。
+    func clearClaudeFocusBaseline(for canonicalID: String) {
+        claudeBaselineLock.lock()
+        claudeDesktopFocusBaseline.removeValue(forKey: canonicalID)
+        claudeBaselineLock.unlock()
     }
 
     private func isTerminalTabSelected(_ task: TrayTaskItem) -> Bool {

@@ -468,6 +468,10 @@ final class PetApp: NSObject, @unchecked Sendable {
                 ?? history.firstIndex(where: { $0.sessionID == nil && $0.title == item.title })
             if let index = existingIndex {
                 if !(history[index].phase == .done && item.phase == .idle) {
+                    if item.platform == .claude, history[index].phase != .done, item.phase == .done {
+                        // 同一会话重新进入「已完成」：重置焦点基线，避免沿用上一轮的旧基线被过早判为已查看。
+                        taskLauncher.clearClaudeFocusBaseline(for: item.canonicalID)
+                    }
                     if let previousBinding = history[index].terminalBinding {
                         item.terminalBinding = previousBinding
                         item.terminalTTY = previousBinding.tty
@@ -482,6 +486,9 @@ final class PetApp: NSObject, @unchecked Sendable {
                     history[index] = item
                 }
             } else {
+                if item.platform == .claude, item.phase == .done {
+                    taskLauncher.clearClaudeFocusBaseline(for: item.canonicalID)
+                }
                 history.append(item)
                 shouldPersistHistory = true
             }
