@@ -18,7 +18,19 @@
 
 ## 快速开始
 
-要求：GUI 需 macOS 14+、Xcode Command Line Tools；`status`/`watch`/`help`/`pet list` 等 CLI 可在 Linux（Swift 5.10+）与 Windows 上构建运行（Linux 已用 Docker `swift:latest` 镜像验证）。
+### 下载安装包（推荐）
+
+从 [GitHub Releases](https://github.com/haverainlilili/all-pet/releases) 下载最新版本：
+
+- **macOS** — `AllPet-<版本>-arm64.dmg`
+- **Windows** — `AllPet-Setup-<版本>.exe`
+- **Linux** — `AllPet-<版本>.AppImage` 或 `allpet-desktop_<版本>_amd64.deb`
+
+安装包内已包含 Swift 核心与 4 个内置宠物，无需安装 Node.js / Swift，也无需额外下载宠物。（macOS 版本暂未签名，首次打开需右键 →「打开」。）
+
+### 从源码构建
+
+要求：原生 GUI 需 macOS 14+、Xcode Command Line Tools；`status`/`watch`/`help`/`pet list` 等 CLI 可在 Linux（Swift 5.10+）与 Windows 上构建运行（Linux 已用 Docker `swift:latest` 镜像验证）。
 
 ```bash
 git clone git@github.com:haverainlilili/all-pet.git
@@ -37,6 +49,8 @@ cd all-pet
 ```
 
 ## 更换宠物
+
+AllPet 内置 4 个开箱即用宠物（Boba、Tiko、团团和米粒、Hoops）；其余默认宠物首次点击时下载。
 
 ### 方法一：在菜单中选择（最简单）
 
@@ -156,6 +170,17 @@ AllPet 读取各平台已经保存在本机的会话日志，不需要账号密�
 - `scale`：宠物大小；
 - `anchor`：`bottom-right`、`bottom-left`、`top-right` 或 `top-left`；
 - `bundlePath`：当前宠物目录；通常不需要手动修改，菜单和 `pet set` 会自动保存。
+
+## 打包安装包
+
+打一个 `v*` tag 即会构建三平台安装包并发布到 GitHub Releases：
+
+```bash
+git tag -a v1.0.1 -m "AllPet v1.0.1"
+git push origin v1.0.1
+```
+
+`Release` 工作流会先构建 Swift 核心、作为 Electron sidecar 内嵌，再在 macOS / Windows / Linux 上运行 electron-builder。也可以在 Actions 页面手动触发（只出产物、不发布 Release）。本地打包见 [`desktop/README.md`](./desktop/README.md)。
 
 ## 常见问题
 

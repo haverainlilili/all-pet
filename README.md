@@ -32,7 +32,19 @@ The pattern is consistent: **each model is strongest inside its own harness.** S
 
 ## Quick start
 
-Requirements: GUI needs macOS 14+ with Xcode Command Line Tools. The `status` / `watch` / `help` / `pet list` CLI builds and runs on Linux (Swift 5.10+) and Windows (verified with the `swift:latest` Docker image on Linux).
+### Download an installer (recommended)
+
+Grab the latest from [GitHub Releases](https://github.com/haverainlilili/all-pet/releases):
+
+- **macOS** — `AllPet-<version>-arm64.dmg`
+- **Windows** — `AllPet-Setup-<version>.exe`
+- **Linux** — `AllPet-<version>.AppImage` or `allpet-desktop_<version>_amd64.deb`
+
+Installers bundle the Swift core and 4 built-in pets, so no Node.js, Swift, or extra pet downloads are needed. (macOS builds are currently unsigned — right-click → Open on first launch.)
+
+### Build from source
+
+Requirements: the native GUI needs macOS 14+ with Xcode Command Line Tools. The `status` / `watch` / `help` / `pet list` CLI builds and runs on Linux (Swift 5.10+) and Windows (verified with the `swift:latest` Docker image on Linux).
 
 ```bash
 git clone git@github.com:haverainlilili/all-pet.git
@@ -51,6 +63,8 @@ The first launch builds automatically; afterwards just run `./allpet` again.
 ```
 
 ## Changing the pet
+
+AllPet ships with 4 built-in pets out of the box (Boba, Tiko, 团团和米粒, Hoops). Other default pets download on first click.
 
 ### Option 1: menu (easiest)
 
@@ -156,6 +170,17 @@ Config file: `~/.config/all-pet/config.json` (see [`config.example.json`](./conf
 - `scale` — pet size;
 - `anchor` — `bottom-right`, `bottom-left`, `top-right`, or `top-left`;
 - `bundlePath` — current pet directory; usually you don't need to set it — the menu and `pet set` save it automatically.
+
+## Packaging installers
+
+Tag a release to build all three platforms and publish to GitHub Releases:
+
+```bash
+git tag -a v1.0.1 -m "AllPet v1.0.1"
+git push origin v1.0.1
+```
+
+The `Release` workflow builds the Swift core, embeds it as the Electron sidecar, then runs `electron-builder` on macOS / Windows / Linux. You can also trigger it manually from the Actions tab (artifacts only, no Release). Local packaging: see [`desktop/README.md`](./desktop/README.md).
 
 ## FAQ
 
