@@ -422,23 +422,28 @@ enum TaskExtractors {
 
         let newestActivity = states.values.compactMap(\.activityAt).max()
         let threshold = newestActivity?.addingTimeInterval(-max(0, relevanceWindow))
-        let candidates = states.values.filter { state in
+        // 完成/失败是终态，即使超出 relevanceWindow 也保留；但「最近活跃」的优先级更高。
+        func isRecent(_ state: ParsedTask) -> Bool {
             guard let threshold else { return true }
             return state.activityAt.map { $0 >= threshold } ?? false
         }
-        func rank(_ phase: AgentPhase?) -> Int {
-            switch phase {
-            case .failed: 5
-            case .running, .thinking: 4
-            case .waiting: 3
-            case .done: 2
-            case .idle: 1
-            case nil: 0
+        let candidates = states.values.filter { state in
+            isRecent(state) || state.phase == .done || state.phase == .failed
+        }
+        func rank(_ state: ParsedTask) -> Int {
+            let recent = isRecent(state)
+            switch state.phase {
+            case .failed: return recent ? 6 : 2
+            case .running, .thinking: return recent ? 5 : 1
+            case .waiting: return recent ? 4 : 1
+            case .done: return recent ? 3 : 2
+            case .idle: return recent ? 2 : 1
+            case nil: return 0
             }
         }
         var selected = candidates.max { left, right in
-            let leftRank = rank(left.phase)
-            let rightRank = rank(right.phase)
+            let leftRank = rank(left)
+            let rightRank = rank(right)
             if leftRank != rightRank { return leftRank < rightRank }
             let leftDate = left.activityAt ?? .distantPast
             let rightDate = right.activityAt ?? .distantPast

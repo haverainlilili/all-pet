@@ -263,6 +263,14 @@ public enum AllPetSelfTest {
             PhaseClassifier.resolved(inferred: .waiting, parsed: .done, age: 20, config: watch) == .done,
             "Terminal phase persists during waiting window"
         )
+        expect(
+            PhaseClassifier.resolved(inferred: .idle, parsed: .done, age: 600, config: watch) == .done,
+            "Completed task stays completed beyond waiting window"
+        )
+        expect(
+            PhaseClassifier.resolved(inferred: .idle, parsed: .failed, age: 3600, config: watch) == .failed,
+            "Failed task stays failed indefinitely"
+        )
 
         let tailFixture = FileManager.default.temporaryDirectory
             .appendingPathComponent("allpet-tail-\(UUID().uuidString).jsonl")

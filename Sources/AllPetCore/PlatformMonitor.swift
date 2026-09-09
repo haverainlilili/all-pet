@@ -18,7 +18,8 @@ public enum PhaseClassifier {
         return .idle
     }
 
-    /// 活跃日志事件只能覆盖 activeWindow；完成/失败/等待可在 waitingWindow 内保留。
+    /// 活跃日志事件只能覆盖 activeWindow；等待可在 waitingWindow 内保留；
+    /// 完成/失败是终态，持续保留到文件出现新活动覆盖（避免「任务完成了气泡却消失」）。
     public static func resolved(
         inferred: AgentPhase,
         parsed: AgentPhase?,
@@ -29,8 +30,10 @@ public enum PhaseClassifier {
         switch parsed {
         case .running, .thinking:
             return age <= config.activeWindowSeconds ? parsed : inferred
-        case .waiting, .done, .failed:
+        case .waiting:
             return age <= config.waitingWindowSeconds ? parsed : inferred
+        case .done, .failed:
+            return parsed
         case .idle:
             return .idle
         }
