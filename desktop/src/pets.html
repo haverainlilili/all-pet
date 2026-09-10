@@ -10,6 +10,9 @@
     h1 { font-size: 16px; margin: 0 0 12px; }
     #status { color: #888; font-size: 12px; margin-bottom: 12px; min-height: 16px; }
     .section-title { font-size: 12px; color: #888; margin: 16px 0 8px; text-transform: uppercase; letter-spacing: .5px; }
+    .size-control { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 8px 12px; }
+    .size-control button { flex: 0 0 auto; width: 36px; padding: 6px; font-size: 16px; }
+    .size-control #sizeLabel { flex: 1; text-align: center; font-size: 14px; font-weight: 600; }
     #pets { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
     .pet-card { position: relative; background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 8px; text-align: center; cursor: pointer; transition: box-shadow .15s; }
     .pet-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.12); }
@@ -42,6 +45,12 @@
 <body>
   <h1>🐾 宠物管理</h1>
   <div id="status"></div>
+  <div class="section-title">宠物大小</div>
+  <div class="size-control">
+    <button id="sizeDec" title="减小">−</button>
+    <span id="sizeLabel">100%</span>
+    <button id="sizeInc" title="增大">＋</button>
+  </div>
   <div class="section-title">已安装宠物（点击切换）</div>
   <div id="pets"></div>
   <div class="section-title">默认宠物（点击下载）</div>

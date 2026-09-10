@@ -3,11 +3,20 @@
 const statusEl = document.getElementById('status')
 const petsEl = document.getElementById('pets')
 const defaultsEl = document.getElementById('defaults')
+const sizeDecEl = document.getElementById('sizeDec')
+const sizeIncEl = document.getElementById('sizeInc')
+const sizeLabelEl = document.getElementById('sizeLabel')
 const modalEl = document.getElementById('modal')
 const modalText = document.getElementById('modalText')
 const modalInput = document.getElementById('modalInput')
 const modalOk = document.getElementById('modalOk')
 const modalCancel = document.getElementById('modalCancel')
+
+const DEFAULT_SCALE = 112 / 192
+
+function percentText(scale) {
+  return Math.round((scale / DEFAULT_SCALE) * 100) + '%'
+}
 
 function setStatus(msg, isError) {
   statusEl.textContent = msg || ''
@@ -184,5 +193,21 @@ document.getElementById('installBtn').onclick = async () => {
   else setStatus('安装失败：' + (r.error || '未知错误'), true)
 }
 
+async function refreshScale() {
+  const r = await window.petAPI.getScale()
+  if (r && r.ok) sizeLabelEl.textContent = percentText(r.scale)
+}
+
+sizeDecEl.onclick = async () => {
+  const r = await window.petAPI.setScale(-0.05)
+  if (r && r.ok) sizeLabelEl.textContent = percentText(r.scale)
+}
+
+sizeIncEl.onclick = async () => {
+  const r = await window.petAPI.setScale(0.05)
+  if (r && r.ok) sizeLabelEl.textContent = percentText(r.scale)
+}
+
 window.petAPI.onPetsChanged(() => load())
+refreshScale()
 load()

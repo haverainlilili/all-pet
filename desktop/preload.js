@@ -12,5 +12,10 @@ contextBridge.exposeInMainWorld('petAPI', {
   deletePet: (id) => ipcRenderer.invoke('pets:delete', id),
   importPet: () => ipcRenderer.invoke('pets:import'),
   installPet: (source) => ipcRenderer.invoke('pets:install', source),
-  onPetsChanged: (cb) => ipcRenderer.on('pets-changed', () => cb())
+  onPetsChanged: (cb) => ipcRenderer.on('pets-changed', () => cb()),
+
+  // 宠物大小
+  getScale: () => ipcRenderer.invoke('pets:getScale'),
+  setScale: (delta) => ipcRenderer.invoke('pets:setScale', delta),
+  onScaleChanged: (cb) => ipcRenderer.on('pet-scale', (_e, scale) => cb(scale))
 })

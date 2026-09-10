@@ -60,6 +60,32 @@ function readCurrentPet() {
   }
 }
 
+const CELL_W = 192
+const CELL_H = 208
+const DEFAULT_SCALE = 112 / 192
+const MIN_SCALE = 0.4
+const MAX_SCALE = 1.2
+
+function readScale() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(configPath(), 'utf8'))
+    const s = cfg && cfg.pet && typeof cfg.pet.scale === 'number' ? cfg.pet.scale : DEFAULT_SCALE
+    return Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))
+  } catch {
+    return DEFAULT_SCALE
+  }
+}
+
+// 精灵按 scale 缩放；气泡宽度保持最小可读（160px），高度固定留白。
+function windowSizeForScale(scale) {
+  const spriteW = Math.round(CELL_W * scale)
+  const spriteH = Math.round(CELL_H * scale)
+  return {
+    width: Math.max(spriteW, 160) + 24,
+    height: spriteH + 48
+  }
+}
+
 function spritesheetDataUrl(filePath) {
   const buf = fs.readFileSync(filePath)
   const ext = path.extname(filePath).toLowerCase()
@@ -95,9 +121,10 @@ function refreshPet() {
 // ---- 窗口 ----
 
 function createWindow() {
+  const { width, height } = windowSizeForScale(readScale())
   mainWindow = new BrowserWindow({
-    width: 216,
-    height: 256,
+    width,
+    height,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -127,17 +154,41 @@ function createWindow() {
 
 function pushPet() {
   pet = readCurrentPet()
+  const scale = readScale()
   const payload = pet
     ? {
         ok: true,
         id: pet.manifestId,
         name: pet.displayName,
-        spritesheet: spritesheetDataUrl(pet.spritesheetPath)
+        spritesheet: spritesheetDataUrl(pet.spritesheetPath),
+        scale
       }
-    : { ok: false }
+    : { ok: false, scale }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('pet', payload)
   }
+}
+
+// 相对调整宠物大小，写回 config.json 并同步主窗口与渲染层。
+function applyScale(delta) {
+  const current = readScale()
+  const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, current + delta))
+  if (Math.abs(next - current) < 0.0001) return next
+  try {
+    const cfgPath = configPath()
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
+    cfg.pet = cfg.pet || {}
+    cfg.pet.scale = next
+    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n')
+  } catch (err) {
+    console.error('[allpet] 保存 scale 失败:', err && err.message || err)
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    const size = windowSizeForScale(next)
+    mainWindow.setSize(size.width, size.height)
+  }
+  pushPet()
+  return next
 }
 
 function sendSnapshot(snap) {
@@ -294,6 +345,13 @@ function registerPetIpc() {
     if (code !== 0) return { ok: false, error: out || 'install failed' }
     refreshPet()
     return { ok: true }
+  })
+
+  ipcMain.handle('pets:getScale', async () => ({ ok: true, scale: readScale() }))
+
+  ipcMain.handle('pets:setScale', async (_e, delta) => {
+    const scale = applyScale(Number(delta) || 0)
+    return { ok: true, scale }
   })
 }
 

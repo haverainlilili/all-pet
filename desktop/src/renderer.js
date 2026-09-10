@@ -9,6 +9,13 @@
   const COLS = 8
   const CELL_W = 192
   const CELL_H = 208
+  const DEFAULT_SCALE = 112 / 192
+
+  function applyScale(scale) {
+    const s = Math.max(0.4, Math.min(1.2, typeof scale === 'number' ? scale : DEFAULT_SCALE))
+    canvas.style.width = Math.round(CELL_W * s) + 'px'
+    canvas.style.height = Math.round(CELL_H * s) + 'px'
+  }
 
   const ANIMATIONS = {
     idle:          { row: 0, dur: [1680, 660, 660, 840, 840, 1920] },
@@ -97,6 +104,8 @@
     if (!payload || !payload.ok) {
       canvas.width = 192
       canvas.height = 208
+      canvas.style.width = '192px'
+      canvas.style.height = '208px'
       drawPlaceholder()
       return
     }
@@ -108,6 +117,7 @@
       rows = Math.max(1, Math.round(img.naturalHeight / cellH))
       canvas.width = cellW
       canvas.height = cellH
+      applyScale(payload.scale)
       // 首次载入后按当前快照设定动画（无快照则 idle）。
       setAnimation(currentAnimation || 'idle')
     }
@@ -123,6 +133,7 @@
   if (window.petAPI) {
     window.petAPI.onPet(onPet)
     window.petAPI.onSnapshot(onSnapshot)
+    window.petAPI.onScaleChanged((scale) => applyScale(scale))
     window.petAPI.onWatchError((msg) => {
       bubble.classList.remove('hidden')
       bubble.textContent = '监控异常：' + msg
