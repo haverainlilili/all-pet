@@ -627,6 +627,8 @@ function updateTrayMenu() {
     template.push({ type: 'separator' })
   }
   if (pet) template.push({ label: `当前宠物：${pet.displayName}`, enabled: false })
+  template.push({ label: '增大宠物 5%', click: () => applyScale(0.05) })
+  template.push({ label: '减小宠物 5%', click: () => applyScale(-0.05) })
   template.push({ label: '宠物管理…', click: () => createPetManagerWindow() })
   template.push({ label: '刷新宠物', click: () => pushPet() })
   template.push({ type: 'separator' })
