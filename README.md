@@ -173,14 +173,18 @@ Config file: `~/.config/all-pet/config.json` (see [`config.example.json`](./conf
 
 ## Packaging installers
 
-Tag a release to build all three platforms and publish to GitHub Releases:
+当前版本 **v1.1.0**。版本号记录在 [`desktop/package.json`](./desktop/package.json) 的 `version` 字段（`desktop/package-lock.json` 需同步）。
+
+发新版时先 bump 版本号并提交，再打 tag 触发三平台打包并发布到 GitHub Releases：
 
 ```bash
-git tag -a v1.0.1 -m "AllPet v1.0.1"
-git push origin v1.0.1
+# 1. 修改 desktop/package.json 与 desktop/package-lock.json 的 version
+# 2. 提交后打 tag 并推送
+git tag -a v1.1.1 -m "AllPet v1.1.1"
+git push origin v1.1.1
 ```
 
-The `Release` workflow builds the Swift core, embeds it as the Electron sidecar, then runs `electron-builder` on macOS / Windows / Linux. You can also trigger it manually from the Actions tab (artifacts only, no Release). Local packaging: see [`desktop/README.md`](./desktop/README.md).
+`Release` workflow 会构建 Swift 核心、嵌入 Electron sidecar，再在 macOS / Windows / Linux 上运行 `electron-builder`，产出 `dmg`/`zip`、`exe`、`AppImage`/`deb`。打包完成后 Release 默认为草稿（draft），用 `gh release edit v1.1.1 --draft=false` 正式发布；也可在 Actions 页手动触发（仅出产物、不建 Release）。本地打包见 [`desktop/README.md`](./desktop/README.md)。
 
 ## FAQ
 
