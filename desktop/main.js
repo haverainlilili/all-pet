@@ -1,6 +1,6 @@
 // AllPet 跨平台桌宠（Electron 主进程）
 // 复用 Swift AllPetCore：以子进程跑 `allpet watch --json`，把 NDJSON 快照转发给渲染层。
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog, screen } = require('electron')
 const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
@@ -76,14 +76,41 @@ function readScale() {
   }
 }
 
-// 精灵按 scale 缩放；气泡宽度保持最小可读（160px），高度固定留白。
+// 当前气泡高度（0 = 隐藏）；渲染层实时上报，用于窗口高度对齐 macOS 的「宠物在上、气泡在下」。
+let bubbleHeight = 0
+
+// 精灵按 scale 缩放；气泡宽度保持最小可读（160px），高度随气泡行数动态调整。
 function windowSizeForScale(scale) {
   const spriteW = Math.round(CELL_W * scale)
   const spriteH = Math.round(CELL_H * scale)
   return {
     width: Math.max(spriteW, 160) + 24,
-    height: spriteH + 48
+    height: spriteH + (bubbleHeight > 0 ? bubbleHeight + 14 : 8)
   }
+}
+
+function readAnchor() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(configPath(), 'utf8'))
+    const a = cfg && cfg.pet && typeof cfg.pet.anchor === 'string' ? cfg.pet.anchor : 'bottom-right'
+    return a
+  } catch {
+    return 'bottom-right'
+  }
+}
+
+// 与 macOS 对齐：按 config.pet.anchor 定位到屏幕四角（默认右下角）。
+function positionWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const anchor = readAnchor()
+  const margin = 20
+  const isLeft = anchor.endsWith('left')
+  const isTop = anchor.startsWith('top')
+  const area = screen.getPrimaryDisplay().workArea
+  const size = mainWindow.getSize()
+  const x = isLeft ? area.x + margin : area.x + area.width - size[0] - margin
+  const y = isTop ? area.y + area.height - size[1] - margin : area.y + margin
+  mainWindow.setPosition(Math.round(x), Math.round(y))
 }
 
 function spritesheetDataUrl(filePath) {
@@ -142,6 +169,7 @@ function createWindow() {
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   }
   mainWindow.loadFile(path.join(__dirname, 'src', 'renderer.html'))
+  positionWindow()
 
   // 首次就绪后，把宠物素材 + 当前快照推给渲染层。
   mainWindow.webContents.on('did-finish-load', () => {
@@ -186,6 +214,7 @@ function applyScale(delta) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     const size = windowSizeForScale(next)
     mainWindow.setSize(size.width, size.height)
+    positionWindow()
   }
   pushPet()
   return next
@@ -352,6 +381,18 @@ function registerPetIpc() {
   ipcMain.handle('pets:setScale', async (_e, delta) => {
     const scale = applyScale(Number(delta) || 0)
     return { ok: true, scale }
+  })
+
+  ipcMain.handle('pets:resizeBubble', async (_e, height) => {
+    const h = Math.max(0, Math.round(Number(height) || 0))
+    if (h === bubbleHeight) return { ok: true }
+    bubbleHeight = h
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const size = windowSizeForScale(readScale())
+      mainWindow.setSize(size.width, size.height)
+      positionWindow()
+    }
+    return { ok: true }
   })
 }
 

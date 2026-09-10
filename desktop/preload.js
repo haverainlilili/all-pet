@@ -17,5 +17,8 @@ contextBridge.exposeInMainWorld('petAPI', {
   // 宠物大小
   getScale: () => ipcRenderer.invoke('pets:getScale'),
   setScale: (delta) => ipcRenderer.invoke('pets:setScale', delta),
-  onScaleChanged: (cb) => ipcRenderer.on('pet-scale', (_e, scale) => cb(scale))
+  onScaleChanged: (cb) => ipcRenderer.on('pet-scale', (_e, scale) => cb(scale)),
+
+  // 气泡高度（渲染层 → 主进程，用于窗口高度对齐）
+  resizeForBubble: (height) => ipcRenderer.invoke('pets:resizeBubble', height)
 })

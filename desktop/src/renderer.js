@@ -90,14 +90,44 @@
     frameTimer = 0
   }
 
+  let lastReportedBubbleHeight = -1
+  function reportBubbleHeight() {
+    if (!window.petAPI || !window.petAPI.resizeForBubble) return
+    const h = bubble.classList.contains('hidden') ? 0 : Math.ceil(bubble.offsetHeight)
+    if (h === lastReportedBubbleHeight) return
+    lastReportedBubbleHeight = h
+    window.petAPI.resizeForBubble(h)
+  }
+
+  // 与 macOS 气泡对齐：逐平台显示 bubbleHeader（平台 · 阶段）+ 首行详情。
   function updateBubble(snap) {
-    const idle = !snap.summary || snap.summary === '全部空闲'
-    if (idle) {
+    const platforms = (snap.platforms || []).filter(p => p.phase !== 'idle')
+    if (!platforms.length) {
       bubble.classList.add('hidden')
+      bubble.innerHTML = ''
+      reportBubbleHeight()
       return
     }
     bubble.classList.remove('hidden')
-    bubble.textContent = snap.summary
+    bubble.innerHTML = ''
+    for (const p of platforms.slice(0, 4)) {
+      const line = document.createElement('div')
+      line.className = 'bubble-line'
+      const header = document.createElement('div')
+      header.className = 'bubble-header'
+      header.textContent = p.bubbleHeader || `${p.label} · ${p.phaseLabel}`
+      line.appendChild(header)
+      for (const dText of (p.bubbleDetails || []).slice(0, 2)) {
+        if (dText && dText !== header.textContent) {
+          const d = document.createElement('div')
+          d.className = 'bubble-detail'
+          d.textContent = dText
+          line.appendChild(d)
+        }
+      }
+      bubble.appendChild(line)
+    }
+    reportBubbleHeight()
   }
 
   function onPet(payload) {
