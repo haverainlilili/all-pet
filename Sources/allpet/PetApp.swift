@@ -80,7 +80,7 @@ final class SpriteView: NSView {
 }
 
 /// macOS 桌面宠物应用：透明悬浮窗 + 精灵动画 + 菜单栏 + 多平台任务状态。
-final class PetApp: NSObject, @unchecked Sendable {
+final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     private var config: AllPetConfiguration
     private let monitor: AllPetMonitor
     private let taskLauncher: TaskLauncher
@@ -99,6 +99,8 @@ final class PetApp: NSObject, @unchecked Sendable {
     private var statusMenuItems: [PlatformKind: NSMenuItem] = [:]
     private var defaultPetThumbnailCache: [String: NSImage] = [:]
     private var defaultPetThumbnailRequests: Set<String> = []
+    private var petSizeControl: PetSizeControlView?
+    private var petsMenuNeedsRebuild = false
 
     private var animation: PetAnimation = .idle
     private var statusAnimation: PetAnimation = .idle
@@ -1042,6 +1044,15 @@ final class PetApp: NSObject, @unchecked Sendable {
         toggle.target = self
         menu.addItem(toggle)
 
+        let sizeControl = PetSizeControlView()
+        sizeControl.percentText = petScalePercentText()
+        sizeControl.onDecrease = { [weak self] in self?.adjustPetScale(by: -0.05) }
+        sizeControl.onIncrease = { [weak self] in self?.adjustPetScale(by: 0.05) }
+        self.petSizeControl = sizeControl
+        let sizeItem = NSMenuItem()
+        sizeItem.view = sizeControl
+        menu.addItem(sizeItem)
+
         let petsMenu = makePetsMenu()
         if petsMenu.numberOfItems > 0 {
             let petsItem = NSMenuItem(title: "宠物", action: nil, keyEquivalent: "")
@@ -1066,8 +1077,16 @@ final class PetApp: NSObject, @unchecked Sendable {
         quit.target = self
         menu.addItem(quit)
 
+        menu.delegate = self
         item.menu = menu
         self.statusItem = item
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        // 切换宠物或安装/导入后，等菜单关闭再重建子菜单，更新「当前宠物」勾选。
+        if petsMenuNeedsRebuild {
+            rebuildPetsMenu()
+        }
     }
 
     private func makePetsMenu() -> NSMenu {
@@ -1176,9 +1195,7 @@ final class PetApp: NSObject, @unchecked Sendable {
                         alert.runModal()
                         return
                     }
-                    if let petsItem = self.statusItem?.menu?.items.first(where: { $0.title == "宠物" }) {
-                        petsItem.submenu = self.makePetsMenu()
-                    }
+                    self.rebuildPetsMenu()
                     let alert = NSAlert()
                     alert.messageText = "已安装：\(installed.bundle.manifest.displayName)"
                     alert.informativeText = "\(installed.note)\n\n授权提示：\(installed.sourceKind.licenseNotice)"
@@ -1229,9 +1246,7 @@ final class PetApp: NSObject, @unchecked Sendable {
                         alert.runModal()
                         return
                     }
-                    if let petsItem = self.statusItem?.menu?.items.first(where: { $0.title == "宠物" }) {
-                        petsItem.submenu = self.makePetsMenu()
-                    }
+                    self.rebuildPetsMenu()
                     let alert = NSAlert()
                     alert.messageText = "已导入：\(imported.bundle.manifest.displayName)"
                     alert.informativeText = "\(imported.note)\n\n授权提示：\(imported.sourceKind.licenseNotice)"
@@ -1308,6 +1323,7 @@ final class PetApp: NSObject, @unchecked Sendable {
     }
 
     private func rebuildPetsMenu() {
+        petsMenuNeedsRebuild = false
         if let petsItem = statusItem?.menu?.items.first(where: { $0.title == "宠物" }) {
             petsItem.submenu = makePetsMenu()
         }
@@ -1322,8 +1338,18 @@ final class PetApp: NSObject, @unchecked Sendable {
         config = nextConfig
         self.bundle = bundle
         self.frames = frames
-        rebuildPetsMenu()
+        // 菜单保持打开期间不重建子菜单（否则会打断 tracking）；等菜单关闭后再更新当前宠物勾选。
+        petsMenuNeedsRebuild = true
 
+        relayoutPet(bundle: bundle)
+        frameTimer?.invalidate()
+        frameTimer = nil
+        playbackFrames.removeAll(keepingCapacity: true)
+        setAnimation(animation)
+    }
+
+    /// 按当前 bundle + scale 重新布局宠物窗口；不重新加载精灵帧。
+    private func relayoutPet(bundle: PetBundle) {
         guard let window, let spriteView else { return }
         let oldSpriteScreenOrigin = NSPoint(
             x: window.frame.minX + spriteView.frame.minX,
@@ -1348,10 +1374,25 @@ final class PetApp: NSObject, @unchecked Sendable {
             x: oldSpriteScreenOrigin.x - spriteView.frame.minX,
             y: oldSpriteScreenOrigin.y
         ))
-        frameTimer?.invalidate()
-        frameTimer = nil
-        playbackFrames.removeAll(keepingCapacity: true)
-        setAnimation(animation)
+    }
+
+    /// 增大/减小宠物大小：调整 scale 并重新布局；菜单保持打开，可连续点击。
+    private func adjustPetScale(by delta: Double) {
+        guard let bundle else { return }
+        let newScale = min(1.2, max(0.4, config.pet.scale + delta))
+        guard abs(newScale - config.pet.scale) > 0.0001 else { return }
+        var nextConfig = config
+        nextConfig.pet.scale = newScale
+        try? nextConfig.save(to: AllPetConfiguration.configURL(home: home))
+        config = nextConfig
+        relayoutPet(bundle: bundle)
+        petSizeControl?.percentText = petScalePercentText()
+    }
+
+    private func petScalePercentText() -> String {
+        let defaultScale = 112.0 / 192.0
+        let percent = Int((config.pet.scale / defaultScale * 100).rounded())
+        return "\(percent)%"
     }
 
     private func updateMenu(_ snapshot: PetSnapshot) {

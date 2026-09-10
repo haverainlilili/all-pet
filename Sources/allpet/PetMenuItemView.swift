@@ -70,10 +70,13 @@ final class PetMenuItemView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let isDelete = deleteButtonRect.insetBy(dx: -4, dy: -4).contains(point)
-        let action = isDelete ? onDelete : onSelect
-        enclosingMenuItem?.menu?.cancelTracking()
-        if let action {
-            DispatchQueue.main.async { action() }
+        if isDelete {
+            // 删除会弹确认框，先关闭菜单。
+            enclosingMenuItem?.menu?.cancelTracking()
+            if let onDelete { DispatchQueue.main.async { onDelete() } }
+        } else {
+            // 切换宠物：菜单保持打开（不 cancelTracking），方便连续切换。
+            if let onSelect { DispatchQueue.main.async { onSelect() } }
         }
     }
 
@@ -128,6 +131,129 @@ final class PetMenuItemView: NSView {
             with: NSRect(x: delRect.minX, y: delRect.minY - 2, width: delRect.width, height: delRect.height),
             options: [.usesLineFragmentOrigin],
             attributes: [.font: NSFont.systemFont(ofSize: 14, weight: .medium), .foregroundColor: delColor]
+        )
+    }
+}
+
+/// 菜单栏「宠物大小」控件行：− 按钮 + 当前百分比 + ＋ 按钮。
+/// 点击按钮调整大小但不关闭菜单（不 cancelTracking），方便连续加减。
+final class PetSizeControlView: NSView {
+    var onDecrease: (() -> Void)?
+    var onIncrease: (() -> Void)?
+
+    private var trackingArea: NSTrackingArea?
+    private var hoveredButton: Int = 0 // -1 = 减号, 1 = 加号, 0 = 无
+    private let buttonSize: CGFloat = 22
+
+    var percentText: String = "100%" {
+        didSet { if percentText != oldValue { needsDisplay = true } }
+    }
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 288, height: 28))
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private var minusRect: NSRect {
+        NSRect(x: 8, y: (bounds.height - buttonSize) / 2, width: buttonSize, height: buttonSize)
+    }
+
+    private var plusRect: NSRect {
+        NSRect(x: bounds.maxX - buttonSize - 8, y: (bounds.height - buttonSize) / 2, width: buttonSize, height: buttonSize)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.activeInActiveApp, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        updateHover(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoveredButton = 0
+        needsDisplay = true
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateHover(with: event)
+    }
+
+    private func updateHover(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let next: Int
+        if minusRect.insetBy(dx: -3, dy: -3).contains(point) { next = -1 }
+        else if plusRect.insetBy(dx: -3, dy: -3).contains(point) { next = 1 }
+        else { next = 0 }
+        if next != hoveredButton {
+            hoveredButton = next
+            needsDisplay = true
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if minusRect.insetBy(dx: -4, dy: -4).contains(point) {
+            onDecrease?()
+        } else if plusRect.insetBy(dx: -4, dy: -4).contains(point) {
+            onIncrease?()
+        }
+        // 刻意不调用 cancelTracking()：让菜单在调节大小时保持打开，可连续点击。
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let buttonFill: NSColor
+        switch hoveredButton {
+        case -1: buttonFill = NSColor.systemBlue.withAlphaComponent(0.18)
+        case 1: buttonFill = NSColor.systemBlue.withAlphaComponent(0.18)
+        default: buttonFill = (isDark ? NSColor.white.withAlphaComponent(0.10) : NSColor.black.withAlphaComponent(0.06))
+        }
+
+        // 中间文本「宠物大小 100%」
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let labelRect = NSRect(x: minusRect.maxX + 4, y: 4, width: plusRect.minX - minusRect.maxX - 8, height: 20)
+        ("宠物大小 \(percentText)" as NSString).draw(
+            with: labelRect,
+            options: [.usesLineFragmentOrigin],
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraph
+            ]
+        )
+
+        // 减号按钮
+        drawButton(minusRect, symbol: "−", fill: hoveredButton == -1 ? buttonFill : NSColor.black.withAlphaComponent(0.05))
+        // 加号按钮
+        drawButton(plusRect, symbol: "＋", fill: hoveredButton == 1 ? buttonFill : NSColor.black.withAlphaComponent(0.05))
+    }
+
+    private func drawButton(_ rect: NSRect, symbol: String, fill: NSColor) {
+        fill.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+        let textColor: NSColor = hoveredButton != 0 ? .controlAccentColor : .secondaryLabelColor
+        (symbol as NSString).draw(
+            with: NSRect(x: rect.minX, y: rect.minY - 2, width: rect.width, height: rect.height),
+            options: [.usesLineFragmentOrigin],
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 15, weight: .semibold),
+                .foregroundColor: textColor
+            ]
         )
     }
 }
