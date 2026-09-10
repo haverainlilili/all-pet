@@ -1,0 +1,111 @@
+{
+  "id": "watermelon",
+  "displayName": "西瓜🍉",
+  "description": "蓝眼灰白长毛猫桌面伙伴，保留原图动作；工作时使用电脑，审查时使用放大镜。",
+  "kind": "creature",
+  "tags": [
+    "cat",
+    "ragdoll",
+    "fluffy"
+  ],
+  "vibes": [
+    "calm",
+    "curious",
+    "cozy"
+  ],
+  "frameWidth": 192,
+  "frameHeight": 208,
+  "spriteVersionNumber": 2,
+  "states": {
+    "idle": {
+      "label": "待机",
+      "purpose": "放松且有生命感",
+      "row": 0,
+      "frames": 6,
+      "frameCount": 6,
+      "durationMs": 160
+    },
+    "running-right": {
+      "label": "向右移动",
+      "purpose": "明确朝画面右侧移动",
+      "row": 1,
+      "frames": 8,
+      "frameCount": 8,
+      "durationMs": 120
+    },
+    "running-left": {
+      "label": "向左移动",
+      "purpose": "明确朝画面左侧移动",
+      "row": 2,
+      "frames": 8,
+      "frameCount": 8,
+      "durationMs": 120
+    },
+    "waving": {
+      "label": "打招呼",
+      "purpose": "欢迎、回应或完成",
+      "row": 3,
+      "frames": 4,
+      "frameCount": 4,
+      "durationMs": 160
+    },
+    "jumping": {
+      "label": "跳跃/启动",
+      "purpose": "启动时的上扬、跃起与回落",
+      "row": 4,
+      "frames": 5,
+      "frameCount": 5,
+      "durationMs": 150
+    },
+    "failed": {
+      "label": "失败",
+      "purpose": "清楚表达受挫或困惑",
+      "row": 5,
+      "frames": 8,
+      "frameCount": 8,
+      "durationMs": 150
+    },
+    "waiting": {
+      "label": "等待",
+      "purpose": "等待回应，区别于放松待机",
+      "row": 6,
+      "frames": 6,
+      "frameCount": 6,
+      "durationMs": 170
+    },
+    "running": {
+      "label": "工作",
+      "purpose": "专注、持续工作，不作为左右移动",
+      "row": 7,
+      "frames": 6,
+      "frameCount": 6,
+      "durationMs": 130
+    },
+    "review": {
+      "label": "审查",
+      "purpose": "观察、检查和判断",
+      "row": 8,
+      "frames": 6,
+      "frameCount": 6,
+      "durationMs": 170
+    }
+  },
+  "animations": {
+    "look-row-9": {
+      "label": "视线方向上半圈",
+      "purpose": "000到157.5度连续视线",
+      "row": 9,
+      "frames": 8,
+      "frameCount": 8,
+      "durationMs": 120
+    },
+    "look-row-10": {
+      "label": "视线方向下半圈",
+      "purpose": "180到337.5度连续视线",
+      "row": 10,
+      "frames": 8,
+      "frameCount": 8,
+      "durationMs": 120
+    }
+  }
+}

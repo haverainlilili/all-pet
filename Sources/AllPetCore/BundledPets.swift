@@ -4,7 +4,7 @@ import Foundation
 /// 首次运行时物化到 `~/.config/all-pet/pets/`，之后交由 PetDiscovery 正常发现。
 public enum BundledPets {
     /// 内置宠物 slug，按默认展示顺序排列；首个是全新用户的开箱默认宠物。
-    public static let slugs: [String] = ["boba", "tiko", "cat-hamster-duo", "hoops"]
+    public static let slugs: [String] = ["boba", "tiko", "cat-hamster-duo", "hoops", "watermelon"]
 
     /// 物化标记：成功物化一次后不再自动补齐，尊重用户对内置宠物的删除。
     private static let markerName = ".bundled-pets.v1"
