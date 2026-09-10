@@ -359,18 +359,25 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 
 | # | 维度 | macOS 基准 | Electron 现状 |
 | --- | --- | --- | --- |
-| 1 | 宠物大小 | scale 共享；显示宽 clamp 80…224px | ⚠️ scale 已共享，但 Electron 未做 80…224px clamp（0.4→77px、1.2→230px） |
+| 1 | 宠物大小 | scale 共享；显示宽 clamp 80…224px | ✅ 已对齐（80–224px clamp） |
 | 2 | 动画帧表 | 9 组行号+帧时长 | ✅ 已对齐 |
-| 3 | 动画播放 | 非 idle 连播 3 遍 + idle 尾巴；reduceMotion 首帧 | ⚠️ 连播 3 遍已实现；reduceMotion 未实现 |
-| 4 | 气泡内容 | 每平台 bubbleHeader + bubbleDetails | ✅ 已对齐（多行卡片） |
+| 3 | 动画播放 | 非 idle 连播 3 遍 + idle 尾巴；reduceMotion 首帧 | ✅ 已对齐（连播 3 遍 + reduceMotion） |
+| 4 | 气泡内容 | 每平台 bubbleHeader + bubbleDetails | ✅ 已对齐（卡片：平台+会话名+动作） |
 | 5 | 气泡布局 | 精灵上、气泡下、间距 6pt | ✅ 已对齐 |
 | 6 | 锚点定位 | anchor 四角 + 20pt | ✅ 已对齐 |
-| 7 | 气泡三阶段 | Stage1/2/3 + 点击展开收起 | ❌ 仅固定展示，无点击展开/收起 |
-| 8 | 完成卡片常驻 | done 终态卡片 + 轮播堆栈 + 「+N」 | ⚠️ 仅平铺，无「+N」、无轮播 |
-| 9 | 任务删除/隐藏 | × 删除气泡 + dismissed 持久化 | ❌ 无删除交互 |
-| 10 | 唤醒任务 | 点击任务唤醒原平台 | ❌ 无（托盘菜单有「打开平台」） |
-| 11 | 交互动画 | 悬停 jumping / 拖动 running | ⚠️ 拖动窗口已实现，但无交互动画切换 |
-| 12 | 点击宠物展开 | 点击精灵 → Stage 2 | ❌ 点击无反应 |
-| 13 | 窗口属性 | transparent / alwaysOnTop / 全空间 | ⚠️ 已 alwaysOnTop；全空间仅 darwin/linux |
-| 14 | 菜单大小控件 | 点按钮不关菜单连续点击 | ⚠️ 在独立管理窗口，无「不关菜单」概念 |
-| 15 | 任务历史持久化 | task-history.json + 去重 + 12 条上限 | ❌ 无历史持久化（快照即抛） |
+| 7 | 气泡三阶段 | Stage1/2/3 + 点击展开收起 | ✅ 已对齐（Stage1/2/3 + 点击切换） |
+| 8 | 完成卡片常驻 | done 终态卡片 + 轮播堆栈 + 「+N」 | ⚠️ 完成卡片 + 「+N」已对齐；轮播堆栈简化为平铺 |
+| 9 | 任务删除/隐藏 | × 删除气泡 + dismissed 持久化 | ✅ 已对齐（× 删除 + dismissed 持久化） |
+| 10 | 唤醒任务 | 点击任务唤醒原平台 | ⚠️ 点击任务打开平台（无终端/session 唤醒） |
+| 11 | 交互动画 | 悬停 jumping / 拖动 running | ✅ 已对齐（悬停/拖动动画） |
+| 12 | 点击宠物展开 | 点击精灵 → Stage 2 | ✅ 已对齐 |
+| 13 | 窗口属性 | transparent / alwaysOnTop / 全空间 | ⚠️ 已 alwaysOnTop；全空间仅 darwin/linux（Windows 无此概念） |
+| 14 | 菜单大小控件 | 点按钮不关菜单连续点击 | ⚠️ 在独立管理窗口（Electron 托盘菜单无自定义视图） |
+| 15 | 任务历史持久化 | task-history.json + 去重 + 12 条上限 | ✅ 已对齐（共享 task-history.json，字段兼容） |
+
+> 已知简化（平台限制 / 暂未实现）：
+> - **#8 轮播堆栈**：Electron Stage 1 未完成平台平铺（最多 3 个），无 macOS 的轮播/露边动画。
+> - **#10 唤醒**：Electron 无终端/session 唤起，点击任务仅「打开对应平台」。
+> - **#13 全空间**：Windows 无「所有 Space 可见」概念。
+> - **#14 大小控件位置**：Electron 大小调节在「宠物管理」窗口（原生托盘菜单不支持不关菜单的自定义视图）。
+> - 等待态 spinner（macOS 转圈图标）在 Electron 简化为橙色圆点。
