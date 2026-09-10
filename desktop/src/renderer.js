@@ -10,11 +10,15 @@
   const CELL_W = 192
   const CELL_H = 208
   const DEFAULT_SCALE = 112 / 192
+  // 系统「降低动态效果」：与 macOS reduceMotion 对齐，只播放首帧。
+  const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
 
   function applyScale(scale) {
     const s = Math.max(0.4, Math.min(1.2, typeof scale === 'number' ? scale : DEFAULT_SCALE))
-    canvas.style.width = Math.round(CELL_W * s) + 'px'
-    canvas.style.height = Math.round(CELL_H * s) + 'px'
+    const w = Math.min(224, Math.max(80, Math.round(CELL_W * s)))
+    const h = Math.round(w * (CELL_H / CELL_W))
+    canvas.style.width = w + 'px'
+    canvas.style.height = h + 'px'
   }
 
   const ANIMATIONS = {
@@ -42,6 +46,9 @@
 
   function buildSequence(name) {
     const a = ANIMATIONS[name] || ANIMATIONS.idle
+    if (reduceMotion) {
+      return { frames: [{ row: a.row, col: 0, dur: 1e9 }], loopStart: 0 }
+    }
     const frames = a.dur.map((d, col) => ({ row: a.row, col, dur: d }))
     if (name === 'idle') return { frames, loopStart: 0 }
     const idle = ANIMATIONS.idle.dur.map((d, col) => ({ row: ANIMATIONS.idle.row, col, dur: d }))

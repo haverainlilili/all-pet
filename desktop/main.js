@@ -79,13 +79,19 @@ function readScale() {
 // 当前气泡高度（0 = 隐藏）；渲染层实时上报，用于窗口高度对齐 macOS 的「宠物在上、气泡在下」。
 let bubbleHeight = 0
 
-// 精灵按 scale 缩放；气泡宽度保持最小可读（160px），高度随气泡行数动态调整。
+// 精灵按 scale 缩放；显示宽 clamp 80…224px（与 macOS layoutMetrics 一致）。
+// 气泡宽度保持最小可读（160px），高度随气泡行数动态调整。
+function spriteSizeForScale(scale) {
+  const spriteW = Math.min(224, Math.max(80, Math.round(CELL_W * scale)))
+  const spriteH = Math.round(spriteW * (CELL_H / CELL_W))
+  return { width: spriteW, height: spriteH }
+}
+
 function windowSizeForScale(scale) {
-  const spriteW = Math.round(CELL_W * scale)
-  const spriteH = Math.round(CELL_H * scale)
+  const sprite = spriteSizeForScale(scale)
   return {
-    width: Math.max(spriteW, 160) + 24,
-    height: spriteH + (bubbleHeight > 0 ? bubbleHeight + 14 : 8)
+    width: Math.max(sprite.width, 160) + 24,
+    height: sprite.height + (bubbleHeight > 0 ? bubbleHeight + 14 : 8)
   }
 }
 

@@ -128,6 +128,8 @@ private struct TaskJSON: Codable {
     var progressLabel: String?
     var sessionID: String?
     var workingDirectory: String?
+    var scheduledTaskName: String?
+    var title: String?
 }
 
 private struct PlatformJSON: Codable {
@@ -174,7 +176,9 @@ private func toJSON(_ s: PetSnapshot) -> SnapshotJSON {
                         toolName: $0.toolName,
                         progressLabel: $0.progressLabel,
                         sessionID: $0.sessionID,
-                        workingDirectory: $0.workingDirectory
+                        workingDirectory: $0.workingDirectory,
+                        scheduledTaskName: $0.scheduledTaskName,
+                        title: $0.title
                     )
                 },
                 bubbleHeader: p.bubbleHeader,
