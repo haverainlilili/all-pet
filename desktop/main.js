@@ -119,6 +119,138 @@ function positionWindow() {
   mainWindow.setPosition(Math.round(x), Math.round(y))
 }
 
+// ---- 任务历史（与 macOS 共享 ~/.config/all-pet/task-history.json）----
+
+let taskHistory = {}      // { [platform]: [item] }
+let dismissedTaskIDs = []
+let dragStartScreen = null  // 精灵拖动起点（屏幕坐标）
+let dragStartPosition = null // 拖动开始时窗口位置
+
+const APPLE_REF_MS = Date.UTC(2001, 0, 1) // macOS Codable Date 基准：2001-01-01
+
+function historyURL() {
+  return path.join(os.homedir(), '.config', 'all-pet', 'task-history.json')
+}
+
+function isUUID(s) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s || '')
+}
+
+// 与 macOS TrayTaskItem.canonicalID 对齐：定时任务按名归并，其余按 sessionID（空则 title）。
+function canonicalID(platform, task) {
+  if (task.scheduledTaskName) return `${platform}|scheduled:${task.scheduledTaskName}`
+  let identity = (task.sessionID || '').length ? task.sessionID : (task.title || '').trim()
+  if (platform === 'dsh' && isUUID(identity)) identity = 'session-' + identity
+  return `${platform}|${identity || 'current'}`
+}
+
+// 与 macOS TrayTaskItem.sessionDisplayName 对齐。
+function sessionDisplayName(item) {
+  if (item.scheduledTaskName) return `定时任务 · ${item.scheduledTaskName}`
+  if (item.sessionName && item.sessionName.trim()) return item.sessionName.trim()
+  if (item.sessionID) {
+    const v = item.sessionID.indexOf('session-') === 0 ? item.sessionID.slice(8) : item.sessionID
+    return `会话 ${String(v).slice(0, 8)}`
+  }
+  return '未命名会话'
+}
+
+function loadHistory() {
+  try {
+    const data = JSON.parse(fs.readFileSync(historyURL(), 'utf8'))
+    taskHistory = data.platforms || {}
+    dismissedTaskIDs = Array.isArray(data.dismissedTaskIDs) ? data.dismissedTaskIDs : []
+  } catch {
+    taskHistory = {}
+    dismissedTaskIDs = []
+  }
+}
+
+function persistHistory() {
+  try {
+    const dir = path.dirname(historyURL())
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(historyURL(), JSON.stringify({ platforms: taskHistory, dismissedTaskIDs }, null, 2) + '\n')
+  } catch (err) {
+    console.error('[allpet] 保存任务历史失败:', err && err.message || err)
+  }
+}
+
+// 从快照累积任务历史（按 canonicalID 去重更新，每平台最多 12 条，done/failed 终态保留）。
+function accumulateHistory(snap) {
+  let changed = false
+  for (const p of snap.platforms || []) {
+    if (p.phase === 'idle') continue
+    const t = p.task
+    if (!t || !(t.sessionID || t.scheduledTaskName)) continue
+    const item = {
+      id: canonicalID(p.platform, t),
+      platform: p.platform,
+      title: (t.title || '').trim() || (t.action || p.detail || ''),
+      sessionName: t.sessionName,
+      action: t.action || p.detail || '',
+      phase: p.phase,
+      progress: t.progressLabel,
+      updatedAt: (Date.now() - APPLE_REF_MS) / 1000,
+      sessionID: t.sessionID,
+      workingDirectory: t.workingDirectory,
+      scheduledTaskName: t.scheduledTaskName
+    }
+    // 复活：非终态任务出现新活动时移除 dismiss 标记（对齐 macOS）。
+    if (item.phase !== 'done' && item.phase !== 'failed') {
+      const di = dismissedTaskIDs.indexOf(item.id)
+      if (di >= 0) { dismissedTaskIDs.splice(di, 1); changed = true }
+    }
+    // done/failed 且已 dismiss：不再显示、不再入历史。
+    if ((item.phase === 'done' || item.phase === 'failed') && dismissedTaskIDs.includes(item.id)) {
+      continue
+    }
+    let list = taskHistory[p.platform] || []
+    const idx = list.findIndex(x => x.id === item.id)
+    if (idx >= 0) {
+      if (!(list[idx].phase === 'done' && item.phase === 'idle')) {
+        // 保留原条目的扩展字段（macOS 写入的 sourcePath/launchOrigin/terminal 等），避免共享文件时丢失。
+        const merged = Object.assign({}, list[idx], item)
+        list[idx] = merged
+        changed = true
+      }
+    } else {
+      list.push(item)
+      changed = true
+    }
+    const seen = new Set()
+    list = list.filter(x => (seen.has(x.id) ? false : (seen.add(x.id), true)))
+    list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    if (list.length > 12) list = list.slice(0, 12)
+    taskHistory[p.platform] = list
+  }
+  if (changed) persistHistory()
+}
+
+function historyPayload() {
+  // 只把展示所需的字段交给渲染层，附加 sessionDisplayName。
+  const platforms = {}
+  for (const [key, list] of Object.entries(taskHistory)) {
+    platforms[key] = (list || []).map(item => ({
+      id: item.id,
+      platform: item.platform,
+      sessionName: item.sessionName,
+      action: item.action,
+      phase: item.phase,
+      phaseLabel: phaseLabelOf(item.phase),
+      scheduledTaskName: item.scheduledTaskName,
+      sessionID: item.sessionID,
+      sessionDisplayName: sessionDisplayName(item)
+    }))
+  }
+  return { platforms, dismissed: dismissedTaskIDs }
+}
+
+function phaseLabelOf(phase) {
+  const labels = { idle: '空闲', running: '运行中', thinking: '思考中', waiting: '等待中', done: '完成', failed: '出错' }
+  return labels[phase] || phase
+}
+
 function spritesheetDataUrl(filePath) {
   const buf = fs.readFileSync(filePath)
   const ext = path.extname(filePath).toLowerCase()
@@ -228,7 +360,7 @@ function applyScale(delta) {
 
 function sendSnapshot(snap) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('snapshot', snap)
+    mainWindow.webContents.send('snapshot', { ...snap, history: historyPayload() })
   }
 }
 
@@ -271,6 +403,7 @@ function onSnapshot(snap) {
     console.log('[allpet] 收到首个快照:', snap.summary, '| 动画:', snap.animation)
   }
   currentSnapshot = snap
+  accumulateHistory(snap)
   sendSnapshot(snap)
   updateTrayMenu()
 }
@@ -400,6 +533,61 @@ function registerPetIpc() {
     }
     return { ok: true }
   })
+
+  ipcMain.handle('pets:launchPlatform', async (_e, platform) => {
+    launchPlatform(String(platform || ''))
+    return { ok: true }
+  })
+
+  ipcMain.handle('pets:dismissTask', async (_e, id) => {
+    const taskId = String(id || '')
+    const platform = taskId.split('|')[0]
+    if (platform && taskHistory[platform]) {
+      taskHistory[platform] = taskHistory[platform].filter(t => t.id !== taskId)
+    }
+    if (taskId && !dismissedTaskIDs.includes(taskId)) dismissedTaskIDs.push(taskId)
+    if (dismissedTaskIDs.length > 100) dismissedTaskIDs = dismissedTaskIDs.slice(-100)
+    persistHistory()
+    if (currentSnapshot) sendSnapshot(currentSnapshot)
+    return { ok: true }
+  })
+
+  ipcMain.handle('pets:dismissPlatform', async (_e, platform) => {
+    const key = String(platform || '')
+    if (key && taskHistory[key]) {
+      for (const t of taskHistory[key]) {
+        if (!dismissedTaskIDs.includes(t.id)) dismissedTaskIDs.push(t.id)
+      }
+      taskHistory[key] = []
+    }
+    if (dismissedTaskIDs.length > 100) dismissedTaskIDs = dismissedTaskIDs.slice(-100)
+    persistHistory()
+    if (currentSnapshot) sendSnapshot(currentSnapshot)
+    return { ok: true }
+  })
+
+  ipcMain.handle('pets:dragStart', async (_e, x, y) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dragStartScreen = { x: Number(x), y: Number(y) }
+      dragStartPosition = mainWindow.getPosition()
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('pets:dragMove', async (_e, x, y) => {
+    if (mainWindow && !mainWindow.isDestroyed() && dragStartScreen && dragStartPosition) {
+      const dx = Number(x) - dragStartScreen.x
+      const dy = Number(y) - dragStartScreen.y
+      mainWindow.setPosition(dragStartPosition[0] + Math.round(dx), dragStartPosition[1] + Math.round(dy))
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('pets:dragEnd', async () => {
+    dragStartScreen = null
+    dragStartPosition = null
+    return { ok: true }
+  })
 }
 
 // ---- 托盘 ----
@@ -456,6 +644,7 @@ function quit() {
 
 app.whenReady().then(() => {
   app.isQuitting = false
+  loadHistory()
   registerPetIpc()
   createWindow()
   createTray()

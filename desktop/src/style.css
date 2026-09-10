@@ -10,7 +10,7 @@ html, body {
 body {
   width: 100vw;
   height: 100vh;
-  -webkit-app-region: drag; /* 整窗可拖拽 */
+  /* 拖动由 renderer 在精灵上手动实现（与 macOS 只能拖精灵本体一致）。 */
 }
 
 #stage {
@@ -32,34 +32,132 @@ body {
 
 #bubble {
   max-width: 200px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  background: rgba(30, 30, 30, 0.85);
-  color: #fff;
-  font: 12px/1.4 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   text-align: left;
-  white-space: normal;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 #bubble.hidden { display: none; }
 
-.bubble-line + .bubble-line {
-  margin-top: 3px;
-  padding-top: 3px;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+/* ---- 气泡卡片（对齐 macOS TaskTrayView 的 MaterialCard 视觉）---- */
+
+.bubble-card {
+  position: relative;
+  background: rgba(30, 30, 30, 0.88);
+  border-radius: 10px;
+  padding: 7px 10px 7px 12px;
+  color: #fff;
+  font: 12px/1.35 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  cursor: pointer;
+  min-width: 164px;
+  max-width: 200px;
 }
 
-.bubble-header {
+.bubble-card:hover {
+  background: rgba(45, 45, 45, 0.92);
+}
+
+.bc-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bc-platform {
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bc-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.bc-status.running, .bc-status.thinking { background: #0a84ff; }
+.bc-status.waiting { background: #ff9f0a; }
+.bc-status.done { background: #30d158; }
+.bc-status.failed { background: #ff3b30; }
+.bc-status.idle { background: #8e8e93; }
+
+.bc-title {
+  font-size: 13px;
   font-weight: 600;
+  margin-top: 3px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.bubble-detail {
+.bc-action {
+  font-size: 11px;
   opacity: 0.85;
+  margin-top: 1px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.bc-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  line-height: 16px;
+  text-align: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ccc;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.bc-dismiss:hover {
+  background: rgba(255, 59, 48, 0.8);
+  color: #fff;
+}
+
+.bc-stage-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 2px;
+}
+
+.bc-stage-header span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bc-back {
+  margin-left: auto;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.10);
+  color: #fff;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.bc-back:hover { background: rgba(255, 255, 255, 0.2); }
+
+.bc-count {
+  color: #bbb;
+  font-size: 11px;
+  padding-left: 12px;
 }

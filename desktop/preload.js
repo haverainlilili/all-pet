@@ -20,5 +20,13 @@ contextBridge.exposeInMainWorld('petAPI', {
   onScaleChanged: (cb) => ipcRenderer.on('pet-scale', (_e, scale) => cb(scale)),
 
   // 气泡高度（渲染层 → 主进程，用于窗口高度对齐）
-  resizeForBubble: (height) => ipcRenderer.invoke('pets:resizeBubble', height)
+  resizeForBubble: (height) => ipcRenderer.invoke('pets:resizeBubble', height),
+
+  // 气泡交互 + 精灵拖动
+  launchPlatform: (platform) => ipcRenderer.invoke('pets:launchPlatform', platform),
+  dismissTask: (id) => ipcRenderer.invoke('pets:dismissTask', id),
+  dismissPlatform: (platform) => ipcRenderer.invoke('pets:dismissPlatform', platform),
+  dragStart: (x, y) => ipcRenderer.invoke('pets:dragStart', x, y),
+  dragMove: (x, y) => ipcRenderer.invoke('pets:dragMove', x, y),
+  dragEnd: () => ipcRenderer.invoke('pets:dragEnd')
 })

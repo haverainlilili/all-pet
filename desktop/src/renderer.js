@@ -43,6 +43,8 @@
   let lastTime = 0
   let currentAnimation = null
   let currentSnapshot = null
+  let statusAnimation = 'idle'        // 状态动画（快照映射）
+  let interactionAnimation = null     // 交互动画（悬停/拖动，优先于状态）
 
   function buildSequence(name) {
     const a = ANIMATIONS[name] || ANIMATIONS.idle
@@ -97,7 +99,39 @@
     frameTimer = 0
   }
 
+  function setStatusAnimation(name) {
+    statusAnimation = name
+    if (interactionAnimation === null) setAnimation(name)
+  }
+
+  function setInteractionAnimation(name) {
+    interactionAnimation = name
+    setAnimation(name || statusAnimation || 'idle')
+  }
+
+  // ---- 气泡三阶段（对齐 macOS TaskTrayView：collapsed / platforms / tasks）----
+
+  let stage = 'collapsed' // 'collapsed' | 'platforms' | 'tasks'
+  let stagePlatform = null
+  let bubbleData = null
   let lastReportedBubbleHeight = -1
+
+  const PLATFORM_LABELS = { codex: 'Codex', claude: 'Claude Code', dsh: 'DSH', grok: 'Grok' }
+  const PLATFORM_COLORS = { codex: '#0a84ff', claude: '#ff9f0a', dsh: '#30d158', grok: '#bf5af2' }
+
+  function platformLabel(p) { return PLATFORM_LABELS[p] || p }
+  function platformColor(p) { return PLATFORM_COLORS[p] || '#8e8e93' }
+
+  function sessionDisplayNameOf(t) {
+    if (t.scheduledTaskName) return '定时任务 · ' + t.scheduledTaskName
+    if (t.sessionName && t.sessionName.trim()) return t.sessionName.trim()
+    if (t.sessionID) {
+      const v = t.sessionID.indexOf('session-') === 0 ? t.sessionID.slice(8) : t.sessionID
+      return '会话 ' + String(v).slice(0, 8)
+    }
+    return '未命名会话'
+  }
+
   function reportBubbleHeight() {
     if (!window.petAPI || !window.petAPI.resizeForBubble) return
     const h = bubble.classList.contains('hidden') ? 0 : Math.ceil(bubble.offsetHeight)
@@ -106,10 +140,85 @@
     window.petAPI.resizeForBubble(h)
   }
 
-  // 与 macOS 气泡对齐：逐平台显示 bubbleHeader（平台 · 阶段）+ 首行详情。
-  function updateBubble(snap) {
-    const platforms = (snap.platforms || []).filter(p => p.phase !== 'idle')
-    if (!platforms.length) {
+  function buildBubbleData(snap) {
+    const history = (snap.history && snap.history.platforms) || {}
+    const dismissed = (snap.history && snap.history.dismissed) || []
+    const current = snap.platforms || []
+
+    // 完成/失败任务（未 dismiss），跨平台，最新在前。
+    const completed = []
+    for (const [platform, list] of Object.entries(history)) {
+      for (const item of list) {
+        if (item.phase === 'done' || item.phase === 'failed') {
+          if (dismissed.includes(item.id)) continue
+          completed.push(Object.assign({}, item, { platform }))
+        }
+      }
+    }
+    completed.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+
+    // 未完成平台：当前非 idle/done/failed。
+    const unfinished = current.filter(p => p.phase !== 'idle' && p.phase !== 'done' && p.phase !== 'failed')
+
+    // 平台卡片（Stage 2）：当前平台 + 该平台历史任务（未 dismiss）。
+    const platforms = current.map(p => {
+      const tasks = (history[p.platform] || []).filter(t => !dismissed.includes(t.id))
+      return Object.assign({}, p, { tasks })
+    })
+
+    return {
+      completed,
+      unfinished,
+      platforms,
+      hasNotification: completed.length > 0 || unfinished.length > 0
+    }
+  }
+
+  function buildCard(item, opts) {
+    const o = opts || {}
+    const card = document.createElement('div')
+    card.className = 'bubble-card'
+    card.dataset.platform = item.platform
+    if (o.kind === 'platform') card.dataset.kind = 'platform'
+    else if (item.id) card.dataset.id = item.id
+
+    const header = document.createElement('div')
+    header.className = 'bc-header'
+    const pname = document.createElement('span')
+    pname.className = 'bc-platform'
+    pname.textContent = platformLabel(item.platform)
+    pname.style.color = platformColor(item.platform)
+    header.appendChild(pname)
+    const status = document.createElement('span')
+    status.className = 'bc-status ' + (item.phase || 'idle')
+    header.appendChild(status)
+    card.appendChild(header)
+
+    const title = document.createElement('div')
+    title.className = 'bc-title'
+    title.textContent = item.sessionDisplayName || sessionDisplayNameOf(item)
+    card.appendChild(title)
+
+    if (o.showAction && item.action) {
+      const action = document.createElement('div')
+      action.className = 'bc-action'
+      action.textContent = item.action
+      card.appendChild(action)
+    }
+
+    if (o.dismiss) {
+      const x = document.createElement('button')
+      x.className = 'bc-dismiss'
+      x.textContent = '×'
+      x.dataset.kind = o.dismiss // 'task' | 'platform'
+      x.title = o.dismiss === 'platform' ? '清除该平台' : '清除该任务'
+      card.appendChild(x)
+    }
+    return card
+  }
+
+  function renderBubble() {
+    if (!bubbleData || !bubbleData.hasNotification) {
       bubble.classList.add('hidden')
       bubble.innerHTML = ''
       reportBubbleHeight()
@@ -117,24 +226,152 @@
     }
     bubble.classList.remove('hidden')
     bubble.innerHTML = ''
-    for (const p of platforms.slice(0, 4)) {
-      const line = document.createElement('div')
-      line.className = 'bubble-line'
-      const header = document.createElement('div')
-      header.className = 'bubble-header'
-      header.textContent = p.bubbleHeader || `${p.label} · ${p.phaseLabel}`
-      line.appendChild(header)
-      for (const dText of (p.bubbleDetails || []).slice(0, 2)) {
-        if (dText && dText !== header.textContent) {
-          const d = document.createElement('div')
-          d.className = 'bubble-detail'
-          d.textContent = dText
-          line.appendChild(d)
-        }
-      }
-      bubble.appendChild(line)
-    }
+    if (stage === 'platforms') renderStage2()
+    else if (stage === 'tasks') renderStage3(stagePlatform)
+    else renderStage1()
     reportBubbleHeight()
+  }
+
+  function renderStage1() {
+    const d = bubbleData
+    const completed = d.completed.slice(0, 3)
+    for (const item of completed) {
+      bubble.appendChild(buildCard(item, { showAction: true, dismiss: 'task' }))
+    }
+    if (d.completed.length > 3) {
+      const more = document.createElement('div')
+      more.className = 'bc-count'
+      more.textContent = `+${d.completed.length - 3} 个已完成`
+      bubble.appendChild(more)
+    }
+    for (const p of d.unfinished.slice(0, 3)) {
+      const t = p.task || {}
+      bubble.appendChild(buildCard({
+        id: p.platform + '|current',
+        platform: p.platform,
+        phase: p.phase,
+        action: t.action || p.detail || '',
+        sessionName: t.sessionName,
+        sessionID: t.sessionID,
+        scheduledTaskName: t.scheduledTaskName
+      }, { showAction: true, kind: 'platform' }))
+    }
+  }
+
+  function renderStage2() {
+    const header = document.createElement('div')
+    header.className = 'bc-stage-header'
+    const title = document.createElement('span')
+    title.textContent = '平台任务'
+    header.appendChild(title)
+    const close = document.createElement('button')
+    close.className = 'bc-back'
+    close.textContent = '收起'
+    close.dataset.back = 'collapsed'
+    header.appendChild(close)
+    bubble.appendChild(header)
+
+    for (const p of bubbleData.platforms.slice(0, 4)) {
+      const t = p.task || {}
+      bubble.appendChild(buildCard({
+        id: p.platform + '|current',
+        platform: p.platform,
+        phase: p.phase,
+        action: t.action || p.detail || '',
+        sessionName: t.sessionName,
+        sessionID: t.sessionID,
+        scheduledTaskName: t.scheduledTaskName,
+        taskCount: p.tasks ? p.tasks.length : 0
+      }, { kind: 'platform', dismiss: 'platform' }))
+    }
+  }
+
+  function renderStage3(platform) {
+    const p = bubbleData.platforms.find(x => x.platform === platform)
+    const header = document.createElement('div')
+    header.className = 'bc-stage-header'
+    const title = document.createElement('span')
+    title.textContent = platformLabel(platform) + ' 的任务'
+    header.appendChild(title)
+    const back = document.createElement('button')
+    back.className = 'bc-back'
+    back.textContent = '返回'
+    back.dataset.back = 'platforms'
+    header.appendChild(back)
+    bubble.appendChild(header)
+
+    const tasks = p ? p.tasks.slice(0, 6) : []
+    for (const item of tasks) {
+      bubble.appendChild(buildCard(item, { showAction: true, dismiss: 'task' }))
+    }
+    if (p && p.tasks.length > 6) {
+      const more = document.createElement('div')
+      more.className = 'bc-count'
+      more.textContent = `+${p.tasks.length - 6} 个任务`
+      bubble.appendChild(more)
+    }
+  }
+
+  function setStage(next, platform) {
+    stage = next
+    stagePlatform = platform || null
+    renderBubble()
+  }
+
+  function onPlatformClick(platform) {
+    const p = bubbleData.platforms.find(x => x.platform === platform)
+    const tasks = p ? p.tasks : []
+    if (!tasks.length) {
+      if (window.petAPI.launchPlatform) window.petAPI.launchPlatform(platform)
+      setStage('collapsed')
+    } else if (tasks.length === 1) {
+      if (window.petAPI.launchPlatform) window.petAPI.launchPlatform(platform)
+    } else {
+      setStage('tasks', platform)
+    }
+  }
+
+  // 气泡点击委托：× 删除；返回/收起；平台卡片；任务卡片（唤醒）。
+  bubble.addEventListener('click', (e) => {
+    const dismiss = e.target.closest('.bc-dismiss')
+    if (dismiss) {
+      const card = dismiss.closest('.bubble-card')
+      if (!card) return
+      if (dismiss.dataset.kind === 'platform') {
+        if (window.petAPI.dismissPlatform) window.petAPI.dismissPlatform(card.dataset.platform)
+      } else if (card.dataset.id) {
+        if (window.petAPI.dismissTask) window.petAPI.dismissTask(card.dataset.id)
+      }
+      return
+    }
+    const back = e.target.closest('.bc-back')
+    if (back) {
+      setStage(back.dataset.back === 'platforms' ? 'platforms' : 'collapsed')
+      return
+    }
+    const card = e.target.closest('.bubble-card')
+    if (!card) return
+    if (card.dataset.kind === 'platform') {
+      onPlatformClick(card.dataset.platform)
+    } else if (card.dataset.id) {
+      const platform = card.dataset.platform
+      if (window.petAPI.launchPlatform) window.petAPI.launchPlatform(platform)
+    }
+  })
+
+  function updateBubble(snap) {
+    bubbleData = buildBubbleData(snap)
+    if (!bubbleData.hasNotification) {
+      // 全部空闲：收起回 Stage 1（与 macOS collapseToStage1 一致）。
+      stage = 'collapsed'
+      stagePlatform = null
+    } else if (stage === 'tasks' && stagePlatform) {
+      if (!bubbleData.platforms.some(x => x.platform === stagePlatform)) {
+        stage = 'platforms'
+        stagePlatform = null
+      }
+    }
+    renderBubble()
   }
 
   function onPet(payload) {
@@ -156,16 +393,56 @@
       canvas.height = cellH
       applyScale(payload.scale)
       // 首次载入后按当前快照设定动画（无快照则 idle）。
-      setAnimation(currentAnimation || 'idle')
+      setStatusAnimation(statusAnimation || 'idle')
     }
     img.src = payload.spritesheet
   }
 
   function onSnapshot(snap) {
     currentSnapshot = snap
-    setAnimation(snap.animation || 'idle')
+    setStatusAnimation(snap.animation || 'idle')
     updateBubble(snap)
   }
+
+  // ---- 精灵交互（对齐 macOS SpriteView：悬停 jumping、拖动 running、点击展开）----
+
+  let dragging = false
+  let dragStart = null
+  let didDrag = false
+
+  canvas.addEventListener('mouseenter', () => { if (!dragging) setInteractionAnimation('jumping') })
+  canvas.addEventListener('mouseleave', () => { if (!dragging) setInteractionAnimation(null) })
+
+  canvas.addEventListener('mousedown', (e) => {
+    dragging = true
+    didDrag = false
+    dragStart = { x: e.screenX, y: e.screenY }
+    if (window.petAPI && window.petAPI.dragStart) window.petAPI.dragStart(e.screenX, e.screenY)
+  })
+
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return
+    const dx = e.screenX - dragStart.x
+    const dy = e.screenY - dragStart.y
+    if (!didDrag && Math.hypot(dx, dy) < 4) return
+    didDrag = true
+    if (window.petAPI && window.petAPI.dragMove) window.petAPI.dragMove(e.screenX, e.screenY)
+    setInteractionAnimation(dx >= 0 ? 'running-right' : 'running-left')
+  })
+
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return
+    dragging = false
+    if (window.petAPI && window.petAPI.dragEnd) window.petAPI.dragEnd()
+    if (didDrag) {
+      setInteractionAnimation(null)
+    } else {
+      // 点击精灵：展开到 Stage 2（与 macOS showPlatformStage 一致）。
+      setStage('platforms')
+    }
+    dragStart = null
+    didDrag = false
+  })
 
   if (window.petAPI) {
     window.petAPI.onPet(onPet)
