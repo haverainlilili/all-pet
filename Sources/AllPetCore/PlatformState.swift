@@ -69,6 +69,8 @@ public struct TaskInfo: Sendable, Equatable {
     public var terminalTTY: String?
     public var terminalBinding: TerminalBinding?
     public var launchOrigin: String?
+    /// Claude Desktop 定时任务名（如 paper-monitor-daily）；非定时任务为 nil。
+    public var scheduledTaskName: String?
 
     public init(
         sessionName: String? = nil,
@@ -83,7 +85,8 @@ public struct TaskInfo: Sendable, Equatable {
         processID: Int32? = nil,
         terminalTTY: String? = nil,
         terminalBinding: TerminalBinding? = nil,
-        launchOrigin: String? = nil
+        launchOrigin: String? = nil,
+        scheduledTaskName: String? = nil
     ) {
         self.sessionName = sessionName
         self.title = title
@@ -98,6 +101,7 @@ public struct TaskInfo: Sendable, Equatable {
         self.terminalTTY = terminalTTY
         self.terminalBinding = terminalBinding
         self.launchOrigin = launchOrigin
+        self.scheduledTaskName = scheduledTaskName
     }
 
     public var progressLabel: String? {

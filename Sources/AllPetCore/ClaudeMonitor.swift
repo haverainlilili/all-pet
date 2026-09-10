@@ -43,6 +43,7 @@ public struct ClaudeMonitor: PlatformMonitor {
         phase = PhaseClassifier.resolved(inferred: phase, parsed: parsed.phase, age: age, config: config)
         var taskInfo = parsed.info
         taskInfo.sessionID = parsed.sessionID ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        taskInfo.scheduledTaskName = parsed.scheduledTaskName
         taskInfo.sourcePath = path
         taskInfo.workingDirectory = parsed.workingDirectory
         let identity = ClaudeTranscriptIdentityLookup.read(path: path)

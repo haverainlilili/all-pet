@@ -91,6 +91,14 @@ public enum AllPetSelfTest {
         """)
         expect(claudeAPIError.phase == .failed && claudeAPIError.info.action == "失败：API Error: unavailable", "Claude API error beats stop_sequence")
 
+        let claudeScheduled = TaskExtractors.claude(from: #"""
+        {"type":"queue-operation","operation":"enqueue","sessionId":"sched-session","cwd":"/tmp/proj","content":"<scheduled-task name=\"paper-monitor-daily\" file=\"/tmp/skills/SKILL.md\">每天监测论文</scheduled-task>"}
+        {"type":"assistant","sessionId":"sched-session","message":{"role":"assistant","content":[{"type":"text","text":"完成"}],"stop_reason":"end_turn"}}
+        """#)
+        expect(claudeScheduled.scheduledTaskName == "paper-monitor-daily", "Claude scheduled task name")
+        expect(claudeScheduled.info.sessionName == "定时任务 · paper-monitor-daily", "Claude scheduled task display name")
+        expect(claudeScheduled.phase == .done, "Claude scheduled task completes")
+
         let dsh = TaskExtractors.dsh(from: """
         {"type":"session/title","data":{"title":"桌宠开发会话"}}
         {"type":"user/message","data":{"source":{"kind":"user"},"content":[{"type":"text","text":"实现任务气泡"}]}}

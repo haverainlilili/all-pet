@@ -20,6 +20,7 @@ struct TrayTaskItem: Codable, Equatable, Sendable {
     var terminalTTY: String?
     var terminalBinding: TerminalBinding?
     var launchOrigin: String?
+    var scheduledTaskName: String?
 
     init(status: PlatformStatus) {
         let rawTitle = status.task?.title?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -28,9 +29,16 @@ struct TrayTaskItem: Codable, Equatable, Sendable {
             guard !value.isEmpty, !value.hasPrefix("<") else { return nil }
             return value
         } ?? fallback
-        let taskIdentity = status.task?.sessionID.flatMap { $0.isEmpty ? nil : $0 }
-            ?? rawTitle.flatMap { $0.isEmpty ? nil : $0 }
-            ?? "current"
+        let scheduledName = status.task?.scheduledTaskName.flatMap { $0.isEmpty ? nil : $0 }
+        let taskIdentity: String
+        if let scheduledName {
+            // 定时任务按任务名归并，多次自动运行共用同一气泡。
+            taskIdentity = "scheduled:\(scheduledName)"
+        } else {
+            taskIdentity = status.task?.sessionID.flatMap { $0.isEmpty ? nil : $0 }
+                ?? rawTitle.flatMap { $0.isEmpty ? nil : $0 }
+                ?? "current"
+        }
         self.id = "\(status.platform.rawValue)|\(taskIdentity)"
         self.platform = status.platform
         self.title = readableTitle
@@ -46,9 +54,13 @@ struct TrayTaskItem: Codable, Equatable, Sendable {
         self.terminalTTY = status.task?.terminalTTY
         self.terminalBinding = status.task?.terminalBinding
         self.launchOrigin = status.task?.launchOrigin
+        self.scheduledTaskName = scheduledName
     }
 
     var sessionDisplayName: String {
+        if let scheduledTaskName, !scheduledTaskName.isEmpty {
+            return "定时任务 · \(scheduledTaskName)"
+        }
         if let value = sessionName?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
             return value
         }
@@ -60,6 +72,9 @@ struct TrayTaskItem: Codable, Equatable, Sendable {
     }
 
     var canonicalID: String {
+        if let scheduledTaskName, !scheduledTaskName.isEmpty {
+            return "\(platform.rawValue)|scheduled:\(scheduledTaskName)"
+        }
         var identity = sessionID.flatMap { $0.isEmpty ? nil : $0 }
             ?? title.trimmingCharacters(in: .whitespacesAndNewlines)
         if platform == .dsh, UUID(uuidString: identity) != nil { identity = "session-\(identity)" }

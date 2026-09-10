@@ -9,6 +9,8 @@ struct ParsedTask: Sendable {
     var sessionID: String?
     var workingDirectory: String?
     var launchOrigin: String?
+    /// Claude Desktop 定时任务名；用于把定时任务的多轮自动运行归并到同一气泡。
+    var scheduledTaskName: String?
 }
 
 /// 从平台 JSONL 尾部提取「用户任务、当前工具、进度、完成/报错」等可展示信息。
@@ -114,11 +116,19 @@ enum TaskExtractors {
             out.launchOrigin = object["entrypoint"] as? String ?? out.launchOrigin
 
             if topType == "queue-operation",
-               object["operation"] as? String == "enqueue",
-               let title = humanPrompt(object["content"]) {
-                out.info.title = title
-                out.phase = .waiting
-                out.info.action = "任务已排队"
+               object["operation"] as? String == "enqueue" {
+                if let content = object["content"] as? String,
+                   let name = Self.scheduledTaskName(in: content) {
+                    out.scheduledTaskName = name
+                    out.info.scheduledTaskName = name
+                    // 定时任务名作为气泡的稳定标识，避免把每天触发当成独立会话。
+                    out.info.sessionName = "定时任务 · \(name)"
+                }
+                if let title = humanPrompt(object["content"]) {
+                    out.info.title = title
+                    out.phase = .waiting
+                    out.info.action = "任务已排队"
+                }
                 continue
             }
 
@@ -509,6 +519,17 @@ enum TaskExtractors {
         if rejectedPrefixes.contains(where: { lower.hasPrefix($0) }) { return nil }
         if lower.contains("<available_skills>") { return nil }
         return text
+    }
+
+    /// 从 `<scheduled-task name="paper-monitor-daily" file="...">` 中提取定时任务名。
+    private static func scheduledTaskName(in content: String) -> String? {
+        let pattern = #"<scheduled-task\s+name="([^"]+)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(content.startIndex..., in: content)
+        guard let match = regex.firstMatch(in: content, range: range),
+              let nameRange = Range(match.range(at: 1), in: content) else { return nil }
+        let name = String(content[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 
     private static func compact(_ value: String?, max: Int) -> String? {
