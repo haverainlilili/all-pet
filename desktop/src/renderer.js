@@ -179,6 +179,7 @@
     const card = document.createElement('div')
     card.className = 'bubble-card'
     card.dataset.platform = item.platform
+    card.dataset.phase = item.phase || ''
     if (o.kind === 'platform') card.dataset.kind = 'platform'
     else if (item.id) card.dataset.id = item.id
 
@@ -356,6 +357,10 @@
     } else if (card.dataset.id) {
       const platform = card.dataset.platform
       if (window.petAPI.launchPlatform) window.petAPI.launchPlatform(platform)
+      // 完成/失败卡片：点击查看后自动消失（对齐 macOS「手动查看后自动 dismiss」）。
+      if (card.dataset.phase === 'done' || card.dataset.phase === 'failed') {
+        if (window.petAPI.dismissTask) window.petAPI.dismissTask(card.dataset.id)
+      }
     }
   })
 
