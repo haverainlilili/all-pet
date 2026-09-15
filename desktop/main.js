@@ -176,18 +176,27 @@ function persistHistory() {
   }
 }
 
-// 从快照累积任务历史（按 canonicalID 去重更新，每平台最多 12 条，done/failed 终态保留）。
+// 从快照累积任务历史（对齐 macOS：idle 清理活跃任务、会话切换清理旧会话，done/failed 终态保留）。
 function accumulateHistory(snap) {
   let changed = false
   for (const p of snap.platforms || []) {
-    // 注意：这里只做「保守累积」，绝不删除/改写历史记录——
-    // task-history.json 与 macOS 共享，历史里的 sourcePath/sessionID/terminalBinding
-    // 是 macOS「唤醒任务、加载会话消息」的依据，删除会破坏消息加载。
-    if (p.phase === 'idle') continue
     const t = p.task
+    const currentID = (t && (t.sessionID || t.scheduledTaskName)) ? canonicalID(p.platform, t) : null
+
+    if (p.phase === 'idle') {
+      // 对齐 macOS：平台空闲时清空活跃任务（running/thinking/waiting），只保留 done/failed 完成卡片。
+      const list = taskHistory[p.platform] || []
+      const kept = list.filter(x => x.phase === 'done' || x.phase === 'failed')
+      if (kept.length !== list.length) {
+        taskHistory[p.platform] = kept
+        changed = true
+      }
+      continue
+    }
+
     if (!t || !(t.sessionID || t.scheduledTaskName)) continue
     const item = {
-      id: canonicalID(p.platform, t),
+      id: currentID,
       platform: p.platform,
       title: (t.title || '').trim() || (t.action || p.detail || ''),
       sessionName: t.sessionName,
@@ -208,7 +217,14 @@ function accumulateHistory(snap) {
     if ((item.phase === 'done' || item.phase === 'failed') && dismissedTaskIDs.includes(item.id)) {
       continue
     }
+    // 对齐 macOS：清理「非当前任务」的活跃记录（旧会话僵尸），只保留 done/failed 完成卡片与当前任务。
+    // 当前任务的 sourcePath/launchOrigin/terminal 等扩展字段从保留的现有记录继承。
     let list = taskHistory[p.platform] || []
+    const kept = list.filter(x => x.phase === 'done' || x.phase === 'failed' || x.id === item.id)
+    if (kept.length !== list.length) {
+      list = kept
+      changed = true
+    }
     const idx = list.findIndex(x => x.id === item.id)
     if (idx >= 0) {
       if (!(list[idx].phase === 'done' && item.phase === 'idle')) {
