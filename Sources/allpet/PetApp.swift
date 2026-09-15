@@ -538,6 +538,12 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 displayStatuses.append(display)
                 continue
             }
+            // 空闲（idle）任务不进历史：任务结束后若仍保留「空闲」卡片，会导致气泡一直不消失。
+            // 终态 done/failed 与活跃 running/thinking/waiting 仍正常累积。
+            if display.phase == .idle {
+                displayStatuses.append(display)
+                continue
+            }
             if let hiddenTitle = manuallyHiddenTaskTitles[item.id] {
                 if hiddenTitle == item.title {
                     taskHistory[display.platform]?.removeAll { $0.canonicalID == item.id }
