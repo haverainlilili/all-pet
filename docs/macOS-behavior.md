@@ -381,4 +381,4 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 > - **#13 全空间**：Windows 无「所有 Space 可见」概念。
 > - **#14 大小控件位置**：Electron 大小调节在「宠物管理」窗口（原生托盘菜单不支持不关菜单的自定义视图）。
 > - 等待态 spinner（macOS 转圈图标）在 Electron 简化为橙色圆点。
-> - 任务完成后的僵尸任务：Electron 只在渲染层过滤（平台已 idle 但历史任务仍显示活跃态的僵尸不显示），不改写共享历史；macOS 靠「手动查看后自动 dismiss」+ 12 条上限逐步收敛。注意：task-history.json 与 macOS 共享，其 sourcePath/sessionID 是 macOS 加载会话消息的依据，Electron 绝不删除/改写这些记录。
+> - 任务完成后的僵尸任务：Electron 只在渲染层过滤（平台已 idle 但历史任务仍显示活跃态的僵尸不显示），不改写共享历史；macOS 在 `updateTaskTray` 里清理——平台 idle 时清空活跃任务、会话切换时清空「非当前任务」的活跃记录，只保留完成卡片 done/failed 与当前任务（sourcePath/terminalBinding 从保留记录继承）。注意：task-history.json 与 macOS 共享，其 sourcePath/sessionID 是 macOS 加载会话消息的依据，Electron 绝不删除/改写这些记录。
