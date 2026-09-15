@@ -42,6 +42,16 @@ Grab the latest from [GitHub Releases](https://github.com/haverainlilili/all-pet
 
 Installers bundle the Swift core and 4 built-in pets, so no Node.js, Swift, or extra pet downloads are needed. (macOS builds are currently unsigned — right-click → Open on first launch.)
 
+### 平台说明（Windows / Linux）
+
+Electron 壳在三个平台的功能一致（气泡、托盘、拖拽、缩放、宠物管理），差异仅在平台能力：
+
+- **透明窗口**：Windows / macOS 原生支持；Linux 需要桌面合成器（compositor，Wayland 或带合成器的 X11），无合成器时宠物背景会显示为黑色。
+- **托盘图标**：Windows / macOS 原生支持；Linux 的 GNOME 默认无系统托盘，需安装 AppIndicator 扩展（KDE / XFCE 等桌面自带）。
+- **全空间置顶**：仅 macOS / Linux 支持「所有工作区可见」，Windows 无此概念（自动跳过）。
+- **唤醒平台**：macOS 用 `open -a`；Windows / Linux 直接调用 `codex` / `claude` / `grok` 命令，需这些 CLI 在 `PATH` 中。DSH 三平台都打开 `http://127.0.0.1:3080`。
+- **原生 GUI**：仅 macOS 提供（AppKit）；Windows / Linux 使用 Electron 壳 + Swift core sidecar，功能等价，仅「唤醒会话 / 终端」是 macOS 独有（见 `docs/macOS-behavior.md` #10）。
+
 ### Build from source
 
 Requirements: the native GUI needs macOS 14+ with Xcode Command Line Tools. The `status` / `watch` / `help` / `pet list` CLI builds and runs on Linux (Swift 5.10+) and Windows (verified with the `swift:latest` Docker image on Linux).
