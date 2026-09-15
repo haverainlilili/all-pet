@@ -538,9 +538,17 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 displayStatuses.append(display)
                 continue
             }
-            // 空闲（idle）任务不进历史：任务结束后若仍保留「空闲」卡片，会导致气泡一直不消失。
-            // 终态 done/failed 与活跃 running/thinking/waiting 仍正常累积。
+            // 空闲（idle）：平台已无活动，历史里的活跃任务（running/thinking/waiting）随之清空，
+            // 只保留终态 done/failed 完成卡片；否则任务结束后气泡仍残留「等待中/思考中」卡片。
+            // 空闲任务的 sourcePath 不再需要（任务已结束、不可再唤醒），done/failed 仍保留供查看后 dismiss。
             if display.phase == .idle {
+                if let history = taskHistory[display.platform] {
+                    let kept = history.filter { $0.phase == .done || $0.phase == .failed }
+                    if kept.count != history.count {
+                        taskHistory[display.platform] = kept
+                        shouldPersistHistory = true
+                    }
+                }
                 displayStatuses.append(display)
                 continue
             }
@@ -567,6 +575,20 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 continue
             }
             displayStatuses.append(display)
+
+            // 平台活跃但会话已切换：清理历史里「非当前任务」的活跃记录（running/thinking/waiting），
+            // 只保留完成卡片 done/failed 与当前任务。旧会话的僵尸卡片因此不残留，
+            // 而当前任务的 sourcePath/terminalBinding 等字段仍可从保留的现有记录继承。
+            if let existingHistory = taskHistory[display.platform] {
+                let currentID = item.id
+                let kept = existingHistory.filter { t in
+                    t.phase == .done || t.phase == .failed || t.id == currentID
+                }
+                if kept.count != existingHistory.count {
+                    taskHistory[display.platform] = kept
+                    shouldPersistHistory = true
+                }
+            }
 
             var history = taskHistory[display.platform] ?? []
             let existingIndex = history.firstIndex(where: { $0.canonicalID == item.id })
