@@ -180,20 +180,10 @@ function persistHistory() {
 function accumulateHistory(snap) {
   let changed = false
   for (const p of snap.platforms || []) {
-    // 对齐 macOS inferredTerminalStatus：idle 但 action 含完成/失败关键词 → 推断终态；
-    // 否则清理该平台历史里的活跃任务（running/thinking/waiting），避免「任务已完成但气泡仍显示运行中/等待中」。
-    let phase = p.phase
-    if (phase === 'idle') {
-      const action = ((p.task && p.task.action) || p.detail || '')
-      if (/完成|complete/i.test(action)) phase = 'done'
-      else if (/失败|出错|error/i.test(action)) phase = 'failed'
-      else {
-        const list = taskHistory[p.platform] || []
-        const kept = list.filter(t => t.phase === 'done' || t.phase === 'failed')
-        if (kept.length !== list.length) { taskHistory[p.platform] = kept; changed = true }
-        continue
-      }
-    }
+    // 注意：这里只做「保守累积」，绝不删除/改写历史记录——
+    // task-history.json 与 macOS 共享，历史里的 sourcePath/sessionID/terminalBinding
+    // 是 macOS「唤醒任务、加载会话消息」的依据，删除会破坏消息加载。
+    if (p.phase === 'idle') continue
     const t = p.task
     if (!t || !(t.sessionID || t.scheduledTaskName)) continue
     const item = {
@@ -202,7 +192,7 @@ function accumulateHistory(snap) {
       title: (t.title || '').trim() || (t.action || p.detail || ''),
       sessionName: t.sessionName,
       action: t.action || p.detail || '',
-      phase,
+      phase: p.phase,
       progress: t.progressLabel,
       updatedAt: (Date.now() - APPLE_REF_MS) / 1000,
       sessionID: t.sessionID,

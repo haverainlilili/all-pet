@@ -160,9 +160,19 @@
     // 未完成平台：当前非 idle/done/failed。
     const unfinished = current.filter(p => p.phase !== 'idle' && p.phase !== 'done' && p.phase !== 'failed')
 
-    // 平台卡片（Stage 2）：当前平台 + 该平台历史任务（未 dismiss）。
+    // 当前各平台 phase：仅用于「展示层」过滤僵尸任务（平台已 idle 但历史任务仍是活跃态）。
+    // 绝不回写共享的 task-history.json——那会破坏 macOS 唤醒任务/加载会话消息所需的 sourcePath/sessionID。
+    const currentPhase = {}
+    for (const p of current) currentPhase[p.platform] = p.phase
+
+    // 平台卡片（Stage 2）：当前平台 + 该平台历史任务（未 dismiss、且排除僵尸）。
     const platforms = current.map(p => {
-      const tasks = (history[p.platform] || []).filter(t => !dismissed.includes(t.id))
+      const tasks = (history[p.platform] || []).filter(t => {
+        if (dismissed.includes(t.id)) return false
+        if (currentPhase[p.platform] === 'idle'
+          && (t.phase === 'running' || t.phase === 'thinking' || t.phase === 'waiting')) return false
+        return true
+      })
       return Object.assign({}, p, { tasks })
     })
 
@@ -356,11 +366,10 @@
       onPlatformClick(card.dataset.platform)
     } else if (card.dataset.id) {
       const platform = card.dataset.platform
+      // 只唤醒/打开平台，绝不自动删除历史记录——
+      // task-history.json 的 sourcePath/sessionID 是 macOS 加载会话消息的依据，
+      // 提前删除会导致「之前的消息加载不了」。
       if (window.petAPI.launchPlatform) window.petAPI.launchPlatform(platform)
-      // 完成/失败卡片：点击查看后自动消失（对齐 macOS「手动查看后自动 dismiss」）。
-      if (card.dataset.phase === 'done' || card.dataset.phase === 'failed') {
-        if (window.petAPI.dismissTask) window.petAPI.dismissTask(card.dataset.id)
-      }
     }
   })
 
