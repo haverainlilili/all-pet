@@ -734,13 +734,15 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             }
             return
         }
-        if task.platform == .claude, strongWakeTarget != nil {
+        if task.platform == .claude, strongWakeTarget != nil, !result.openedApp {
             presentClaudeStrongWakeChooser(task, failureMessage: result.message)
             return
         }
         let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "无法唤起\(task.platform.label)任务"
+        alert.alertStyle = result.openedApp ? .informational : .warning
+        alert.messageText = result.openedApp
+            ? "\(task.platform.label) 已打开"
+            : "无法唤起\(task.platform.label)任务"
         alert.informativeText = result.message ?? "没有找到对应任务界面"
         alert.addButton(withTitle: "好")
         NSApp.activate(ignoringOtherApps: true)

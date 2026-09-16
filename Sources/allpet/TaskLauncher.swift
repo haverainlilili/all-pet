@@ -15,6 +15,9 @@ final class TaskLauncher: @unchecked Sendable {
         var terminalBinding: TerminalBinding? = nil
         /// True only when the task program is closed and opening it is required.
         var requiresStrongWake: Bool = false
+        /// True when the app was opened/activated but the session could not be located
+        /// (e.g. Claude Desktop has no public deep link to an existing session).
+        var openedApp: Bool = false
     }
 
     private struct TerminalFocusAttempt {
@@ -214,15 +217,15 @@ final class TaskLauncher: @unchecked Sendable {
                         requiresStrongWake: true
                     )
                 }
-                var components = URLComponents()
-                components.scheme = "claude"
-                components.host = "claude.ai"
-                components.path = "/epitaxy/\(desktopSession.sessionID)"
-                if let url = components.url, NSWorkspace.shared.open(url),
-                   waitForApplicationRunning(bundleID: "com.anthropic.claudefordesktop", timeout: 8) {
-                    return Result(succeeded: true, message: nil)
-                }
-                return Result(succeeded: false, message: "Claude Desktop 未能打开到原任务；任务气泡已保留")
+                // Claude Desktop 没有「聚焦现有会话」的对外深链：epitaxy 路径是 silent no-op，
+                // resume 会 fork 副本。这里只激活应用本体，并提示用户在侧栏手动选择。
+                _ = activateApplication(bundleID: "com.anthropic.claudefordesktop")
+                let title = desktopSession.title ?? sessionID
+                return Result(
+                    succeeded: false,
+                    message: "已唤起 Claude Desktop；该应用不支持自动定位到原会话，请在侧栏手动选择「\(title)」",
+                    openedApp: true
+                )
             } else if desktopOwned, isApplicationRunning(bundleID: "com.anthropic.claudefordesktop") {
                 return Result(
                     succeeded: false,
@@ -318,8 +321,7 @@ final class TaskLauncher: @unchecked Sendable {
                 message: "该会话没有可精确定位的 Claude Desktop 原任务；为避免创建副本，请改选 Claude CLI"
             )
         }
-        // 冷启动：Claude Desktop 关闭时，仅靠 claude:// 深链可能无法拉起应用本体；
-        // 先直接打开 .app 并等它运行，再发深链定位到原会话。
+        // 冷启动：Claude Desktop 关闭时先直接打开 .app 本体并等它运行。
         if !isApplicationRunning(bundleID: "com.anthropic.claudefordesktop") {
             guard let app = claudeDesktopAppURL else {
                 return Result(succeeded: false, message: "找不到 Claude Desktop 应用，无法唤起")
@@ -328,18 +330,15 @@ final class TaskLauncher: @unchecked Sendable {
             guard waitForApplicationRunning(bundleID: "com.anthropic.claudefordesktop", timeout: 12) else {
                 return Result(succeeded: false, message: "Claude Desktop 未能启动；任务气泡已保留")
             }
-            // 等应用完成启动并注册 URL handler 后再发深链。
-            Thread.sleep(forTimeInterval: 1.0)
         }
-        var components = URLComponents()
-        components.scheme = "claude"
-        components.host = "claude.ai"
-        components.path = "/epitaxy/\(record.sessionID)"
-        guard let url = components.url, NSWorkspace.shared.open(url),
-              waitForApplicationRunning(bundleID: "com.anthropic.claudefordesktop", timeout: 8) else {
-            return Result(succeeded: false, message: "Claude Desktop 未能打开到原任务；任务气泡已保留")
-        }
-        return Result(succeeded: true, message: nil)
+        // Claude Desktop 没有「聚焦现有会话」的对外深链（epitaxy 是 silent no-op，resume 会 fork 副本），
+        // 只能唤起应用本体，提示用户在侧栏手动选择。
+        let title = record.title ?? record.sessionID
+        return Result(
+            succeeded: false,
+            message: "已打开 Claude Desktop；该应用不支持自动定位到原会话，请在侧栏手动选择「\(title)」",
+            openedApp: true
+        )
     }
 
     private func strongWakeClaudeCLI(_ task: TrayTaskItem) -> Result {
