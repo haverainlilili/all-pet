@@ -377,7 +377,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 
 > 已知简化（平台限制 / 暂未实现）：
 > - **#8 轮播堆栈**：Electron Stage 1 未完成平台平铺（最多 3 个），无 macOS 的轮播/露边动画。
-> - **#10 唤醒**：Electron 无终端/session 唤起，点击任务仅「打开对应平台」。
+> - **#10 唤醒**：Electron 无终端/session 唤起，点击任务仅「打开对应平台」。Claude Desktop 上游未提供「聚焦现有会话」的对外深链——`code/{id}` 与 `code/continue?session=` 被 feature gate 关闭，`resume?session=` 会 fork 副本，`epitaxy/` 是 silent no-op；因此 macOS 与 Electron 对 Claude Desktop 都只能打开应用本体、提示用户在侧栏手动选择会话。Codex 的 `codex://threads/<id>` 深链有效，可精确定位。
 > - **#13 全空间**：Windows 无「所有 Space 可见」概念。
 > - **#14 大小控件位置**：Electron 大小调节在「宠物管理」窗口（原生托盘菜单不支持不关菜单的自定义视图）。
 > - 等待态 spinner（macOS 转圈图标）在 Electron 简化为橙色圆点。

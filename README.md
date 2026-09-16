@@ -50,7 +50,7 @@ Electron 壳在三个平台的功能一致（气泡、托盘、拖拽、缩放�
 - **托盘图标**：Windows / macOS 原生支持；Linux 的 GNOME 默认无系统托盘，需安装 AppIndicator 扩展（KDE / XFCE 等桌面自带）。
 - **全空间置顶**：仅 macOS / Linux 支持「所有工作区可见」，Windows 无此概念（自动跳过）。
 - **唤醒平台**：macOS 用 `open -a`；Windows / Linux 直接调用 `codex` / `claude` / `grok` 命令，需这些 CLI 在 `PATH` 中。DSH 三平台都打开 `http://127.0.0.1:3080`。
-- **原生 GUI**：仅 macOS 提供（AppKit）；Windows / Linux 使用 Electron 壳 + Swift core sidecar，功能等价，仅「唤醒会话 / 终端」是 macOS 独有（见 `docs/macOS-behavior.md` #10）。
+- **原生 GUI**：仅 macOS 提供（AppKit）；Windows / Linux 使用 Electron 壳 + Swift core sidecar，功能等价，仅「唤醒终端会话」是 macOS 独有（见 `docs/macOS-behavior.md` #10）。Claude Desktop 会话无法被任何平台精确唤醒（上游无此深链），三端都只能打开应用、手动选择会话。
 
 ### Build from source
 
