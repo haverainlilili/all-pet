@@ -606,7 +606,8 @@ final class TaskLauncher: @unchecked Sendable {
         visited += 1
         let role = axValue(element, attribute: kAXRoleAttribute) as? String
         let insideNavigation = inNavigation || role == "AXLandmarkNavigation"
-        if !insideNavigation, role == (kAXButtonRole as String),
+        // 旧版 Codex 用主内容区的按钮标题标识当前会话；新版（并入 ChatGPT）用 AXWebArea 的 title 标识。
+        if !insideNavigation, role == (kAXButtonRole as String) || role == "AXWebArea",
            let title = axValue(element, attribute: kAXTitleAttribute) as? String,
            normalizedAXText(title) == expected {
             return true
