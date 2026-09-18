@@ -1,0 +1,5 @@
+# 脚本依赖（Python 3.9+）
+Pillow>=9.0
+
+# 可选：无损动画 WebP 预览需要（macOS: brew install webp）
+# cwebp / img2webp / webpmux

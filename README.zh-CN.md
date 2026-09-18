@@ -115,6 +115,17 @@ npm start
 
 在系统托盘中打开 **宠物管理…**，即可图形化地切换 / 安装 / 导入 / 删除宠物（含缩略图与默认宠物一键下载）。
 
+## 制作你自己的宠物（宠物生成标准包）
+
+[`宠物生成标准包/`](./宠物生成标准包/README.md) 是一套自包含的「自制宠物」工具包：从设计角色 → 用文生图 prompt 模板生成 9 个状态 + 16 个视线方向 → 用 Python 脚本拼成标准 1536×2288（8×11）精灵图并校验、打包，最终得到一个 `pet.json` + `spritesheet.webp` 文件夹，`./allpet pet import` 即可加载。
+
+```bash
+cd 宠物生成标准包/example
+python3 make_demo.py        # 生成一只示例宠物并跑通整套脚本
+```
+
+完整流程见 [`宠物生成标准包/README.md`](./宠物生成标准包/README.md)（依赖：Python 3.9+ 与 Pillow）。
+
 ## 任务气泡
 
 气泡有三层：
@@ -176,8 +187,8 @@ AllPet 读取各平台已经保存在本机的会话日志，不需要账号密�
 打一个 `v*` tag 即会构建三平台安装包并发布到 GitHub Releases：
 
 ```bash
-git tag -a v1.0.1 -m "AllPet v1.0.1"
-git push origin v1.0.1
+git tag -a v1.2.0 -m "AllPet v1.2.0"
+git push origin v1.2.0
 ```
 
 `Release` 工作流会先构建 Swift 核心、作为 Electron sidecar 内嵌，再在 macOS / Windows / Linux 上运行 electron-builder。也可以在 Actions 页面手动触发（只出产物、不发布 Release）。本地打包见 [`desktop/README.md`](./desktop/README.md)。

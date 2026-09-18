@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# example/ 的可再生产物（python3 example/make_demo.py 重新生成）
+example/frames-raw/
+example/frames/
+example/out/
+example/spritesheet.png
+example/spritesheet.webp
+example/structural-audit.json

@@ -29,6 +29,7 @@ The pattern is consistent: **each model is strongest inside its own harness.** S
 - **Cross-platform CLI** — `status` / `watch` / `self-test` build on macOS, Linux, and Windows.
 - **Cross-platform desktop shell** — an Electron shell (`desktop/`) shows the pet and a graphical pet manager (switch / install / import / delete pets) on Windows, Linux, and macOS.
 - **Bring your own pet** — one-command install from GitHub, or import local Codex / OpenPets / cc-haha / clawd-on-desk / LingChat / single-image pets.
+- **Pet Authoring Kit** — a guided kit ([`宠物生成标准包/`](./宠物生成标准包/README.md)) to make a pet from scratch: a character design guide, per-state text-to-image prompt templates, and Python scripts that assemble / validate / package a standard 8×11 spritesheet into an importable `pet.json` + `spritesheet.webp`.
 
 ## Quick start
 
@@ -125,6 +126,17 @@ Choose **🐾 → Pet → Import local pet…**, or run:
 
 GitHub assets are cloned only into your local `~/.config/all-pet/pet-sources/` — never bundled into the AllPet repo. Third-party characters and assets remain under their original licenses.
 
+## Make your own pet (Pet Authoring Kit)
+
+[`宠物生成标准包/`](./宠物生成标准包/README.md) is a self-contained kit for creating a pet from scratch (currently documented in Chinese). It guides you through: designing a character → generating the 9 states + 16 look directions with text-to-image prompt templates → assembling, validating, and packaging a standard 1536×2288 (8×11) spritesheet with Python scripts — ending in a `pet.json` + `spritesheet.webp` folder you import with `./allpet pet import`.
+
+```bash
+cd 宠物生成标准包/example
+python3 make_demo.py        # 生成一只示例宠物并跑通整套脚本
+```
+
+See [`宠物生成标准包/README.md`](./宠物生成标准包/README.md) for the full workflow (requirements: Python 3.9+ with Pillow).
+
 ## Task bubbles
 
 A bubble has three levels:
@@ -183,18 +195,18 @@ Config file: `~/.config/all-pet/config.json` (see [`config.example.json`](./conf
 
 ## Packaging installers
 
-当前版本 **v1.1.0**。版本号记录在 [`desktop/package.json`](./desktop/package.json) 的 `version` 字段（`desktop/package-lock.json` 需同步）。
+当前版本 **v1.2.0**。版本号记录在 [`desktop/package.json`](./desktop/package.json) 的 `version` 字段（`desktop/package-lock.json` 需同步）。
 
 发新版时先 bump 版本号并提交，再打 tag 触发三平台打包并发布到 GitHub Releases：
 
 ```bash
 # 1. 修改 desktop/package.json 与 desktop/package-lock.json 的 version
 # 2. 提交后打 tag 并推送
-git tag -a v1.1.1 -m "AllPet v1.1.1"
-git push origin v1.1.1
+git tag -a v1.2.0 -m "AllPet v1.2.0"
+git push origin v1.2.0
 ```
 
-`Release` workflow 会构建 Swift 核心、嵌入 Electron sidecar，再在 macOS / Windows / Linux 上运行 `electron-builder`，产出 `dmg`/`zip`、`exe`、`AppImage`/`deb`。打包完成后 Release 默认为草稿（draft），用 `gh release edit v1.1.1 --draft=false` 正式发布；也可在 Actions 页手动触发（仅出产物、不建 Release）。本地打包见 [`desktop/README.md`](./desktop/README.md)。
+`Release` workflow 会构建 Swift 核心、嵌入 Electron sidecar，再在 macOS / Windows / Linux 上运行 `electron-builder`，产出 `dmg`/`zip`、`exe`、`AppImage`/`deb`。打包完成后 Release 默认为草稿（draft），用 `gh release edit v1.2.0 --draft=false` 正式发布；也可在 Actions 页手动触发（仅出产物、不建 Release）。本地打包见 [`desktop/README.md`](./desktop/README.md)。
 
 ## FAQ
 
