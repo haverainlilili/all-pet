@@ -21,15 +21,45 @@ public struct ClaudeMonitor: PlatformMonitor {
             priorityGrace: config.waitingWindowSeconds
         )
 
-        guard let mtime = scan.newestMtime, let path = scan.newestPath else {
+        guard scan.newestMtime != nil, !scan.recentCandidates.isEmpty else {
             return PlatformStatus(platform: .claude, phase: .idle, detail: "未检测到会话", lastActivityAt: nil, activeSessions: 0, enabled: true)
         }
 
-        let age = now.timeIntervalSince(mtime)
+        // 解析 recentWindow 内所有会话（多会话并存时每个都识别），按修改时间从新到旧。
+        var parsed: [(task: TaskInfo, phase: AgentPhase)] = []
+        for candidate in scan.recentCandidates {
+            guard let result = parseTask(candidate, now: now, config: config) else { continue }
+            // 过滤「自动的小任务」：既无会话名（custom-title / Desktop 标题）也非定时任务的会话，
+            // 视为临时/测试指令（如「reply with the single word ok」），不放入气泡。
+            if result.task.sessionName == nil, result.task.scheduledTaskName == nil { continue }
+            parsed.append(result)
+        }
+        guard let main = parsed.first else {
+            return PlatformStatus(platform: .claude, phase: .idle, detail: "无命名临时会话", lastActivityAt: scan.newestMtime, activeSessions: scan.recentCount, enabled: true)
+        }
+
+        let tasks = Array(parsed.map { $0.task }.prefix(5))
+        let detail = main.task.action ?? main.phase.label
+
+        return PlatformStatus(
+            platform: .claude,
+            phase: main.phase,
+            detail: detail,
+            lastActivityAt: scan.newestMtime,
+            activeSessions: scan.recentCount,
+            enabled: true,
+            task: main.task,
+            tasks: tasks
+        )
+    }
+
+    /// 解析单个活动候选为一个任务及其阶段。
+    private func parseTask(_ candidate: ActivityCandidate, now: Date, config: WatchConfig) -> (task: TaskInfo, phase: AgentPhase)? {
+        let age = now.timeIntervalSince(candidate.mtime)
         let cached = taskCache.parse(
-            path: path,
-            mtime: mtime,
-            size: scan.newestSize,
+            path: candidate.path,
+            mtime: candidate.mtime,
+            size: candidate.size,
             maxBytes: 1_048_576,
             parser: { TaskExtractors.claude(from: $0) }
         )
@@ -42,11 +72,11 @@ public struct ClaudeMonitor: PlatformMonitor {
         )
         phase = PhaseClassifier.resolved(inferred: phase, parsed: parsed.phase, age: age, config: config)
         var taskInfo = parsed.info
-        taskInfo.sessionID = parsed.sessionID ?? URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        taskInfo.sessionID = parsed.sessionID ?? URL(fileURLWithPath: candidate.path).deletingPathExtension().lastPathComponent
         taskInfo.scheduledTaskName = parsed.scheduledTaskName
-        taskInfo.sourcePath = path
+        taskInfo.sourcePath = candidate.path
         taskInfo.workingDirectory = parsed.workingDirectory
-        let identity = ClaudeTranscriptIdentityLookup.read(path: path)
+        let identity = ClaudeTranscriptIdentityLookup.read(path: candidate.path)
         taskInfo.launchOrigin = parsed.launchOrigin ?? identity.launchOrigin
         taskInfo.sessionName = parsed.info.sessionName ?? identity.customTitle
         if Self.isDesktopOrigin(taskInfo.launchOrigin),
@@ -54,38 +84,16 @@ public struct ClaudeMonitor: PlatformMonitor {
            let record = ClaudeDesktopSessionLookup.originalSession(forCLI: sessionID, roots: ClaudeDesktopSessionLookup.defaultRoots()) {
             taskInfo.sessionName = record.title ?? taskInfo.sessionName
         }
-        // 无 custom-title 的会话（如临时测试指令）回退到首个用户输入，
-        // 避免气泡退化成 sessionID 前缀（例如「会话 5efe9656」）。
-        if taskInfo.sessionName == nil, let title = parsed.info.title {
-            taskInfo.sessionName = Self.shortSessionName(title)
-        }
-        var detail = parsed.detail ?? ActivityScanner.lastJSONStringField("type", in: tail) ?? phase.label
+        taskInfo.phase = phase
         if phase == .waiting, parsed.phase == .running || parsed.phase == .thinking {
-            detail = "等待后续活动"
-            taskInfo.action = detail
+            taskInfo.action = "等待后续活动"
             taskInfo.toolName = nil
         }
-        let task = taskInfo.isEmpty ? nil : taskInfo
-
-        return PlatformStatus(
-            platform: .claude,
-            phase: phase,
-            detail: detail,
-            lastActivityAt: mtime,
-            activeSessions: scan.recentCount,
-            enabled: true,
-            task: task
-        )
+        return taskInfo.isEmpty ? nil : (taskInfo, phase)
     }
 
     private static func isDesktopOrigin(_ value: String?) -> Bool {
         guard let value = value?.lowercased() else { return false }
         return value.contains("desktop") || value.contains("3p") || value.contains("claude.ai")
-    }
-
-    private static func shortSessionName(_ value: String) -> String {
-        let trimmed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.count > 60 ? String(trimmed.prefix(59)) + "…" : trimmed
     }
 }

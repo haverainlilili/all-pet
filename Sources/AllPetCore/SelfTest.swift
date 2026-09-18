@@ -350,7 +350,9 @@ public enum AllPetSelfTest {
             let subdir = claudeSubagentFixture.appendingPathComponent("subagents")
             try FileManager.default.createDirectory(at: subdir, withIntermediateDirectories: true)
             let sub = subdir.appendingPathComponent("agent-1.jsonl")
-            try Data((#"{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"顶层任务"}}"# + "\n").utf8).write(to: top)
+            let topText = #"{"type":"custom-title","customTitle":"顶层任务会话"}"# + "\n"
+                + #"{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"顶层任务"}}"# + "\n"
+            try Data(topText.utf8).write(to: top)
             try Data((#"{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"子代理任务"}}"# + "\n").utf8).write(to: sub)
             try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-1)], ofItemAtPath: top.path)
             try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: sub.path)
@@ -360,6 +362,23 @@ public enum AllPetSelfTest {
             expect(false, "Claude subagent fixture")
         }
         try? FileManager.default.removeItem(at: claudeSubagentFixture)
+
+        let claudeUntitledFixture = FileManager.default.temporaryDirectory
+            .appendingPathComponent("allpet-claude-untitled-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(at: claudeUntitledFixture, withIntermediateDirectories: true)
+            let now = Date()
+            let untitled = claudeUntitledFixture.appendingPathComponent("untitled.jsonl")
+            let untitledText = #"{"type":"queue-operation","operation":"enqueue","content":"reply with the single word ok"}"# + "\n"
+                + #"{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":"reply with the single word ok"}}"# + "\n"
+            try Data(untitledText.utf8).write(to: untitled)
+            try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: untitled.path)
+            let status = ClaudeMonitor(roots: [claudeUntitledFixture.path]).snapshot(config: watch, now: now)
+            expect(status.task == nil && status.phase == .idle, "Claude filters untitled transient sessions")
+        } catch {
+            expect(false, "Claude untitled fixture")
+        }
+        try? FileManager.default.removeItem(at: claudeUntitledFixture)
 
         let scanFixture = FileManager.default.temporaryDirectory
             .appendingPathComponent("allpet-scan-\(UUID().uuidString)")
