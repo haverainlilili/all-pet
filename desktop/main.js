@@ -180,9 +180,6 @@ function persistHistory() {
 function accumulateHistory(snap) {
   let changed = false
   for (const p of snap.platforms || []) {
-    const t = p.task
-    const currentID = (t && (t.sessionID || t.scheduledTaskName)) ? canonicalID(p.platform, t) : null
-
     if (p.phase === 'idle') {
       // 对齐 macOS：平台空闲时清空活跃任务（running/thinking/waiting），只保留 done/failed 完成卡片。
       const list = taskHistory[p.platform] || []
@@ -194,54 +191,62 @@ function accumulateHistory(snap) {
       continue
     }
 
-    if (!t || !(t.sessionID || t.scheduledTaskName)) continue
-    const item = {
-      id: currentID,
-      platform: p.platform,
-      title: (t.title || '').trim() || (t.action || p.detail || ''),
-      sessionName: t.sessionName,
-      action: t.action || p.detail || '',
-      phase: p.phase,
-      progress: t.progressLabel,
-      updatedAt: (Date.now() - APPLE_REF_MS) / 1000,
-      sessionID: t.sessionID,
-      workingDirectory: t.workingDirectory,
-      scheduledTaskName: t.scheduledTaskName
-    }
-    // 复活：非终态任务出现新活动时移除 dismiss 标记（对齐 macOS）。
-    if (item.phase !== 'done' && item.phase !== 'failed') {
-      const di = dismissedTaskIDs.indexOf(item.id)
-      if (di >= 0) { dismissedTaskIDs.splice(di, 1); changed = true }
-    }
-    // done/failed 且已 dismiss：不再显示、不再入历史。
-    if ((item.phase === 'done' || item.phase === 'failed') && dismissedTaskIDs.includes(item.id)) {
-      continue
-    }
-    // 对齐 macOS：清理「非当前任务」的活跃记录（旧会话僵尸），只保留 done/failed 完成卡片与当前任务。
-    // 当前任务的 sourcePath/launchOrigin/terminal 等扩展字段从保留的现有记录继承。
-    let list = taskHistory[p.platform] || []
-    const kept = list.filter(x => x.phase === 'done' || x.phase === 'failed' || x.id === item.id)
-    if (kept.length !== list.length) {
-      list = kept
-      changed = true
-    }
-    const idx = list.findIndex(x => x.id === item.id)
-    if (idx >= 0) {
-      if (!(list[idx].phase === 'done' && item.phase === 'idle')) {
-        // 保留原条目的扩展字段（macOS 写入的 sourcePath/launchOrigin/terminal 等），避免共享文件时丢失。
-        const merged = Object.assign({}, list[idx], item)
-        list[idx] = merged
+    // 多会话并存：逐个累积（仅主任务执行「会话切换」清理，其余任务在清理后重新加回）。
+    const tasks = (p.tasks && p.tasks.length) ? p.tasks : (p.task ? [p.task] : [])
+    for (let i = 0; i < tasks.length; i++) {
+      const t = tasks[i]
+      if (!t || !(t.sessionID || t.scheduledTaskName)) continue
+      const currentID = canonicalID(p.platform, t)
+      const item = {
+        id: currentID,
+        platform: p.platform,
+        title: (t.title || '').trim() || (t.action || p.detail || ''),
+        sessionName: t.sessionName,
+        action: t.action || p.detail || '',
+        phase: p.phase,
+        progress: t.progressLabel,
+        updatedAt: (Date.now() - APPLE_REF_MS) / 1000,
+        sessionID: t.sessionID,
+        workingDirectory: t.workingDirectory,
+        scheduledTaskName: t.scheduledTaskName
+      }
+      // 复活：非终态任务出现新活动时移除 dismiss 标记（对齐 macOS）。
+      if (item.phase !== 'done' && item.phase !== 'failed') {
+        const di = dismissedTaskIDs.indexOf(item.id)
+        if (di >= 0) { dismissedTaskIDs.splice(di, 1); changed = true }
+      }
+      // done/failed 且已 dismiss：不再显示、不再入历史。
+      if ((item.phase === 'done' || item.phase === 'failed') && dismissedTaskIDs.includes(item.id)) {
+        continue
+      }
+      // 对齐 macOS：仅主任务清理「非当前活跃记录」，只保留 done/failed 完成卡片与当前任务。
+      // 当前任务的 sourcePath/launchOrigin/terminal 等扩展字段从保留的现有记录继承。
+      let list = taskHistory[p.platform] || []
+      if (i === 0) {
+        const kept = list.filter(x => x.phase === 'done' || x.phase === 'failed' || x.id === item.id)
+        if (kept.length !== list.length) {
+          list = kept
+          changed = true
+        }
+      }
+      const idx = list.findIndex(x => x.id === item.id)
+      if (idx >= 0) {
+        if (!(list[idx].phase === 'done' && item.phase === 'idle')) {
+          // 保留原条目的扩展字段（macOS 写入的 sourcePath/launchOrigin/terminal 等），避免共享文件时丢失。
+          const merged = Object.assign({}, list[idx], item)
+          list[idx] = merged
+          changed = true
+        }
+      } else {
+        list.push(item)
         changed = true
       }
-    } else {
-      list.push(item)
-      changed = true
+      const seen = new Set()
+      list = list.filter(x => (seen.has(x.id) ? false : (seen.add(x.id), true)))
+      list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      if (list.length > 12) list = list.slice(0, 12)
+      taskHistory[p.platform] = list
     }
-    const seen = new Set()
-    list = list.filter(x => (seen.has(x.id) ? false : (seen.add(x.id), true)))
-    list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-    if (list.length > 12) list = list.slice(0, 12)
-    taskHistory[p.platform] = list
   }
   if (changed) persistHistory()
 }
