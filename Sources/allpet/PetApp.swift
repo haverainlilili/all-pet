@@ -486,7 +486,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     /// 用户自己手动打开/查看已完成任务时，让该完成气泡自动消失。
     private func performManualViewCheckIfNeeded() {
         let now = Date()
-        guard now.timeIntervalSince(lastManualViewCheckAt) >= 3 else { return }
+        guard now.timeIntervalSince(lastManualViewCheckAt) >= 1 else { return }
         lastManualViewCheckAt = now
         // 刚唤起过任务：应用可能还停在「上一个会话」上，跳过该窗口以免误判别的已完成任务已查看。
         guard now.timeIntervalSince(lastEvokeAt) >= manualViewGraceInterval else { return }
