@@ -7,8 +7,17 @@ public struct ScanResult: Sendable {
     public var newestSize: UInt64 = 0
     public var newestPriority: Int = .min
     public var recentCount: Int = 0
+    /// recentWindow 内所有活动文件，按修改时间从新到旧排序（用于多会话展示）。
+    public var recentCandidates: [ActivityCandidate] = []
 
     public init() {}
+}
+
+/// 一个活动文件候选（路径 + 修改时间 + 大小）。
+public struct ActivityCandidate: Sendable {
+    public let path: String
+    public let mtime: Date
+    public let size: UInt64
 }
 
 /// 活动检测工具：递归扫描目录、读文件尾部、按日志文本识别错误、解析 JSON 字段。
@@ -58,6 +67,7 @@ public enum ActivityScanner {
                 candidates.append(Candidate(path: path, mtime: mtime, size: size, priority: selectionPriority(path)))
                 if now.timeIntervalSince(mtime) <= recentWindow {
                     result.recentCount += 1
+                    result.recentCandidates.append(ActivityCandidate(path: path, mtime: mtime, size: size))
                 }
             }
         }
@@ -79,6 +89,7 @@ public enum ActivityScanner {
             result.newestSize = selected.size
             result.newestPriority = selected.priority
         }
+        result.recentCandidates.sort { $0.mtime > $1.mtime }
         return result
     }
 

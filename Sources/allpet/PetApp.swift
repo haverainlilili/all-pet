@@ -532,7 +532,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 displayStatuses.append(display)
                 continue
             }
-            var item = TrayTaskItem(status: display)
+            let item = TrayTaskItem(status: display)
             guard item.sessionID?.isEmpty == false else {
                 display.task = nil
                 displayStatuses.append(display)
@@ -590,41 +590,18 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 }
             }
 
-            var history = taskHistory[display.platform] ?? []
-            let existingIndex = history.firstIndex(where: { $0.canonicalID == item.id })
-                ?? item.sessionID.flatMap { sessionID in
-                    history.firstIndex(where: { $0.sessionID == sessionID })
-                }
-                ?? history.firstIndex(where: { $0.sessionID == nil && $0.title == item.title })
-            if let index = existingIndex {
-                if !(history[index].phase == .done && item.phase == .idle) {
-                    if item.platform == .claude, history[index].phase != .done, item.phase == .done {
-                        // 同一会话重新进入「已完成」：重置焦点基线，避免沿用上一轮的旧基线被过早判为已查看。
-                        taskLauncher.clearClaudeFocusBaseline(for: item.canonicalID)
-                    }
-                    if let previousBinding = history[index].terminalBinding {
-                        item.terminalBinding = previousBinding
-                        item.terminalTTY = previousBinding.tty
-                    } else if item.terminalTTY == nil {
-                        item.terminalTTY = history[index].terminalTTY
-                    }
-                    if item.processID == nil { item.processID = history[index].processID }
-                    if item.workingDirectory == nil { item.workingDirectory = history[index].workingDirectory }
-                    if item.launchOrigin == nil { item.launchOrigin = history[index].launchOrigin }
-                    if item.sessionName == nil { item.sessionName = history[index].sessionName }
-                    if history[index] != item { shouldPersistHistory = true }
-                    history[index] = item
-                }
-            } else {
-                if item.platform == .claude, item.phase == .done {
-                    taskLauncher.clearClaudeFocusBaseline(for: item.canonicalID)
-                }
-                history.append(item)
-                shouldPersistHistory = true
+            if accumulateTask(item, in: display.platform) { shouldPersistHistory = true }
+
+            // 多会话并存：把其余活跃任务也累积进来（它们可能刚被「会话切换」清理，
+            // 这里重新加回，确保同一平台多个进行中的任务都能识别与展示）。
+            for extraTask in display.tasks.dropFirst() {
+                var single = display
+                single.task = extraTask
+                single.tasks = [extraTask]
+                let extraItem = TrayTaskItem(status: single)
+                guard extraItem.sessionID?.isEmpty == false else { continue }
+                if accumulateTask(extraItem, in: display.platform) { shouldPersistHistory = true }
             }
-            history = Self.deduplicatedTasks(history)
-            if history.count > 12 { history.removeLast(history.count - 12) }
-            taskHistory[display.platform] = history
         }
         if shouldPersistHistory { saveTaskHistory() }
 
@@ -638,6 +615,49 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         taskTrayView?.isHidden = !hasNotification
         setTaskTrayVisible(hasNotification)
         return displayStatuses
+    }
+
+    /// 把一个任务累积进历史：存在则更新并继承终端/来源字段，否则追加；返回是否有变化。
+    @discardableResult
+    private func accumulateTask(_ item: TrayTaskItem, in platform: PlatformKind) -> Bool {
+        var item = item
+        var changed = false
+        var history = taskHistory[platform] ?? []
+        let existingIndex = history.firstIndex(where: { $0.canonicalID == item.id })
+            ?? item.sessionID.flatMap { sessionID in
+                history.firstIndex(where: { $0.sessionID == sessionID })
+            }
+            ?? history.firstIndex(where: { $0.sessionID == nil && $0.title == item.title })
+        if let index = existingIndex {
+            if !(history[index].phase == .done && item.phase == .idle) {
+                if item.platform == .claude, history[index].phase != .done, item.phase == .done {
+                    // 同一会话重新进入「已完成」：重置焦点基线，避免沿用上一轮的旧基线被过早判为已查看。
+                    taskLauncher.clearClaudeFocusBaseline(for: item.canonicalID)
+                }
+                if let previousBinding = history[index].terminalBinding {
+                    item.terminalBinding = previousBinding
+                    item.terminalTTY = previousBinding.tty
+                } else if item.terminalTTY == nil {
+                    item.terminalTTY = history[index].terminalTTY
+                }
+                if item.processID == nil { item.processID = history[index].processID }
+                if item.workingDirectory == nil { item.workingDirectory = history[index].workingDirectory }
+                if item.launchOrigin == nil { item.launchOrigin = history[index].launchOrigin }
+                if item.sessionName == nil { item.sessionName = history[index].sessionName }
+                if history[index] != item { changed = true }
+                history[index] = item
+            }
+        } else {
+            if item.platform == .claude, item.phase == .done {
+                taskLauncher.clearClaudeFocusBaseline(for: item.canonicalID)
+            }
+            history.append(item)
+            changed = true
+        }
+        history = Self.deduplicatedTasks(history)
+        if history.count > 12 { history.removeLast(history.count - 12) }
+        taskHistory[platform] = history
+        return changed
     }
 
     private func dismissTaskBubble(id: String) {

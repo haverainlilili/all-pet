@@ -141,6 +141,7 @@ private struct PlatformJSON: Codable {
     var activeSessions: Int
     var enabled: Bool
     var task: TaskJSON?
+    var tasks: [TaskJSON]
     var bubbleHeader: String
     var bubbleDetails: [String]
 }
@@ -151,6 +152,19 @@ private struct SnapshotJSON: Codable {
     var phase: String
     var summary: String
     var platforms: [PlatformJSON]
+}
+
+private func taskJSON(_ t: TaskInfo) -> TaskJSON {
+    TaskJSON(
+        sessionName: t.sessionName,
+        action: t.action,
+        toolName: t.toolName,
+        progressLabel: t.progressLabel,
+        sessionID: t.sessionID,
+        workingDirectory: t.workingDirectory,
+        scheduledTaskName: t.scheduledTaskName,
+        title: t.title
+    )
 }
 
 private func toJSON(_ s: PetSnapshot) -> SnapshotJSON {
@@ -169,18 +183,8 @@ private func toJSON(_ s: PetSnapshot) -> SnapshotJSON {
                 detail: p.detail,
                 activeSessions: p.activeSessions,
                 enabled: p.enabled,
-                task: p.task.map {
-                    TaskJSON(
-                        sessionName: $0.sessionName,
-                        action: $0.action,
-                        toolName: $0.toolName,
-                        progressLabel: $0.progressLabel,
-                        sessionID: $0.sessionID,
-                        workingDirectory: $0.workingDirectory,
-                        scheduledTaskName: $0.scheduledTaskName,
-                        title: $0.title
-                    )
-                },
+                task: p.task.map { taskJSON($0) },
+                tasks: p.tasks.map { taskJSON($0) },
                 bubbleHeader: p.bubbleHeader,
                 bubbleDetails: p.bubbleDetails
             )

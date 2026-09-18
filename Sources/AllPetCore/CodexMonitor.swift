@@ -67,20 +67,55 @@ public struct CodexMonitor: PlatformMonitor {
             now: now
         )
 
-        guard let mtime = scan.newestMtime, let path = scan.newestPath else {
+        guard scan.newestMtime != nil, !scan.recentCandidates.isEmpty else {
             return PlatformStatus(platform: .codex, phase: .idle, detail: "未检测到会话", lastActivityAt: nil, activeSessions: 0, enabled: true)
         }
 
-        let age = now.timeIntervalSince(mtime)
+        // 解析 recentWindow 内所有会话（多会话并存时每个都识别），按修改时间从新到旧。
+        var parsed: [(task: TaskInfo, phase: AgentPhase)] = []
+        for candidate in scan.recentCandidates {
+            if let result = parseTask(candidate, now: now, config: config) {
+                parsed.append(result)
+            }
+        }
+        guard let main = parsed.first else {
+            return PlatformStatus(platform: .codex, phase: .idle, detail: "未检测到会话", lastActivityAt: nil, activeSessions: scan.recentCount, enabled: true)
+        }
+
+        // 主任务（最新）决定平台聚合 phase；主任务在进行中时，把其它进行中的会话一并展开展示。
+        let running = parsed.filter { $0.phase == .running || $0.phase == .thinking || $0.phase == .waiting }
+        let tasks: [TaskInfo]
+        if main.phase == .running || main.phase == .thinking || main.phase == .waiting {
+            tasks = running.map { $0.task }
+        } else {
+            tasks = [main.task]
+        }
+        let detail = main.task.action ?? main.phase.label
+
+        return PlatformStatus(
+            platform: .codex,
+            phase: main.phase,
+            detail: detail,
+            lastActivityAt: scan.newestMtime,
+            activeSessions: scan.recentCount,
+            enabled: true,
+            task: main.task,
+            tasks: tasks
+        )
+    }
+
+    /// 解析单个活动候选为一个任务及其阶段。
+    private func parseTask(_ candidate: ActivityCandidate, now: Date, config: WatchConfig) -> (task: TaskInfo, phase: AgentPhase)? {
+        let age = now.timeIntervalSince(candidate.mtime)
         let cached = taskCache.parse(
-            path: path,
-            mtime: mtime,
-            size: scan.newestSize,
+            path: candidate.path,
+            mtime: candidate.mtime,
+            size: candidate.size,
             maxBytes: 1_048_576,
             parser: { TaskExtractors.codex(from: $0) }
         )
-        let tail = cached.text
         let parsed = cached.task
+        let tail = cached.text
         var phase = PhaseClassifier.phase(
             age: age,
             config: config,
@@ -91,30 +126,18 @@ public struct CodexMonitor: PlatformMonitor {
         // 仅用 30 分钟硬超时清理崩溃/僵尸 session（无 task_complete 且长期无活动）。
         phase = Self.resolvePhase(parsed: parsed.phase, inferred: phase, age: age)
         var taskInfo = parsed.info
-        taskInfo.sessionID = parsed.sessionID ?? Self.sessionID(from: path)
-        taskInfo.sourcePath = path
-        taskInfo.launchOrigin = CodexTranscriptIdentityLookup.read(path: path).launchOrigin
+        taskInfo.sessionID = parsed.sessionID ?? Self.sessionID(from: candidate.path)
+        taskInfo.sourcePath = candidate.path
+        taskInfo.launchOrigin = CodexTranscriptIdentityLookup.read(path: candidate.path).launchOrigin
         if let sessionID = taskInfo.sessionID {
-            taskInfo.sessionName = CodexSessionNameLookup.name(for: sessionID, transcriptPath: path)
+            taskInfo.sessionName = CodexSessionNameLookup.name(for: sessionID, transcriptPath: candidate.path)
         }
         taskInfo.workingDirectory = parsed.workingDirectory
-        var detail = parsed.detail ?? ActivityScanner.lastJSONStringField("type", in: tail) ?? phase.label
         if phase == .waiting, parsed.phase == .running || parsed.phase == .thinking {
-            detail = "等待后续活动"
-            taskInfo.action = detail
+            taskInfo.action = "等待后续活动"
             taskInfo.toolName = nil
         }
-        let task = taskInfo.isEmpty ? nil : taskInfo
-
-        return PlatformStatus(
-            platform: .codex,
-            phase: phase,
-            detail: detail,
-            lastActivityAt: mtime,
-            activeSessions: scan.recentCount,
-            enabled: true,
-            task: task
-        )
+        return taskInfo.isEmpty ? nil : (taskInfo, phase)
     }
 
     /// Codex 阶段解析：running/thinking/waiting 保持到硬超时（长任务、计划模式等待用户

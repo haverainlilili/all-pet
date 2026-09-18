@@ -123,6 +123,8 @@ public struct PlatformStatus: Sendable {
     public var activeSessions: Int
     public var enabled: Bool
     public var task: TaskInfo?
+    /// 该平台当前所有活跃任务（多会话）；`task` 保持为其中的最新一个，向后兼容。
+    public var tasks: [TaskInfo]
 
     public init(
         platform: PlatformKind,
@@ -131,7 +133,8 @@ public struct PlatformStatus: Sendable {
         lastActivityAt: Date?,
         activeSessions: Int,
         enabled: Bool,
-        task: TaskInfo? = nil
+        task: TaskInfo? = nil,
+        tasks: [TaskInfo] = []
     ) {
         self.platform = platform
         self.phase = phase
@@ -139,7 +142,13 @@ public struct PlatformStatus: Sendable {
         self.lastActivityAt = lastActivityAt
         self.activeSessions = activeSessions
         self.enabled = enabled
-        self.task = task
+        if tasks.isEmpty {
+            self.task = task
+            self.tasks = task.map { [$0] } ?? []
+        } else {
+            self.task = tasks.first
+            self.tasks = tasks
+        }
     }
 
     public var bubbleHeader: String {
