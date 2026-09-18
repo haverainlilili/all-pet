@@ -86,7 +86,10 @@ public struct CodexMonitor: PlatformMonitor {
             config: config,
             errorDetected: ActivityScanner.containsError(tail) && age <= config.activeWindowSeconds
         )
-        phase = PhaseClassifier.resolved(inferred: phase, parsed: parsed.phase, age: age, config: config)
+        // Codex 的任务状态由「最后事件」决定：parsed 的 running/thinking/waiting 表示
+        // 任务进行中 / 等待用户，不因 age 快速降级（8s/120s 会误伤长任务与计划模式）。
+        // 仅用 30 分钟硬超时清理崩溃/僵尸 session（无 task_complete 且长期无活动）。
+        phase = Self.resolvePhase(parsed: parsed.phase, inferred: phase, age: age)
         var taskInfo = parsed.info
         taskInfo.sessionID = parsed.sessionID ?? Self.sessionID(from: path)
         taskInfo.sourcePath = path
@@ -113,6 +116,23 @@ public struct CodexMonitor: PlatformMonitor {
             task: task
         )
     }
+
+    /// Codex 阶段解析：running/thinking/waiting 保持到硬超时（长任务、计划模式等待用户
+    /// 不应消失）；done/failed 是终态；idle 直接空闲。超出硬超时的进行中任务视为僵尸，清理为 idle。
+    private static func resolvePhase(parsed: AgentPhase?, inferred: AgentPhase, age: TimeInterval) -> AgentPhase {
+        guard let parsed else { return inferred }
+        switch parsed {
+        case .running, .thinking, .waiting:
+            return age <= hardTimeout ? parsed : .idle
+        case .done, .failed:
+            return parsed
+        case .idle:
+            return .idle
+        }
+    }
+
+    /// 进行中/等待状态的最长保留时长（秒）；超过则判定为已停止的僵尸 session。
+    private static let hardTimeout: TimeInterval = 1_800
 
     private static func sessionID(from path: String) -> String? {
         let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent

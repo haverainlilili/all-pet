@@ -82,6 +82,11 @@ enum TaskExtractors {
                 } else if itemType == "Reasoning" {
                     out.phase = .thinking
                     out.info.action = "正在思考"
+                } else if itemType == "Plan" {
+                    // 计划模式：item_started 生成计划，item_completed 表示计划已生成、
+                    // 等待用户确认/回答后才继续执行。
+                    out.phase = eventType == "item_started" ? .thinking : .waiting
+                    out.info.action = eventType == "item_started" ? "正在生成计划" : "已生成计划，等待确认"
                 }
             case "task_complete":
                 if let error = nonNull(payload["error"]) {
