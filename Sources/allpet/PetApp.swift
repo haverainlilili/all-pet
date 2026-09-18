@@ -615,6 +615,10 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 single.phase = extraTask.phase ?? display.phase
                 let extraItem = TrayTaskItem(status: single)
                 guard extraItem.sessionID?.isEmpty == false else { continue }
+                // done/failed 且已被 dismiss：跳过，避免「手动查看后消失」又被重新累积回来。
+                if (extraItem.phase == .done || extraItem.phase == .failed), dismissedTaskIDs.contains(extraItem.id) {
+                    continue
+                }
                 if accumulateTask(extraItem, in: display.platform) { shouldPersistHistory = true }
             }
         }
