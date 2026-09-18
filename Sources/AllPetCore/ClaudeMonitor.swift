@@ -54,6 +54,11 @@ public struct ClaudeMonitor: PlatformMonitor {
            let record = ClaudeDesktopSessionLookup.originalSession(forCLI: sessionID, roots: ClaudeDesktopSessionLookup.defaultRoots()) {
             taskInfo.sessionName = record.title ?? taskInfo.sessionName
         }
+        // 无 custom-title 的会话（如临时测试指令）回退到首个用户输入，
+        // 避免气泡退化成 sessionID 前缀（例如「会话 5efe9656」）。
+        if taskInfo.sessionName == nil, let title = parsed.info.title {
+            taskInfo.sessionName = Self.shortSessionName(title)
+        }
         var detail = parsed.detail ?? ActivityScanner.lastJSONStringField("type", in: tail) ?? phase.label
         if phase == .waiting, parsed.phase == .running || parsed.phase == .thinking {
             detail = "等待后续活动"
@@ -76,5 +81,11 @@ public struct ClaudeMonitor: PlatformMonitor {
     private static func isDesktopOrigin(_ value: String?) -> Bool {
         guard let value = value?.lowercased() else { return false }
         return value.contains("desktop") || value.contains("3p") || value.contains("claude.ai")
+    }
+
+    private static func shortSessionName(_ value: String) -> String {
+        let trimmed = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > 60 ? String(trimmed.prefix(59)) + "…" : trimmed
     }
 }
