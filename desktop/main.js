@@ -179,6 +179,19 @@ function persistHistory() {
 // 从快照累积任务历史（对齐 macOS：idle 清理活跃任务、会话切换清理旧会话，done/failed 终态保留）。
 function accumulateHistory(snap) {
   let changed = false
+  // 完成/失败卡片超时自动消失（对齐 macOS doneBubbleTTL = 1800 秒）。
+  const DONE_TTL_S = 1800
+  const nowAppleS = (Date.now() - APPLE_REF_MS) / 1000
+  for (const list of Object.values(taskHistory)) {
+    for (const item of list) {
+      if ((item.phase === 'done' || item.phase === 'failed')
+          && !dismissedTaskIDs.includes(item.id)
+          && (nowAppleS - (item.updatedAt || 0)) > DONE_TTL_S) {
+        dismissedTaskIDs.push(item.id)
+        changed = true
+      }
+    }
+  }
   for (const p of snap.platforms || []) {
     if (p.phase === 'idle') {
       // 对齐 macOS：平台空闲时清空活跃任务（running/thinking/waiting），只保留 done/failed 完成卡片。

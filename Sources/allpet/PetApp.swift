@@ -124,6 +124,8 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     /// 避免应用冷启动时短暂停留在「上一个会话」而把别的已完成任务误判为已查看。
     private var lastEvokeAt: Date = .distantPast
     private let manualViewGraceInterval: TimeInterval = 15
+    /// 完成/失败卡片的最长保留时间（秒）：超时自动消失，避免任务结束后气泡永久残留。
+    private let doneBubbleTTL: TimeInterval = 1800
 
     init(config: AllPetConfiguration, home: URL) {
         let loadedHistory = Self.loadTaskHistory(home: home)
@@ -490,7 +492,18 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         lastManualViewCheckAt = now
         // 刚唤起过任务：应用可能还停在「上一个会话」上，跳过该窗口以免误判别的已完成任务已查看。
         guard now.timeIntervalSince(lastEvokeAt) >= manualViewGraceInterval else { return }
-        let doneTasks = taskHistory.values.flatMap { $0 }.filter { $0.phase == .done }
+        let terminalTasks = taskHistory.values.flatMap { $0 }.filter { $0.phase == .done || $0.phase == .failed }
+        guard !terminalTasks.isEmpty else { return }
+        // 完成/失败卡片超时（doneBubbleTTL）自动消失，避免任务结束后气泡永久残留。
+        let expiredIDs = terminalTasks
+            .filter { now.timeIntervalSince($0.updatedAt ?? .distantPast) > doneBubbleTTL }
+            .map(\.canonicalID)
+        if !expiredIDs.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                self?.dismissManuallyViewedDoneTasks(ids: expiredIDs)
+            }
+        }
+        let doneTasks = terminalTasks.filter { $0.phase == .done }
         guard !doneTasks.isEmpty else { return }
         taskWakeQueue.async { [weak self] in
             guard let self else { return }
