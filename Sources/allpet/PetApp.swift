@@ -605,12 +605,14 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
 
             if accumulateTask(item, in: display.platform) { shouldPersistHistory = true }
 
-            // 多会话并存：把其余活跃任务也累积进来（它们可能刚被「会话切换」清理，
-            // 这里重新加回，确保同一平台多个进行中的任务都能识别与展示）。
+            // 多会话并存：把其余任务也累积进来（它们可能刚被「会话切换」清理，
+            // 这里重新加回，确保同一平台多个任务——含刚完成的 done/failed——都能识别与展示）。
             for extraTask in display.tasks.dropFirst() {
                 var single = display
                 single.task = extraTask
                 single.tasks = [extraTask]
+                // 每个任务用自身的 phase（done/failed 与 running/thinking 并存时不再一律继承平台聚合 phase）。
+                single.phase = extraTask.phase ?? display.phase
                 let extraItem = TrayTaskItem(status: single)
                 guard extraItem.sessionID?.isEmpty == false else { continue }
                 if accumulateTask(extraItem, in: display.platform) { shouldPersistHistory = true }

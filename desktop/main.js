@@ -216,7 +216,7 @@ function accumulateHistory(snap) {
         title: (t.title || '').trim() || (t.action || p.detail || ''),
         sessionName: t.sessionName,
         action: t.action || p.detail || '',
-        phase: p.phase,
+        phase: t.phase || p.phase,
         progress: t.progressLabel,
         updatedAt: (Date.now() - APPLE_REF_MS) / 1000,
         sessionID: t.sessionID,

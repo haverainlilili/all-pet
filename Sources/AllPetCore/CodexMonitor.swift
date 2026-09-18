@@ -82,14 +82,10 @@ public struct CodexMonitor: PlatformMonitor {
             return PlatformStatus(platform: .codex, phase: .idle, detail: "未检测到会话", lastActivityAt: nil, activeSessions: scan.recentCount, enabled: true)
         }
 
-        // 主任务（最新）决定平台聚合 phase；主任务在进行中时，把其它进行中的会话一并展开展示。
-        let running = parsed.filter { $0.phase == .running || $0.phase == .thinking || $0.phase == .waiting }
-        let tasks: [TaskInfo]
-        if main.phase == .running || main.phase == .thinking || main.phase == .waiting {
-            tasks = running.map { $0.task }
-        } else {
-            tasks = [main.task]
-        }
+        // 主任务（最新）决定平台聚合 phase；tasks 携带 recentWindow 内全部任务
+        //（含 done/failed 完成卡片），每个任务自身的 phase 已写入 TaskInfo.phase，
+        // 这样刚完成的会话在其它会话仍运行时也能作为完成卡片展示，不会漏识别。
+        let tasks = Array(parsed.map { $0.task }.prefix(5))
         let detail = main.task.action ?? main.phase.label
 
         return PlatformStatus(
@@ -126,13 +122,16 @@ public struct CodexMonitor: PlatformMonitor {
         // 仅用 30 分钟硬超时清理崩溃/僵尸 session（无 task_complete 且长期无活动）。
         phase = Self.resolvePhase(parsed: parsed.phase, inferred: phase, age: age)
         var taskInfo = parsed.info
-        taskInfo.sessionID = parsed.sessionID ?? Self.sessionID(from: candidate.path)
+        // subagent 会话的文件名形如 <主sessionID>_<subagentID>；应归属到主会话，
+        // 因此优先用文件名里的主会话 ID（第一个 UUID），transcript 里的 session_id 仅作回退。
+        taskInfo.sessionID = Self.sessionID(from: candidate.path) ?? parsed.sessionID
         taskInfo.sourcePath = candidate.path
         taskInfo.launchOrigin = CodexTranscriptIdentityLookup.read(path: candidate.path).launchOrigin
         if let sessionID = taskInfo.sessionID {
             taskInfo.sessionName = CodexSessionNameLookup.name(for: sessionID, transcriptPath: candidate.path)
         }
         taskInfo.workingDirectory = parsed.workingDirectory
+        taskInfo.phase = phase
         if phase == .waiting, parsed.phase == .running || parsed.phase == .thinking {
             taskInfo.action = "等待后续活动"
             taskInfo.toolName = nil
@@ -157,9 +156,12 @@ public struct CodexMonitor: PlatformMonitor {
     /// 进行中/等待状态的最长保留时长（秒）；超过则判定为已停止的僵尸 session。
     private static let hardTimeout: TimeInterval = 1_800
 
-    private static func sessionID(from path: String) -> String? {
+    static func sessionID(from path: String) -> String? {
         let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        guard name.count >= 36 else { return nil }
-        return String(name.suffix(36))
+        // 文件名形如 rollout-<ts>-<主sessionID>[_<subagentID>]；
+        // 取第一个 UUID（主会话 ID），忽略 subagent 下划线后缀。
+        let uuidPattern = #"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"#
+        guard let range = name.range(of: uuidPattern, options: .regularExpression) else { return nil }
+        return String(name[range])
     }
 }

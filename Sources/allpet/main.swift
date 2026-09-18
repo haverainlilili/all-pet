@@ -130,6 +130,7 @@ private struct TaskJSON: Codable {
     var workingDirectory: String?
     var scheduledTaskName: String?
     var title: String?
+    var phase: String?
 }
 
 private struct PlatformJSON: Codable {
@@ -163,7 +164,8 @@ private func taskJSON(_ t: TaskInfo) -> TaskJSON {
         sessionID: t.sessionID,
         workingDirectory: t.workingDirectory,
         scheduledTaskName: t.scheduledTaskName,
-        title: t.title
+        title: t.title,
+        phase: t.phase?.rawValue
     )
 }
 

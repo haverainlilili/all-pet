@@ -71,6 +71,8 @@ public struct TaskInfo: Sendable, Equatable {
     public var launchOrigin: String?
     /// Claude Desktop 定时任务名（如 paper-monitor-daily）；非定时任务为 nil。
     public var scheduledTaskName: String?
+    /// 该任务自身的阶段（running/thinking/waiting/done/failed）；nil 表示沿用平台聚合 phase。
+    public var phase: AgentPhase?
 
     public init(
         sessionName: String? = nil,
@@ -86,7 +88,8 @@ public struct TaskInfo: Sendable, Equatable {
         terminalTTY: String? = nil,
         terminalBinding: TerminalBinding? = nil,
         launchOrigin: String? = nil,
-        scheduledTaskName: String? = nil
+        scheduledTaskName: String? = nil,
+        phase: AgentPhase? = nil
     ) {
         self.sessionName = sessionName
         self.title = title
@@ -102,6 +105,7 @@ public struct TaskInfo: Sendable, Equatable {
         self.terminalBinding = terminalBinding
         self.launchOrigin = launchOrigin
         self.scheduledTaskName = scheduledTaskName
+        self.phase = phase
     }
 
     public var progressLabel: String? {

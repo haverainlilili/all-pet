@@ -37,6 +37,11 @@ public enum AllPetSelfTest {
         let codexIdentity = TaskExtractors.codex(from: #"{"type":"session_meta","payload":{"id":"codex-session","cwd":"/tmp/codex"}}"#)
         expect(codexIdentity.sessionID == "codex-session" && codexIdentity.workingDirectory == "/tmp/codex", "Codex launch identity")
 
+        expect(CodexMonitor.sessionID(from: "/tmp/rollout-2026-09-10T11-01-38-01a07ff2-90f6-72d1-bc8a-45714fc0932f_01a08943-8290-7563-8c2f-2ca8aa0484ce.jsonl") == "01a07ff2-90f6-72d1-bc8a-45714fc0932f",
+               "Codex subagent filename resolves to parent session ID")
+        expect(CodexMonitor.sessionID(from: "/tmp/rollout-2026-08-18T10-26-40-01a012b1-3ece-7ed1-aec9-1232d6678de0.jsonl") == "01a012b1-3ece-7ed1-aec9-1232d6678de0",
+               "Codex plain filename resolves to session ID")
+
         let codexAmbient = TaskExtractors.codex(from: """
         {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"真实任务"}]}}
         {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<in-app-browser-context>ambient state</in-app-browser-context>"}]}}
