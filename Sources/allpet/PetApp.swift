@@ -491,7 +491,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         guard now.timeIntervalSince(lastManualViewCheckAt) >= 1 else { return }
         lastManualViewCheckAt = now
         // 刚唤起过任务：应用可能还停在「上一个会话」上，跳过该窗口以免误判别的已完成任务已查看。
-        guard now.timeIntervalSince(lastEvokeAt) >= manualViewGraceInterval else { return }
+        let inGrace = now.timeIntervalSince(lastEvokeAt) < manualViewGraceInterval
         let terminalTasks = taskHistory.values.flatMap { $0 }.filter { $0.phase == .done || $0.phase == .failed }
         guard !terminalTasks.isEmpty else { return }
         // 完成/失败卡片超时（doneBubbleTTL）自动消失，避免任务结束后气泡永久残留。
@@ -503,7 +503,11 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 self?.dismissManuallyViewedDoneTasks(ids: expiredIDs)
             }
         }
-        let doneTasks = terminalTasks.filter { $0.phase == .done }
+        var doneTasks = terminalTasks.filter { $0.phase == .done }
+        // 宽限期内仍放行「刚点气泡唤起」的那个任务，做到秒级消失；其余任务维持保护。
+        if inGrace {
+            doneTasks = doneTasks.filter { self.taskLauncher.hasPendingWakeView(for: $0.canonicalID) }
+        }
         guard !doneTasks.isEmpty else { return }
         taskWakeQueue.async { [weak self] in
             guard let self else { return }

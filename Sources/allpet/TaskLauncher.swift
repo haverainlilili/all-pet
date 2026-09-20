@@ -225,10 +225,25 @@ final class TaskLauncher: @unchecked Sendable {
                     )
                 }
                 // Claude Desktop 没有「聚焦现有会话」的对外深链：epitaxy 路径是 silent no-op，
-                // resume 会 fork 副本。这里只激活应用本体，并提示用户在侧栏手动选择。
-                // 唤起前记下当前焦点时间作为基线，让随后的手动查看能被「手动查看」检测捕捉到。
+                // resume 会 fork 副本。先记下焦点基线与唤起时刻，随后判定是否已查看。
                 setClaudeFocusBaseline(for: task)
                 _ = activateApplication(bundleID: "com.anthropic.claudefordesktop")
+                // 该会话已是当前焦点会话：唤起即视为查看，返回成功让完成气泡立刻消失。
+                // （此时弹「请手动选择」提示反而会抢走 Claude Desktop 前台焦点，
+                // 让「唤起查看」判定更晚生效。）
+                var focused = false
+                let focusDeadline = Date().addingTimeInterval(2)
+                repeat {
+                    if isApplicationActive(bundleID: "com.anthropic.claudefordesktop"),
+                       ClaudeDesktopSessionLookup.mostRecentlyFocusedSession(roots: claudeDesktopSessionRoots)?.sessionID == desktopSession.sessionID {
+                        focused = true
+                        break
+                    }
+                    Thread.sleep(forTimeInterval: 0.1)
+                } while Date() < focusDeadline
+                if focused {
+                    return Result(succeeded: true, message: nil)
+                }
                 let title = desktopSession.title ?? sessionID
                 return Result(
                     succeeded: false,
@@ -342,7 +357,11 @@ final class TaskLauncher: @unchecked Sendable {
             }
         }
         // Claude Desktop 没有「聚焦现有会话」的对外深链（epitaxy 是 silent no-op，resume 会 fork 副本），
-        // 只能唤起应用本体，提示用户在侧栏手动选择。
+        // 只能唤起应用本体。冷启动恢复的正是该会话时，唤起即视为查看，直接成功消失气泡。
+        if isApplicationActive(bundleID: "com.anthropic.claudefordesktop"),
+           ClaudeDesktopSessionLookup.mostRecentlyFocusedSession(roots: claudeDesktopSessionRoots)?.sessionID == record.sessionID {
+            return Result(succeeded: true, message: nil)
+        }
         let title = record.title ?? record.sessionID
         return Result(
             succeeded: false,
@@ -496,6 +515,14 @@ final class TaskLauncher: @unchecked Sendable {
         claudeDesktopFocusBaseline[task.canonicalID] = record.lastFocusedAt
         claudeDesktopWakeAt[task.canonicalID] = Date()
         claudeBaselineLock.unlock()
+    }
+
+    /// 该任务是否处于「刚点气泡唤起」的查看窗口内（供检查循环豁免宽限期，做到秒级消失）。
+    func hasPendingWakeView(for canonicalID: String) -> Bool {
+        claudeBaselineLock.lock()
+        defer { claudeBaselineLock.unlock() }
+        guard let wakeAt = claudeDesktopWakeAt[canonicalID] else { return false }
+        return Date().timeIntervalSince(wakeAt) <= claudeDesktopWakeViewWindow
     }
 
     private func isTerminalTabSelected(_ task: TrayTaskItem) -> Bool {
