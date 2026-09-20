@@ -1,7 +1,0 @@
-{
-  "adapter": "custom",
-  "api_key_env": "MY_IMAGE_API_KEY",
-  "model": "your-model",
-  "size": "1024x1024",
-  "base_url": "https://your-api.example.com/v1"
-}
