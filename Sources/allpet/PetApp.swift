@@ -125,7 +125,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     private var lastEvokeAt: Date = .distantPast
     private let manualViewGraceInterval: TimeInterval = 15
     /// 完成/失败卡片的最长保留时间（秒）：超时自动消失，避免任务结束后气泡永久残留。
-    private let doneBubbleTTL: TimeInterval = 1800
+    private let doneBubbleTTL: TimeInterval = 86400
 
     init(config: AllPetConfiguration, home: URL) {
         let loadedHistory = Self.loadTaskHistory(home: home)
