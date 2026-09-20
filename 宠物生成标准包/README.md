@@ -1,8 +1,11 @@
 # 宠物生成标准包（AllPet / Petdex 桌宠形象制作）
 
-这是一套**指导文档 + 模板 + 脚本**，用来教你自己动手生成一只桌面宠物形象，并打包成 AllPet 能直接导入的格式。**本包不替你生成图片**——图片由你（或你用的图像生成工具）照着下面的 prompt 模板自己生成；脚本只负责拼图、校验、打包这些确定性机械活。
+这是一套**指导文档 + 模板 + 脚本**，用来生成一只桌面宠物形象，并打包成 AllPet 能直接导入的格式。最终产物是一个文件夹，`./allpet pet import <文件夹>` 就能加载成桌宠。
 
-最终产物是一个文件夹，`./allpet pet import <文件夹>` 就能加载成桌宠。
+两条路可选：
+
+- **零 LLM 一键生成（最省）**：传一张参考图 → `scripts/generate.py` 全程脚本 + 图生图 API 出 73 帧，**不经过 LLM、0 token、0 决策**（见 `05-参考图一键生成.md`）。
+- **手动/半自动**：照 `02` 的 prompt 模板自己出图，再用 `03` 的脚本拼图打包。
 
 ---
 
@@ -20,6 +23,21 @@
 
 ---
 
+## 零 LLM 一键生成（最省）
+
+不想写 prompt、不想做决策？传一张参考图就行，全程脚本 + 图生图 API，**0 LLM token、0 决策**：
+
+```bash
+# 1) 在 scripts/gen_adapter.py 的 CustomAdapter 里填你的图生图 API（一次即可）
+# 2) 传参考图一键生成
+python3 scripts/generate.py --ref 参考图.png --adapter custom --config config.json \
+    --id my-pet --name "我的宠物"
+```
+
+详细说明（含条带模式把 73 次调用压到 ~11 次）见 `05-参考图一键生成.md`。
+
+---
+
 ## 目录说明
 
 | 文件 / 目录 | 作用 |
@@ -28,8 +46,10 @@
 | `02-文生图Prompt模板.md` | **生成图片的指南**：角色设定表 + 逐状态 prompt + 风格一致性锁定技巧 |
 | `03-脚本使用与拼图打包.md` | **脚本用法**：fit → assemble → validate → preview → make_pet 的完整命令 |
 | `04-导入AllPet.md` | **最后一步**：把成品导入 AllPet、菜单换宠、看缩略图 |
+| `05-参考图一键生成.md` | **零 LLM 生成**：传参考图 → `generate.py` 全程脚本出 73 帧 |
 | `templates/pet.json` | pet.json 模板（占位符版，`make_pet.py` 会自动填好） |
-| `scripts/` | 可执行脚本（拼图 / 校验 / 打包 / 预览） |
+| `config.example.json` | 图生图 API 配置样例（`generate.py` 用） |
+| `scripts/` | 可执行脚本（生成 / 拼图 / 校验 / 打包 / 预览） |
 | `example/` | 一个合成示例宠物 + 生成器，用来验证脚本端到端跑通 |
 
 ---
