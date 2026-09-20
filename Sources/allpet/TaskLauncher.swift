@@ -194,12 +194,16 @@ final class TaskLauncher: @unchecked Sendable {
     }
 
     private func openClaude(_ task: TrayTaskItem) -> Result {
-        let terminal = focusExistingTerminal(for: task, processNames: ["claude"])
-        if let binding = terminal.binding {
-            return Result(succeeded: true, message: nil, terminalTTY: binding.tty, terminalBinding: binding)
-        }
-        if terminal.liveProcessFound {
-            return Result(succeeded: false, message: "已找到原 Claude 终端，但自动化聚焦失败；未重新打开任务")
+        // Claude Desktop 会话没有终端 tab，不能先走 focusExistingTerminal：否则 Desktop
+        // 后端 claude 进程偶尔持有 transcript 时会被误判成「CLI 终端聚焦失败」而打不开。
+        if !isClaudeDesktopTask(task) {
+            let terminal = focusExistingTerminal(for: task, processNames: ["claude"])
+            if let binding = terminal.binding {
+                return Result(succeeded: true, message: nil, terminalTTY: binding.tty, terminalBinding: binding)
+            }
+            if terminal.liveProcessFound {
+                return Result(succeeded: false, message: "已找到原 Claude 终端，但自动化聚焦失败；未重新打开任务")
+            }
         }
         if let sessionID = task.sessionID, !sessionID.isEmpty {
             let recoveredOrigin = task.launchOrigin
@@ -697,8 +701,13 @@ final class TaskLauncher: @unchecked Sendable {
     }
 
     private func activateApplication(bundleID: String) -> Bool {
-        guard isApplicationRunning(bundleID: bundleID) else { return false }
-        forceFrontmostPreservingWindow(bundleID: bundleID)
+        guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else { return false }
+        // 优先用系统 API 激活（不需要 System Events 辅助功能权限，比 osascript 更可靠）；
+        // 失败再用 AppleScript 强制置前兜底。
+        let activated = app.activate(options: [.activateAllWindows])
+        if !activated {
+            forceFrontmostPreservingWindow(bundleID: bundleID)
+        }
         return true
     }
 
