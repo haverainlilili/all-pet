@@ -223,6 +223,8 @@ final class TaskLauncher: @unchecked Sendable {
                 }
                 // Claude Desktop 没有「聚焦现有会话」的对外深链：epitaxy 路径是 silent no-op，
                 // resume 会 fork 副本。这里只激活应用本体，并提示用户在侧栏手动选择。
+                // 唤起前记下当前焦点时间作为基线，让随后的手动查看能被「手动查看」检测捕捉到。
+                setClaudeFocusBaseline(for: task)
                 _ = activateApplication(bundleID: "com.anthropic.claudefordesktop")
                 let title = desktopSession.title ?? sessionID
                 return Result(
@@ -325,6 +327,7 @@ final class TaskLauncher: @unchecked Sendable {
                 message: "该会话没有可精确定位的 Claude Desktop 原任务；为避免创建副本，请改选 Claude CLI"
             )
         }
+        setClaudeFocusBaseline(for: task)
         // 冷启动：Claude Desktop 关闭时先直接打开 .app 本体并等它运行。
         if !isApplicationRunning(bundleID: "com.anthropic.claudefordesktop") {
             guard let app = claudeDesktopAppURL else {
@@ -465,6 +468,16 @@ final class TaskLauncher: @unchecked Sendable {
     func clearClaudeFocusBaseline(for canonicalID: String) {
         claudeBaselineLock.lock()
         claudeDesktopFocusBaseline.removeValue(forKey: canonicalID)
+        claudeBaselineLock.unlock()
+    }
+
+    /// 点击气泡唤起时，把该会话当前的 lastFocusedAt 记作基线。
+    /// 若等到首次「手动查看」检测时才记基线，用户查看导致的 lastFocusedAt 增长
+    /// 已经被基线吃掉，气泡就永远不消失。
+    func setClaudeFocusBaseline(for task: TrayTaskItem) {
+        guard let record = claudeDesktopRecord(for: task) else { return }
+        claudeBaselineLock.lock()
+        claudeDesktopFocusBaseline[task.canonicalID] = record.lastFocusedAt
         claudeBaselineLock.unlock()
     }
 
