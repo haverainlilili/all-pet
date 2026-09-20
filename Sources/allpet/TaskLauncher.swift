@@ -42,6 +42,9 @@ final class TaskLauncher: @unchecked Sendable {
     private var recentWakeAt: [String: Date] = [:]
     private let claudeBaselineLock = NSLock()
     private var claudeDesktopFocusBaseline: [String: Double] = [:]
+    private var claudeDesktopWakeAt: [String: Date] = [:]
+    /// 点气泡唤起后，允许按「应用在前台 + 该会话是当前会话」判定已查看的时间窗。
+    private let claudeDesktopWakeViewWindow: TimeInterval = 120
 
     init(home: URL) {
         self.home = home
@@ -454,9 +457,21 @@ final class TaskLauncher: @unchecked Sendable {
         // 会短暂顶高那个会话的 lastFocusedAt，但那并非用户主动查看，不能误判。
         guard let mostRecent = ClaudeDesktopSessionLookup.mostRecentlyFocusedSession(roots: claudeDesktopSessionRoots),
               mostRecent.sessionID == record.sessionID else { return false }
-        let current = record.lastFocusedAt
         claudeBaselineLock.lock()
         defer { claudeBaselineLock.unlock() }
+        // 刚点过该气泡唤起：会话本来就是当前会话时，Claude Desktop 不会再刷新
+        // lastFocusedAt（只在切换进会话时刷新），单靠时间戳增量判不出「已查看」。
+        // 此时若应用已在前台且该会话仍是当前会话，视为用户点气泡即为查看，直接消失。
+        if let wakeAt = claudeDesktopWakeAt[key] {
+            if Date().timeIntervalSince(wakeAt) > claudeDesktopWakeViewWindow {
+                claudeDesktopWakeAt.removeValue(forKey: key)
+            } else if isApplicationActive(bundleID: "com.anthropic.claudefordesktop") {
+                claudeDesktopWakeAt.removeValue(forKey: key)
+                claudeDesktopFocusBaseline.removeValue(forKey: key)
+                return true
+            }
+        }
+        let current = record.lastFocusedAt
         if let baseline = claudeDesktopFocusBaseline[key] {
             return current > baseline + 1
         }
@@ -468,16 +483,18 @@ final class TaskLauncher: @unchecked Sendable {
     func clearClaudeFocusBaseline(for canonicalID: String) {
         claudeBaselineLock.lock()
         claudeDesktopFocusBaseline.removeValue(forKey: canonicalID)
+        claudeDesktopWakeAt.removeValue(forKey: canonicalID)
         claudeBaselineLock.unlock()
     }
 
-    /// 点击气泡唤起时，把该会话当前的 lastFocusedAt 记作基线。
+    /// 点击气泡唤起时，记下当前 lastFocusedAt 作为基线，并记录唤起时刻。
     /// 若等到首次「手动查看」检测时才记基线，用户查看导致的 lastFocusedAt 增长
     /// 已经被基线吃掉，气泡就永远不消失。
     func setClaudeFocusBaseline(for task: TrayTaskItem) {
         guard let record = claudeDesktopRecord(for: task) else { return }
         claudeBaselineLock.lock()
         claudeDesktopFocusBaseline[task.canonicalID] = record.lastFocusedAt
+        claudeDesktopWakeAt[task.canonicalID] = Date()
         claudeBaselineLock.unlock()
     }
 
