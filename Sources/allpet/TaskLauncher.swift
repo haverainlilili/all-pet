@@ -643,39 +643,64 @@ final class TaskLauncher: @unchecked Sendable {
         guard let application = NSRunningApplication.runningApplications(withBundleIdentifier: "com.openai.codex")
                 .first(where: { $0.isActive }) else { return false }
         let root = AXUIElementCreateApplication(application.processIdentifier)
+        // Electron 应用只有在客户端开启这些标记后才会构建完整无障碍树；
+        // 不设置的话重启 Codex 后 AllPet 只能看到两个顶层节点，永远匹配不到会话标题。
+        AXUIElementSetAttributeValue(root, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        AXUIElementSetAttributeValue(root, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
         guard let windows = axValue(root, attribute: kAXWindowsAttribute) as? [AXUIElement] else { return false }
         for window in windows {
             let main = (axValue(window, attribute: kAXMainAttribute) as? NSNumber)?.boolValue == true
             let focused = (axValue(window, attribute: kAXFocusedAttribute) as? NSNumber)?.boolValue == true
             guard main || focused else { continue }
+            // 新版（并入 ChatGPT 的）UI：AXWebArea 的 title 就是当前会话标题；
+            // 直接读取，避免在大树上做整树遍历。刚开启标记时树还未建好，下一轮（1 秒后）再判。
+            if let webArea = findAXWebArea(window, depth: 0),
+               let title = axValue(webArea, attribute: kAXTitleAttribute) as? String,
+               !title.isEmpty {
+                if normalizedAXText(title) == sessionName { return true }
+                continue
+            }
+            // 旧版布局兜底：主内容区里标题与当前会话一致的按钮（侧边栏按钮不算）。
             var visited = 0
-            if codexMainHeaderShowsTitle(window, expected: sessionName, inNavigation: false, visited: &visited) {
+            if codexMainHeaderShowsTitle(window, expected: sessionName, inNavigation: false, inList: false, visited: &visited) {
                 return true
             }
         }
         return false
     }
 
-    /// 侧边栏（AXLandmarkNavigation）列出全部线程；主内容区里与「当前线程标题」一致的按钮才是正在查看的会话。
+    /// 在受限深度内找窗口的 AXWebArea（新版 ChatGPT UI 里位于较浅层级）。
+    private func findAXWebArea(_ element: AXUIElement, depth: Int) -> AXUIElement? {
+        if depth > 14 { return nil }
+        if (axValue(element, attribute: kAXRoleAttribute) as? String) == "AXWebArea" { return element }
+        guard let children = axValue(element, attribute: kAXChildrenAttribute) as? [AXUIElement] else { return nil }
+        for child in children {
+            if let found = findAXWebArea(child, depth: depth + 1) { return found }
+        }
+        return nil
+    }
+
+    /// 侧边栏（AXLandmarkNavigation 或 AXList 之内）列出全部线程；主内容区里与「当前线程标题」一致的按钮才是正在查看的会话。
     private func codexMainHeaderShowsTitle(
         _ element: AXUIElement,
         expected: String,
         inNavigation: Bool,
+        inList: Bool,
         visited: inout Int
     ) -> Bool {
         guard visited < 12_000 else { return false }
         visited += 1
         let role = axValue(element, attribute: kAXRoleAttribute) as? String
         let insideNavigation = inNavigation || role == "AXLandmarkNavigation"
-        // 旧版 Codex 用主内容区的按钮标题标识当前会话；新版（并入 ChatGPT）用 AXWebArea 的 title 标识。
-        if !insideNavigation, role == (kAXButtonRole as String) || role == "AXWebArea",
+        let insideList = inList || role == (kAXListRole as String)
+        if !insideNavigation, !insideList, role == (kAXButtonRole as String),
            let title = axValue(element, attribute: kAXTitleAttribute) as? String,
            normalizedAXText(title) == expected {
             return true
         }
         guard let children = axValue(element, attribute: kAXChildrenAttribute) as? [AXUIElement] else { return false }
         for child in children where codexMainHeaderShowsTitle(
-            child, expected: expected, inNavigation: insideNavigation, visited: &visited) {
+            child, expected: expected, inNavigation: insideNavigation, inList: insideList, visited: &visited) {
             return true
         }
         return false
