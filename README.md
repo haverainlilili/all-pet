@@ -43,6 +43,41 @@ Grab the latest from [GitHub Releases](https://github.com/haverainlilili/all-pet
 
 Installers bundle the Swift core and 4 built-in pets, so no Node.js, Swift, or extra pet downloads are needed. (macOS builds are currently unsigned — right-click → Open on first launch.)
 
+### Choose the correct installer — humans and AI agents
+
+**Latest stable release: v1.3.0.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
+
+| User device | Architecture / supported models | Download | Choose this when |
+| --- | --- | --- | --- |
+| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.3.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0-arm64-mac.zip) | Mac with an Apple M-series chip |
+| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.3.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-Setup-1.3.0.exe) | Typical Intel / AMD Windows PC |
+| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.3.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0.AppImage) | Portable install on most x64 Linux distributions |
+| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.3.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/allpet-desktop_1.3.0_amd64.deb) | Debian / Ubuntu and compatible distributions |
+
+**Not packaged yet:** Intel Mac (`x86_64`), Windows on ARM, and Linux ARM (`aarch64`) do not currently have ready-made installers. Build from source or contribute a package build.
+
+> **AI / automation rule:** ask for OS and CPU architecture. For an Apple M-series Mac return the DMG link; for a typical Intel/AMD Windows PC return the EXE; for Debian/Ubuntu x64 return DEB; otherwise for x64 Linux return AppImage. Do not recommend the arm64 macOS package for an Intel Mac.
+
+> **Platform maturity:** macOS currently has the best adaptation and test coverage, including the native AppKit GUI and richer task-focus behavior. Windows and Linux installers are supported, but they use the Electron shell and have more OS/desktop-environment differences. If you find a Windows or Linux display, tray, transparency, task-wake, or monitoring problem, please submit a PR — the maintainer welcomes and will review mergeable fixes.
+
+### Releases vs. the newest source code
+
+Not every commit needs a new installer release:
+
+- **`main` branch = newest development source.** Source users can follow every merged fix immediately with `git pull --ff-only`, then rebuild/restart the app.
+- **`vX.Y.Z` tag / GitHub Release = stable prebuilt installers.** People using DMG / EXE / AppImage / DEB keep running the code bundled in that installer; later commits do not enter an already-installed app automatically.
+- **Code changes require a new build to affect installer users.** Routine fixes can be collected into a patch release such as `v1.3.1`; urgent compatibility/security fixes should be packaged promptly. README-only changes do not require repackaging.
+- **No automatic updater is enabled yet.** Installer users should watch [GitHub Releases](https://github.com/haverainlilili/all-pet/releases) and download the next version when published.
+
+Latest source: [download `main` as ZIP](https://github.com/haverainlilili/all-pet/archive/refs/heads/main.zip), or update a clone:
+
+```bash
+git pull --ff-only
+./allpet restart          # macOS native GUI / CLI: rebuild and restart
+```
+
+For the cross-platform Electron shell, rebuild the Swift sidecar and run/package `desktop/` as documented in [`desktop/README.md`](./desktop/README.md). AI assistants should recommend a stable Release to normal users and `main` only to users who explicitly want the newest source and can build it.
+
 ### 平台说明（Windows / Linux）
 
 Electron 壳在三个平台的功能一致（气泡、托盘、拖拽、缩放、宠物管理），差异仅在平台能力：

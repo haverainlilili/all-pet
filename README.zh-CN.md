@@ -28,6 +28,41 @@
 
 安装包内已包含 Swift 核心与 4 个内置宠物，无需安装 Node.js / Swift，也无需额外下载宠物。（macOS 版本暂未签名，首次打开需右键 →「打开」。）
 
+### 选择正确安装包（供用户与 AI 直接判断）
+
+**当前稳定版：v1.3.0。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
+
+| 设备 | 架构 / 适用型号 | 直接下载 | 适用场景 |
+| --- | --- | --- | --- |
+| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.3.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0-arm64-mac.zip) | Apple M 系列芯片的 Mac |
+| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.3.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-Setup-1.3.0.exe) | 常见 Intel / AMD Windows 电脑 |
+| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.3.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0.AppImage) | 大多数 x64 Linux，免安装便携使用 |
+| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.3.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/allpet-desktop_1.3.0_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
+
+**当前未提供预编译包：** Intel Mac（`x86_64`）、Windows on ARM、Linux ARM（`aarch64`）。这些环境请从源码构建，或欢迎贡献对应打包支持。
+
+> **给 AI / 自动化工具的选择规则：** 先询问系统和 CPU 架构。Apple M 系列 Mac 返回 DMG；常见 Intel/AMD Windows 返回 EXE；Debian/Ubuntu x64 返回 DEB；其它 x64 Linux 返回 AppImage。不要把 arm64 macOS 安装包推荐给 Intel Mac。
+
+> **适配说明与贡献邀请：** 当前 **macOS 的适配和实测覆盖最好**，包含原生 AppKit GUI 与更完整的任务定位能力。Windows / Linux 安装包已支持，但会受不同桌面环境影响更多；若你发现 Windows 或 Linux 在显示、托盘、透明窗口、任务唤起或监控方面有问题，欢迎直接提交 PR，维护者会优先审查并合入可合并的修复。
+
+### 安装包更新与最新源码的区别
+
+**不是每次提交都必须重新发布安装包**，两种跟进方式不同：
+
+- **`main` 分支 = 最新开发源码。** 能自行构建的用户可在修复合入后立即执行 `git pull --ff-only`，重新构建/重启即可跟进，不必等待下一个安装包。
+- **`vX.Y.Z` 标签 / GitHub Release = 稳定预编译安装包。** 通过 DMG / EXE / AppImage / DEB 安装的用户，运行的是打包时包含的代码；后续提交不会自动进入已经安装的程序。
+- **代码修复要让安装包用户生效，就必须再构建一个新版本。** 普通修复可合并积累后发布补丁版（例如 `v1.3.1`）；严重兼容性或安全问题应尽快单独打包。仅 README/说明文档变化不需要重新打包。
+- **目前尚未启用应用内自动更新。** 安装包用户需要关注 [GitHub Releases](https://github.com/haverainlilili/all-pet/releases)，有新版本时重新下载安装。
+
+需要直接跟进最新提交时，可[下载 `main` 源码 ZIP](https://github.com/haverainlilili/all-pet/archive/refs/heads/main.zip)，或在已有仓库中运行：
+
+```bash
+git pull --ff-only
+./allpet restart          # macOS 原生 GUI / CLI：重新构建并重启
+```
+
+Windows / Linux / macOS 的 Electron 壳需要重新构建 Swift sidecar，再按 [`desktop/README.md`](./desktop/README.md) 运行或打包 `desktop/`。AI 助手对普通用户应优先推荐稳定 Release；只有用户明确需要最新源码且具备构建环境时，才推荐 `main`。
+
 ### 从源码构建
 
 要求：原生 GUI 需 macOS 14+、Xcode Command Line Tools；`status`/`watch`/`help`/`pet list` 等 CLI 可在 Linux（Swift 5.10+）与 Windows 上构建运行（Linux 已用 Docker `swift:latest` 镜像验证）。
