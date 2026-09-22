@@ -187,8 +187,8 @@ AllPet 读取各平台已经保存在本机的会话日志，不需要账号密�
 打一个 `v*` tag 即会构建三平台安装包并发布到 GitHub Releases：
 
 ```bash
-git tag -a v1.2.0 -m "AllPet v1.2.0"
-git push origin v1.2.0
+git tag -a v1.3.0 -m "AllPet v1.3.0"
+git push origin v1.3.0
 ```
 
 `Release` 工作流会先构建 Swift 核心、作为 Electron sidecar 内嵌，再在 macOS / Windows / Linux 上运行 electron-builder。也可以在 Actions 页面手动触发（只出产物、不发布 Release）。本地打包见 [`desktop/README.md`](./desktop/README.md)。
