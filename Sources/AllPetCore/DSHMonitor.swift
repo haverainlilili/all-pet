@@ -14,6 +14,13 @@ public struct DSHMonitor: PlatformMonitor {
         self.preferredSessionPath = ProcessInfo.processInfo.environment["DSH_SESSION_JSONL"]
     }
 
+    /// 测试入口：可用纯文本解码器构造多会话夹具，不影响公开 API。
+    init(roots: [String], decoder: DSHTranscriptDecoder, preferredSessionPath: String?) {
+        self.roots = roots.map(PathExpander.expand)
+        self.decoder = decoder
+        self.preferredSessionPath = preferredSessionPath
+    }
+
     public func snapshot(config: WatchConfig, now: Date) -> PlatformStatus {
         let scan = ActivityScanner.scan(
             roots: roots,
@@ -31,51 +38,82 @@ public struct DSHMonitor: PlatformMonitor {
             priorityGrace: config.waitingWindowSeconds
         )
 
-        guard let mtime = scan.newestMtime else {
+        guard let selectedMtime = scan.newestMtime else {
             return PlatformStatus(platform: .dsh, phase: .idle, detail: "未检测到会话", lastActivityAt: nil, activeSessions: 0, enabled: true)
         }
 
-        let age = now.timeIntervalSince(mtime)
-        var phase = PhaseClassifier.phase(age: age, config: config, errorDetected: false)
-        var task: TaskInfo?
-        var detail = phase == .running ? "正在处理 DSH 任务" : phase.label
+        // 保持 DSH_SESSION_JSONL 的优先选择规则：主任务仍使用扫描器选出的会话；
+        // 同时将近期其它顶层会话一并解析，避免 activeSessions 已计数但气泡只显示一项。
+        var candidates: [ActivityCandidate] = []
+        if let selectedPath = scan.newestPath {
+            candidates.append(ActivityCandidate(path: selectedPath, mtime: selectedMtime, size: scan.newestSize))
+            candidates.append(contentsOf: scan.recentCandidates.filter { $0.path != selectedPath })
+        } else {
+            candidates = scan.recentCandidates
+        }
+        var seenPaths = Set<String>()
+        candidates = candidates.filter { seenPaths.insert($0.path).inserted }
 
-        if let path = scan.newestPath,
-           let transcript = decoder.tail(path: path, mtime: mtime, size: scan.newestSize) {
-            let parsed = TaskExtractors.dsh(from: transcript.text)
-            var taskInfo = parsed.info
-            taskInfo.sessionID = parsed.sessionID ?? Self.sessionID(from: path)
-            if let sessionID = taskInfo.sessionID {
-                taskInfo.sessionName = DSHSessionNameLookup.name(for: sessionID) ?? taskInfo.sessionName
+        var parsed: [(task: TaskInfo, phase: AgentPhase)] = []
+        for candidate in candidates.prefix(5) {
+            if let result = parseTask(candidate, now: now, config: config) {
+                parsed.append(result)
             }
-            taskInfo.sourcePath = path
-            taskInfo.workingDirectory = parsed.workingDirectory
-            if transcript.matchesFingerprint {
-                phase = PhaseClassifier.resolved(inferred: phase, parsed: parsed.phase, age: age, config: config)
-                detail = parsed.detail ?? detail
-                if phase == .waiting, parsed.phase == .running || parsed.phase == .thinking {
-                    detail = "等待后续活动"
-                    taskInfo.action = detail
-                    taskInfo.toolName = nil
-                }
-            } else {
-                // 文件已经变化而解码仍在防抖窗口：保留标题/进度，但不把旧完成状态套到新活动上。
-                detail = phase == .running ? "检测到新的 DSH 活动" : phase.label
-                taskInfo.action = detail
-                taskInfo.toolName = nil
-            }
-            task = taskInfo.isEmpty ? nil : taskInfo
+        }
+        guard let main = parsed.first else {
+            return PlatformStatus(
+                platform: .dsh,
+                phase: .idle,
+                detail: "未能解析 DSH 会话",
+                lastActivityAt: selectedMtime,
+                activeSessions: scan.recentCount,
+                enabled: true
+            )
         }
 
+        let tasks = parsed.map(\.task)
         return PlatformStatus(
             platform: .dsh,
-            phase: phase,
-            detail: detail,
-            lastActivityAt: mtime,
+            phase: main.phase,
+            detail: main.task.action ?? main.phase.label,
+            lastActivityAt: selectedMtime,
             activeSessions: scan.recentCount,
             enabled: true,
-            task: task
+            task: main.task,
+            tasks: tasks
         )
+    }
+
+    /// 解析一个 DSH 顶层会话。每个会话保留自己的 phase，供多任务气泡独立展示。
+    private func parseTask(_ candidate: ActivityCandidate, now: Date, config: WatchConfig) -> (task: TaskInfo, phase: AgentPhase)? {
+        let age = now.timeIntervalSince(candidate.mtime)
+        var phase = PhaseClassifier.phase(age: age, config: config, errorDetected: false)
+        guard let transcript = decoder.tail(path: candidate.path, mtime: candidate.mtime, size: candidate.size) else {
+            return nil
+        }
+
+        let parsed = TaskExtractors.dsh(from: transcript.text)
+        var taskInfo = parsed.info
+        taskInfo.sessionID = parsed.sessionID ?? Self.sessionID(from: candidate.path)
+        if let sessionID = taskInfo.sessionID {
+            taskInfo.sessionName = DSHSessionNameLookup.name(for: sessionID) ?? taskInfo.sessionName
+        }
+        taskInfo.sourcePath = candidate.path
+        taskInfo.workingDirectory = parsed.workingDirectory
+
+        if transcript.matchesFingerprint {
+            phase = PhaseClassifier.resolved(inferred: phase, parsed: parsed.phase, age: age, config: config)
+            if phase == .waiting, parsed.phase == .running || parsed.phase == .thinking {
+                taskInfo.action = "等待后续活动"
+                taskInfo.toolName = nil
+            }
+        } else {
+            // 文件已变化而解码仍在防抖窗口：不把旧完成状态套到新活动上。
+            taskInfo.action = phase == .running ? "检测到新的 DSH 活动" : phase.label
+            taskInfo.toolName = nil
+        }
+        taskInfo.phase = phase
+        return taskInfo.isEmpty ? nil : (taskInfo, phase)
     }
 
     static func isTopLevelSessionPath(_ path: String) -> Bool {

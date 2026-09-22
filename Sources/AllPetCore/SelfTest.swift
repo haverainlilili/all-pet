@@ -133,6 +133,47 @@ public enum AllPetSelfTest {
             "DSH task monitor excludes subagent logs"
         )
 
+        let dshMultiRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("allpet-dsh-multi-\(UUID().uuidString)", isDirectory: true)
+        do {
+            let runningDir = dshMultiRoot.appendingPathComponent("session-running", isDirectory: true)
+            let doneDir = dshMultiRoot.appendingPathComponent("session-done", isDirectory: true)
+            try FileManager.default.createDirectory(at: runningDir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: doneDir, withIntermediateDirectories: true)
+            let runningPath = runningDir.appendingPathComponent("session.jsonl.zstd")
+            let donePath = doneDir.appendingPathComponent("session.jsonl.zstd")
+            try Data("""
+            {"type":"session/title","data":{"title":"DSH 运行会话"}}
+            {"type":"user/message","data":{"source":{"kind":"user"},"content":[{"type":"text","text":"运行任务"}]}}
+            {"type":"todo/write","data":{"todos":[{"content":"继续执行","status":"in_progress"}]}}
+            """.utf8).write(to: runningPath)
+            try Data("""
+            {"type":"session/title","data":{"title":"DSH 完成会话"}}
+            {"type":"user/message","data":{"source":{"kind":"user"},"content":[{"type":"text","text":"完成任务"}]}}
+            {"type":"turn/end","data":{"reason":{"kind":"completed"}}}
+            """.utf8).write(to: donePath)
+            let fixtureNow = Date()
+            try FileManager.default.setAttributes([.modificationDate: fixtureNow.addingTimeInterval(-1)], ofItemAtPath: runningPath.path)
+            try FileManager.default.setAttributes([.modificationDate: fixtureNow.addingTimeInterval(-2)], ofItemAtPath: donePath.path)
+            let monitor = DSHMonitor(
+                roots: [dshMultiRoot.path],
+                decoder: DSHTranscriptDecoder(executableOverride: "/bin/cat", timeoutOverride: 2),
+                preferredSessionPath: donePath.path
+            )
+            let status = monitor.snapshot(
+                config: WatchConfig(activeWindowSeconds: 8, waitingWindowSeconds: 120),
+                now: fixtureNow
+            )
+            expect(status.activeSessions == 2 && status.tasks.count == 2,
+                   "DSH monitor exposes every recent top-level session")
+            expect(status.task?.sessionName == "DSH 完成会话"
+                    && Set(status.tasks.compactMap(\.phase)) == Set([.running, .done]),
+                   "DSH multi-session keeps preferred order and per-task phase")
+        } catch {
+            expect(false, "DSH multi-session fixture")
+        }
+        try? FileManager.default.removeItem(at: dshMultiRoot)
+
         let grok = TaskExtractors.grok(from: """
         {"ts":"2020-01-01T00:00:00Z","lvl":"debug","sid":"s1","msg":"turn.phase_transition","ctx":{"to":"thinking"}}
         {"ts":"2020-01-01T00:00:01Z","lvl":"info","sid":"s1","msg":"turn.complete","ctx":{"ok":true}}

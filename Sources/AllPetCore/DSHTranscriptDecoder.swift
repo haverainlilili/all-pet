@@ -168,7 +168,8 @@ final class DSHTranscriptDecoder: @unchecked Sendable {
     private let timeoutOverride: TimeInterval?
     private var cache: [String: CacheEntry] = [:]
     private var lruPaths: [String] = []
-    private let maxCacheEntries = 4
+    // 与 DSH 气泡最多展示 5 个近期会话保持一致，避免多会话轮询造成缓存抖动。
+    private let maxCacheEntries = 5
 
     init(
         executableOverride: String? = nil,
