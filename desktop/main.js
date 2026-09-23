@@ -347,6 +347,12 @@ function sidecarEnvironment() {
     environment.ALLPET_ZSTD_PREFIX_JSON = JSON.stringify([decoder])
     environment.ELECTRON_RUN_AS_NODE = '1'
   }
+  if (process.env.ELECTRON_ENABLE_LOGGING) {
+    console.log('[allpet] zstd bridge:', JSON.stringify({
+      packaged: app.isPackaged, executable: environment.ALLPET_ZSTD_EXECUTABLE || null,
+      prefix: environment.ALLPET_ZSTD_PREFIX_JSON || null, resourcesPath: process.resourcesPath
+    }))
+  }
   return environment
 }
 
@@ -561,7 +567,9 @@ function startWatch() {
       } catch { /* 忽略坏行 */ }
     }
   })
-  watchProc.stderr.on('data', () => {})
+  watchProc.stderr.on('data', (chunk) => {
+    if (process.env.ELECTRON_ENABLE_LOGGING) console.error('[allpet] sidecar:', chunk.toString('utf8').trim())
+  })
   attachRestartOnClose(thisWatch, {
     onError(err) {
       if (mainWindow && !mainWindow.isDestroyed()) {
