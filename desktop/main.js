@@ -11,7 +11,7 @@ const {
   platformLaunchSpec, rendererSnapshot, runCommandLauncher, wakePlanForTask
 } = require('./src/wake')
 const {
-  attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, petCapabilities, petMutationTarget,
+  attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, finishMutationRefresh, petCapabilities, petMutationTarget,
   preservedWindowBounds, spriteSizeForPet
 } = require('./src/pet-state')
 
@@ -32,6 +32,7 @@ let petManagerWindow = null
 let tray = null
 let watchProc = null
 let watchRestartTimer = null
+let petRefreshRetryTimer = null
 let lifecycleCleaned = false
 let currentSnapshot = null
 let pet = null // { bundlePath, spritesheetPath, manifestId, displayName, atlas geometry }
@@ -434,7 +435,7 @@ async function refreshDesktopState(options = {}) {
   const previousPet = pet
   const scale = readScale()
   const refreshEpoch = petStateEpoch
-  try { await readPetCatalog() } catch (err) { console.error('[allpet] 刷新宠物目录失败:', err && err.message || err) }
+  await readPetCatalog()
   if (!options.fromMutation && refreshEpoch !== petStateEpoch) {
     return { ok: false, stale: true, error: '宠物状态已由更新的事务刷新。' }
   }
@@ -447,6 +448,31 @@ async function refreshDesktopState(options = {}) {
   if (options.notifyManager !== false && petManagerWindow && !petManagerWindow.isDestroyed()) {
     petManagerWindow.webContents.send('pets-changed')
   }
+  return { ok: true }
+}
+
+function schedulePetRefreshRetry(attempt = 1) {
+  if (app.isQuitting || petRefreshRetryTimer || attempt > 5) return
+  petRefreshRetryTimer = setTimeout(async () => {
+    petRefreshRetryTimer = null
+    if (app.isQuitting) return
+    if (petOperationGate.active) { schedulePetRefreshRetry(attempt); return }
+    try {
+      await refreshDesktopState()
+      console.log('[allpet] 宠物状态重试刷新成功')
+    } catch (err) {
+      console.error(`[allpet] 宠物状态第 ${attempt} 次重试刷新失败:`, err && err.message || err)
+      schedulePetRefreshRetry(attempt + 1)
+    }
+  }, Math.min(8000, 1000 * attempt))
+}
+
+async function finishPetMutation(label, message) {
+  return finishMutationRefresh({
+    label, message,
+    refresh: () => refreshDesktopState({ fromMutation: true, notifyManager: false }),
+    scheduleRetry: () => schedulePetRefreshRetry()
+  })
 }
 
 // ---- 窗口 ----
@@ -759,8 +785,7 @@ async function executePetCommand(label, args) {
     if (result.code !== 0) {
       return { ok: false, error: result.err.trim() || result.out.trim() || `${args.join(' ')} exited ${result.code}` }
     }
-    await refreshDesktopState({ fromMutation: true, notifyManager: false })
-    return { ok: true, message: result.out.trim() || `${label}完成` }
+    return finishPetMutation(label, result.out.trim())
   })
 }
 
@@ -823,8 +848,7 @@ function registerPetIpc() {
       if (selected.canceled || !selected.filePaths.length) return { ok: false, canceled: true }
       const result = await runAllpet(['pet', 'import', selected.filePaths[0]])
       if (result.code !== 0) return { ok: false, error: result.err.trim() || result.out.trim() || '导入失败' }
-      await refreshDesktopState({ fromMutation: true, notifyManager: false })
-      return { ok: true, message: result.out.trim() || '导入完成' }
+      return finishPetMutation('导入宠物', result.out.trim())
     })
   })
 
@@ -1021,7 +1045,15 @@ function updateTrayMenu() {
   template.push({ label: '增大宠物 5%', enabled: Boolean(pet) && !petOperationState.busy, click: () => applyScale(0.05) })
   template.push({ label: '减小宠物 5%', enabled: Boolean(pet) && !petOperationState.busy, click: () => applyScale(-0.05) })
   template.push({ label: '宠物管理…', click: () => createPetManagerWindow() })
-  template.push({ label: '刷新宠物', enabled: !petOperationState.busy, click: () => refreshDesktopState() })
+  template.push({
+    label: '刷新宠物', enabled: !petOperationState.busy,
+    click: async () => {
+      try { await refreshDesktopState() }
+      catch (err) {
+        await dialog.showMessageBox({ type: 'warning', title: '刷新失败', message: '无法刷新宠物状态', detail: String(err && err.message || err), buttons: ['知道了'] })
+      }
+    }
+  })
   template.push({ label: '打开配置', click: () => openConfig() })
   template.push({ type: 'separator' })
   template.push({ label: '退出 AllPet', click: () => quit() })
@@ -1034,6 +1066,7 @@ function cleanupLifecycle() {
   lifecycleCleaned = true
   app.isQuitting = true
   if (watchRestartTimer) { clearTimeout(watchRestartTimer); watchRestartTimer = null }
+  if (petRefreshRetryTimer) { clearTimeout(petRefreshRetryTimer); petRefreshRetryTimer = null }
   if (watchProc) {
     const child = watchProc
     watchProc = null

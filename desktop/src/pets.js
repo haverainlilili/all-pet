@@ -46,6 +46,7 @@ async function mutate(label, operation) {
     const result = await operation()
     if (result && result.ok) setStatus(result.message || `${label}完成`)
     else if (result && result.canceled) setStatus('')
+    else if (result && result.changed) setStatus(result.error || `${label}已执行，但状态刷新失败。`, true)
     else setStatus(`${label}失败：${result && result.error || '未知错误'}`, true)
     return result
   } catch (err) {

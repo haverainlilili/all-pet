@@ -65,6 +65,19 @@ function createOperationGate(onChange) {
   }
 }
 
+async function finishMutationRefresh(options) {
+  try {
+    await options.refresh()
+    return { ok: true, message: options.message || `${options.label}完成` }
+  } catch (err) {
+    options.scheduleRetry()
+    return {
+      ok: false, changed: true, retrying: true,
+      error: `${options.label}已执行，但刷新宠物状态失败；将自动重试。${String(err && err.message || err)}`
+    }
+  }
+}
+
 function spriteSizeForPet(pet, scale) {
   const cellWidth = Number(pet && pet.cellWidth) > 0 ? Number(pet.cellWidth) : DEFAULT_CELL_WIDTH
   const cellHeight = Number(pet && pet.cellHeight) > 0 ? Number(pet.cellHeight) : DEFAULT_CELL_HEIGHT
@@ -93,6 +106,7 @@ module.exports = {
   chooseCurrentPet,
   createOperationGate,
   expandHomePath,
+  finishMutationRefresh,
   petCapabilities,
   petMutationTarget,
   preservedWindowBounds,

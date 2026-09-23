@@ -27,43 +27,26 @@ jobs:
         with:
           node-version: 20
 
+      - name: 安装 Linux 静态链接依赖
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y libcurl4-openssl-dev
+
       - name: 构建自包含 Swift 核心
         run: swift build -c release --static-swift-stdlib
 
-      - name: 准备并验证 sidecar
-        shell: bash
-        run: |
-          set -euo pipefail
-          BIN_PATH="$(swift build -c release --static-swift-stdlib --show-bin-path)"
-          rm -rf desktop/sidecar
-          mkdir -p desktop/sidecar
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            cp "$BIN_PATH/allpet.exe" desktop/sidecar/allpet.exe
-            SIDECAR=desktop/sidecar/allpet.exe
-          else
-            cp "$BIN_PATH/allpet" desktop/sidecar/allpet
-            SIDECAR=desktop/sidecar/allpet
-          fi
-          if [ -d "$BIN_PATH/AllPet_AllPetCore.bundle" ]; then
-            RESOURCE="$BIN_PATH/AllPet_AllPetCore.bundle"
-          elif [ -d "$BIN_PATH/AllPet_AllPetCore.resources" ]; then
-            RESOURCE="$BIN_PATH/AllPet_AllPetCore.resources"
-          else
-            echo "missing AllPetCore resources in $BIN_PATH" >&2
-            exit 1
-          fi
-          cp -R "$RESOURCE" "desktop/sidecar/$(basename "$RESOURCE")"
-          TEST_HOME="$RUNNER_TEMP/allpet-release-fresh-home"
-          rm -rf "$TEST_HOME"
-          mkdir -p "$TEST_HOME"
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            CLEAN_PATH="/c/Windows/System32:/c/Windows"
-          else
-            CLEAN_PATH="/usr/bin:/bin"
-          fi
-          NODE="$(command -v node)"
-          CFFIXED_USER_HOME="$TEST_HOME" HOME="$TEST_HOME" USERPROFILE="$TEST_HOME" PATH="$CLEAN_PATH" \
-            "$NODE" desktop/scripts/verify-sidecar.js "$SIDECAR" "$TEST_HOME"
+      - name: 准备 sidecar（Node 原生路径）
+        run: node desktop/scripts/prepare-sidecar.js
+        env:
+          ALLPET_SIDECAR_DIR: ${{ github.workspace }}/desktop/sidecar
+
+      - name: 验证空 HOME / 无 Swift PATH / 精确宠物操作
+        run: node desktop/scripts/verify-sidecar.js
+        env:
+          ALLPET_SIDECAR_DIR: ${{ github.workspace }}/desktop/sidecar
+          ALLPET_TEST_HOME: ${{ runner.temp }}/allpet-release-fresh-home
+          ALLPET_CLEAN_PATH: '1'
 
       - name: 安装依赖
         run: npm ci

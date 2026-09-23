@@ -333,14 +333,24 @@ func cmdPetList() {
     print("  ./allpet pet import <本地路径>")
 }
 
+func petPathsEqual(_ lhs: String, _ rhs: String) -> Bool {
+    #if os(Windows)
+    return lhs.caseInsensitiveCompare(rhs) == .orderedSame
+    #else
+    return lhs == rhs
+    #endif
+}
+
 func matchingPetBundle(_ target: String, in bundles: [PetBundle]) -> PetBundle? {
     let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return nil }
     let key = trimmed.lowercased()
-    let targetPath = URL(fileURLWithPath: PathExpander.expand(trimmed)).standardizedFileURL.path.lowercased()
-    if let exact = bundles.first(where: { $0.directoryURL.standardizedFileURL.path.lowercased() == targetPath }) {
+    let targetPath = URL(fileURLWithPath: PathExpander.expand(trimmed)).standardizedFileURL.path
+    if let exact = bundles.first(where: { petPathsEqual($0.directoryURL.standardizedFileURL.path, targetPath) }) {
         return exact
     }
+    // 路径目标必须精确命中；禁止退回 contains 后误操作大小写不同或相邻目录。
+    if trimmed.contains("/") || trimmed.contains("\\") { return nil }
     if let exact = bundles.first(where: {
         $0.manifest.id.lowercased() == key || $0.manifest.displayName.lowercased() == key
     }) {
@@ -418,7 +428,7 @@ func cmdPetDelete(_ target: String) {
     }
     let config = loadConfig()
     let currentPath = config.pet.bundlePath.map { URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path }
-    if currentPath == deletedPath {
+    if let currentPath, petPathsEqual(currentPath, deletedPath) {
         var next = config
         let remaining = PetDiscovery.discover(home: home())
         next.pet.bundlePath = remaining.first?.directoryURL.standardizedFileURL.path

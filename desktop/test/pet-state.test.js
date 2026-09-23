@@ -3,7 +3,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
-  attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, petCapabilities, petMutationTarget,
+  attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, finishMutationRefresh, petCapabilities, petMutationTarget,
   preservedWindowBounds, spriteSizeForPet
 } = require('../src/pet-state')
 const { validatedAtlas } = require('../src/atlas')
@@ -84,6 +84,26 @@ test('pet mutations are serialized and publish busy transitions', async () => {
     { busy: true, label: '安装宠物' },
     { busy: false, label: null }
   ])
+})
+
+test('successful mutation retains prior state and schedules retry when catalog refresh fails', async () => {
+  let retries = 0
+  const warning = await finishMutationRefresh({
+    label: '安装宠物', message: 'installed',
+    refresh: async () => { throw new Error('pet list unavailable') },
+    scheduleRetry: () => { retries += 1 }
+  })
+  assert.equal(warning.ok, false)
+  assert.equal(warning.changed, true)
+  assert.equal(warning.retrying, true)
+  assert.match(warning.error, /自动重试/)
+  assert.equal(retries, 1)
+  const success = await finishMutationRefresh({
+    label: '切换宠物', message: 'switched', refresh: async () => {},
+    scheduleRetry: () => { retries += 1 }
+  })
+  assert.deepEqual(success, { ok: true, message: 'switched' })
+  assert.equal(retries, 1)
 })
 
 test('operation gate catches spawn and mutation failures and always unlocks', async () => {
