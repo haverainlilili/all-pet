@@ -24,6 +24,119 @@ function sessionDisplayName(item) {
   return '未命名会话'
 }
 
+const PLATFORM_KEYS = new Set(['codex', 'claude', 'dsh', 'grok'])
+const PHASE_KEYS = new Set(['idle', 'waiting', 'thinking', 'running', 'done', 'failed'])
+const STRING_FIELDS = [
+  'title', 'sessionName', 'action', 'progress', 'sessionID', 'sourcePath',
+  'workingDirectory', 'terminalTTY', 'launchOrigin', 'scheduledTaskName'
+]
+
+function optionalString(value) {
+  return typeof value === 'string' ? value : undefined
+}
+
+function sanitizedTerminalBinding(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const tty = optionalString(value.tty)
+  const anchorProcessID = Number(value.anchorProcessID)
+  const anchorStartedAtMicroseconds = Number(value.anchorStartedAtMicroseconds)
+  if (!tty || !Number.isInteger(anchorProcessID) || !Number.isFinite(anchorStartedAtMicroseconds) || anchorStartedAtMicroseconds < 0) return undefined
+  return { tty, anchorProcessID, anchorStartedAtMicroseconds }
+}
+
+function isSyntheticHistoryTask(task) {
+  const title = String(task && task.title || '').trim()
+  const lower = title.toLowerCase()
+  if (lower.startsWith('[your previous response had no visible output')) return true
+  return !task.sessionID && ['任务已完成', '等待后续活动', '正在处理命令结果', '正在生成回复'].includes(title)
+}
+
+function isDSHSubagentHistoryTask(task) {
+  if (task.platform !== 'dsh' || !task.sourcePath) return false
+  const pieces = String(task.sourcePath).replace(/\\/g, '/').split('/').filter(Boolean)
+  const parent = pieces.length > 1 ? pieces[pieces.length - 2] : ''
+  return !parent.startsWith('session-')
+}
+
+function sanitizedHistoryTask(platform, input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const phase = optionalString(input.phase)
+  if (!phase || !PHASE_KEYS.has(phase)) return null
+  const task = { platform, phase }
+  for (const field of STRING_FIELDS) {
+    const value = optionalString(input[field])
+    if (value !== undefined) task[field] = value
+  }
+  if (!task.sessionID || !task.sessionID.trim()) return null
+  task.sessionID = task.sessionID.trim()
+  if (platform === 'dsh' && isUUID(task.sessionID)) task.sessionID = `session-${task.sessionID}`
+  const updatedAt = Number(input.updatedAt)
+  if (Number.isFinite(updatedAt)) task.updatedAt = updatedAt
+  const processID = Number(input.processID)
+  if (Number.isInteger(processID)) task.processID = processID
+  const terminalBinding = sanitizedTerminalBinding(input.terminalBinding)
+  if (terminalBinding) task.terminalBinding = terminalBinding
+  task.id = canonicalID(platform, task)
+  return task
+}
+
+function normalizeTaskHistory(raw, nowMilliseconds = Date.now(), options = {}) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}
+  const sourcePlatforms = source.platforms && typeof source.platforms === 'object' && !Array.isArray(source.platforms)
+    ? source.platforms : {}
+  const platforms = {}
+  for (const platform of PLATFORM_KEYS) {
+    const byID = new Map()
+    const inputs = Array.isArray(sourcePlatforms[platform]) ? sourcePlatforms[platform] : []
+    for (const input of inputs) {
+      let task = sanitizedHistoryTask(platform, input)
+      if (!task || isSyntheticHistoryTask(task) || isDSHSubagentHistoryTask(task)) continue
+      if (platform === 'codex' && typeof options.isDSHBackedCodex === 'function' && options.isDSHBackedCodex(task)) continue
+      const previous = byID.get(task.id)
+      if (previous) {
+        const previousDate = Number.isFinite(previous.updatedAt) ? previous.updatedAt : -Infinity
+        const taskDate = Number.isFinite(task.updatedAt) ? task.updatedAt : -Infinity
+        if (taskDate < previousDate) continue
+        for (const field of ['terminalTTY', 'terminalBinding', 'processID', 'launchOrigin', 'sessionName']) {
+          if (task[field] === undefined && previous[field] !== undefined) task[field] = previous[field]
+        }
+      }
+      byID.set(task.id, task)
+    }
+    const tasks = [...byID.values()]
+      .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+      .slice(0, 12)
+    if (tasks.length) platforms[platform] = tasks
+  }
+
+  const dismissed = []
+  const sourceDismissed = Array.isArray(source.dismissedTaskIDs) ? source.dismissedTaskIDs : []
+  for (const rawID of sourceDismissed) {
+    if (typeof rawID !== 'string') continue
+    let id = rawID
+    const separator = id.indexOf('|')
+    if (separator <= 0 || !PLATFORM_KEYS.has(id.slice(0, separator)) || !id.slice(separator + 1)) continue
+    if (id.startsWith('dsh|')) {
+      const identity = id.slice('dsh|'.length)
+      if (isUUID(identity)) id = `dsh|session-${identity}`
+    }
+    const previousIndex = dismissed.indexOf(id)
+    if (previousIndex >= 0) dismissed.splice(previousIndex, 1)
+    dismissed.push(id)
+  }
+  if (dismissed.length > 100) dismissed.splice(0, dismissed.length - 100)
+  const dismissedSet = new Set(dismissed)
+  for (const [platform, tasks] of Object.entries(platforms)) {
+    platforms[platform] = tasks.filter(task =>
+      !((task.phase === 'done' || task.phase === 'failed') && dismissedSet.has(task.id))
+    )
+    if (!platforms[platform].length) delete platforms[platform]
+  }
+  const state = { platforms, dismissed, hidden: {} }
+  expireTaskHistory(state, nowMilliseconds)
+  return state
+}
+
 function mergeDefined(previous, next) {
   const merged = { ...previous }
   for (const [key, value] of Object.entries(next || {})) {
@@ -175,5 +288,5 @@ function dismissPlatformHistory(state, platform, liveStatus) {
 
 module.exports = {
   APPLE_REF_MS, DONE_TTL_SECONDS, accumulateTaskHistory, canonicalID, dismissPlatformHistory,
-  dismissTaskHistory, expireTaskHistory, sessionDisplayName
+  dismissTaskHistory, expireTaskHistory, normalizeTaskHistory, sessionDisplayName
 }

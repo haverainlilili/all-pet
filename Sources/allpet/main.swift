@@ -582,6 +582,14 @@ func cmdSelectionSelfTest() {
         reduceMotion: true, stageIsCollapsed: true, hasActiveTask: true, unfinishedPlatformCount: 2
     )
     expect(!reducedMotion.spinsStatus && !reducedMotion.rotatesPlatforms, "降低动态效果应冻结 spinner 与平台轮播")
+    let windowsZstdPaths = DSHDecoderCommandDiscovery.pathDirectories(
+        searchPath: #"C:\zstd;D:\tools"#, windows: true
+    )
+    expect(windowsZstdPaths == [#"C:\zstd"#, #"D:\tools"#], "Windows zstd 发现应使用分号 PATH")
+    expect(
+        DSHDecoderCommandDiscovery.commandNames(windows: true).contains("zstd.exe"),
+        "Windows zstd 发现应包含 .exe 候选"
+    )
     print("✅ Pet parity contract self-test 通过（\(passed) 项）")
 }
 

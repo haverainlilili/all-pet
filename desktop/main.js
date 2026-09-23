@@ -11,16 +11,17 @@ const {
   platformLaunchSpec, rendererSnapshot, runCommandLauncher, wakePlanForTask
 } = require('./src/wake')
 const {
-  attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, finishMutationRefresh, petCapabilities, petMutationTarget,
+  attachRestartOnClose, catalogPetForBundle, chooseCurrentPet, createOperationGate, effectiveHome, expandHomePath, finishMutationRefresh, petCapabilities, petMutationTarget,
   preservedWindowBounds, runSerializedPetRefresh, spriteSizeForPet
 } = require('./src/pet-state')
 const {
-  APPLE_REF_MS, accumulateTaskHistory, canonicalID, dismissPlatformHistory, dismissTaskHistory, expireTaskHistory, sessionDisplayName
+  APPLE_REF_MS, accumulateTaskHistory, canonicalID, dismissPlatformHistory, dismissTaskHistory, expireTaskHistory, normalizeTaskHistory, sessionDisplayName
 } = require('./src/task-history')
 const { platformMenuTitles, scalePercentText, petTrayActionTitles, petTrayRows } = require('./src/tray-menu')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).href
+const EFFECTIVE_HOME = effectiveHome(process.env, os.homedir())
 
 // CI / 无头环境：禁用沙箱与 GPU，便于 xvfb 下冒烟测试。
 if (process.env.ALLPET_NO_SANDBOX) {
@@ -80,31 +81,14 @@ function allpetBinary() {
 }
 
 function configPath() {
-  return path.join(os.homedir(), '.config', 'all-pet', 'config.json')
+  return path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'config.json')
 }
 
 function readCurrentPet() {
   try {
     const cfg = JSON.parse(fs.readFileSync(configPath(), 'utf8'))
-    const bundlePath = expandHomePath(cfg && cfg.pet && cfg.pet.bundlePath, os.homedir())
-    if (!bundlePath || !fs.existsSync(path.join(bundlePath, 'pet.json'))) return null
-    const manifest = JSON.parse(fs.readFileSync(path.join(bundlePath, 'pet.json'), 'utf8'))
-    const sp = manifest.spritesheetPath || 'spritesheet.webp'
-    const normalizedPath = path.resolve(bundlePath)
-    const metadata = petCatalog.find(item => item && item.directoryPath && path.resolve(item.directoryPath) === normalizedPath)
-    if (!metadata || !(metadata.columns > 0) || !(metadata.rows > 0) || !(metadata.cellWidth > 0) || !(metadata.cellHeight > 0)) {
-      return null
-    }
-    return {
-      bundlePath,
-      spritesheetPath: path.join(bundlePath, sp),
-      manifestId: manifest.id || path.basename(bundlePath),
-      displayName: manifest.displayName || manifest.id || 'Pet',
-      columns: metadata.columns,
-      rows: metadata.rows,
-      cellWidth: metadata.cellWidth,
-      cellHeight: metadata.cellHeight
-    }
+    const bundlePath = expandHomePath(cfg && cfg.pet && cfg.pet.bundlePath, EFFECTIVE_HOME)
+    return catalogPetForBundle(bundlePath, petCatalog)
   } catch {
     return null
   }
@@ -209,25 +193,62 @@ let dragStartScreen = null  // 精灵拖动起点（屏幕坐标）
 let dragStartPosition = null // 拖动开始时窗口位置
 
 function historyURL() {
-  return path.join(os.homedir(), '.config', 'all-pet', 'task-history.json')
+  return path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'task-history.json')
+}
+
+function isDSHBackedCodexHistoryTask(task) {
+  if (!task || !task.sourcePath) return false
+  let handle
+  try {
+    if (!fs.statSync(task.sourcePath).isFile()) return false
+    handle = fs.openSync(task.sourcePath, 'r')
+    const buffer = Buffer.alloc(16_384)
+    const bytes = fs.readSync(handle, buffer, 0, buffer.length, 0)
+    const newline = buffer.subarray(0, bytes).indexOf(0x0A)
+    if (newline < 0) return false
+    const object = JSON.parse(buffer.subarray(0, newline).toString('utf8'))
+    const payload = object && object.payload && typeof object.payload === 'object' ? object.payload : {}
+    const originator = String(payload.originator || '').toLowerCase()
+    const threadSource = String(payload.thread_source || '').toLowerCase()
+    return originator.includes('dsh') || threadSource.includes('dsh')
+  } catch {
+    return false
+  } finally {
+    if (handle !== undefined) { try { fs.closeSync(handle) } catch {} }
+  }
+}
+
+function writeJSONAtomically(target, value) {
+  const dir = path.dirname(target)
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const temporary = path.join(dir, `.${path.basename(target)}.${process.pid}.${Date.now()}.tmp`)
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 })
+    fs.renameSync(temporary, target)
+    try { fs.chmodSync(target, 0o600) } catch {}
+  } finally {
+    try { fs.unlinkSync(temporary) } catch {}
+  }
 }
 
 function loadHistory() {
   try {
     const data = JSON.parse(fs.readFileSync(historyURL(), 'utf8'))
-    taskHistory = data.platforms || {}
-    dismissedTaskIDs = Array.isArray(data.dismissedTaskIDs) ? data.dismissedTaskIDs : []
+    const normalized = normalizeTaskHistory(data, Date.now(), { isDSHBackedCodex: isDSHBackedCodexHistoryTask })
+    taskHistory = normalized.platforms
+    dismissedTaskIDs = normalized.dismissed
+    manuallyHiddenTaskTitles = normalized.hidden
+    persistHistory()
   } catch {
     taskHistory = {}
     dismissedTaskIDs = []
+    manuallyHiddenTaskTitles = {}
   }
 }
 
 function persistHistory() {
   try {
-    const dir = path.dirname(historyURL())
-    fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(historyURL(), JSON.stringify({ platforms: taskHistory, dismissedTaskIDs }, null, 2) + '\n')
+    writeJSONAtomically(historyURL(), { platforms: taskHistory, dismissedTaskIDs })
   } catch (err) {
     console.error('[allpet] 保存任务历史失败:', err && err.message || err)
   }
@@ -469,11 +490,10 @@ function applyScale(delta) {
   if (Math.abs(next - current) < 0.0001) return next
   try {
     const cfgPath = configPath()
-    fs.mkdirSync(path.dirname(cfgPath), { recursive: true })
     const cfg = fs.existsSync(cfgPath) ? JSON.parse(fs.readFileSync(cfgPath, 'utf8')) : {}
     cfg.pet = cfg.pet || { enabled: true, anchor: 'bottom-right' }
     cfg.pet.scale = next
-    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n')
+    writeJSONAtomically(cfgPath, cfg)
   } catch (err) {
     console.error('[allpet] 保存 scale 失败:', err && err.message || err)
   }
@@ -992,6 +1012,16 @@ function petTraySubmenu() {
   return submenu
 }
 
+function disabledPlatformKeys() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(configPath(), 'utf8'))
+    const platforms = cfg && cfg.platforms && typeof cfg.platforms === 'object' ? cfg.platforms : {}
+    return ['codex', 'claude', 'dsh', 'grok'].filter(key => platforms[key] && platforms[key].enabled === false)
+  } catch {
+    return []
+  }
+}
+
 function updateTrayMenu() {
   if (!tray) return
   const snapshot = currentSnapshot
@@ -1005,7 +1035,7 @@ function updateTrayMenu() {
     { label: '宠物', submenu: petTraySubmenu() },
     { type: 'separator' }
   ]
-  for (const label of platformMenuTitles(snapshot && snapshot.platforms)) {
+  for (const label of platformMenuTitles(snapshot && snapshot.platforms, disabledPlatformKeys())) {
     template.push({ label, enabled: false })
   }
   template.push({ type: 'separator' })

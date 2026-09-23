@@ -178,6 +178,16 @@ jobs:
                 ALLPET_LIFECYCLE_SMOKE=/tmp/lifecycle-disabled.json ELECTRON_ENABLE_LOGGING=1 \
             "$PACKAGED" --no-sandbox
           node -e "const j=require('/tmp/lifecycle-disabled.json');if(j.initiallyVisible||!j.hidden||!j.shown||!j.petID||!j.preserved)process.exit(1);console.log(j)"
+          rm -rf /tmp/allpet-electron-override
+          mkdir -p /tmp/allpet-electron-override/.config/all-pet
+          node -e "const fs=require('fs'),p='/tmp/allpet-electron-override/.config/all-pet/task-history.json',u='123e4567-e89b-12d3-a456-426614174000',n=(Date.now()-Date.UTC(2001,0,1))/1000;fs.writeFileSync(p,JSON.stringify({platforms:{dsh:[{id:'stale',platform:'wrong',sessionID:u,phase:'done',title:'fixture',updatedAt:n,sourcePath:'/tmp/session-'+u+'/session.jsonl.zstd',unsafe:'drop'}]},dismissedTaskIDs:[42,'dsh|223e4567-e89b-12d3-a456-426614174000']}))"
+          xvfb-run -a --server-args="-screen 0 1024x768x24" \
+            env CFFIXED_USER_HOME=/tmp/allpet-electron-home HOME=/tmp/allpet-electron-home ALLPET_HOME=/tmp/allpet-electron-override PATH=/usr/bin:/bin \
+                ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT_STAGE=collapsed \
+                ALLPET_LIFECYCLE_SMOKE=/tmp/lifecycle-override.json ELECTRON_ENABLE_LOGGING=1 \
+            "$PACKAGED" --no-sandbox
+          node -e "const fs=require('fs'),path=require('path'),h='/tmp/allpet-electron-override',j=require('/tmp/lifecycle-override.json'),c=require(path.join(h,'.config/all-pet/config.json')),x=require(path.join(h,'.config/all-pet/task-history.json')),t=x.platforms.dsh&&x.platforms.dsh[0];if(!j.initiallyVisible||!j.preserved||!String(c.pet.bundlePath||'').startsWith(h+path.sep)||!t||t.id!=='dsh|session-123e4567-e89b-12d3-a456-426614174000'||('unsafe' in t)||x.dismissedTaskIDs[0]!=='dsh|session-223e4567-e89b-12d3-a456-426614174000')process.exit(1);console.log({bundlePath:c.pet.bundlePath,task:t.id})"
+          test "$(stat -c '%a' /tmp/allpet-electron-override/.config/all-pet/task-history.json)" = 600
       - name: 校验宠物管理截图
         run: test -s /tmp/pets.png && echo "宠物管理窗口截图已生成"
       - name: 上传气泡截图

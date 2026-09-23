@@ -10,6 +10,18 @@ struct DSHDecodedTranscript {
     var matchesFingerprint: Bool
 }
 
+/// 跨平台 zstd 命令发现契约；公开纯函数供三平台 sidecar 冒烟验证。
+public enum DSHDecoderCommandDiscovery {
+    public static func pathDirectories(searchPath: String, windows: Bool) -> [String] {
+        let separator: Character = windows ? ";" : ":"
+        return searchPath.split(separator: separator).map(String.init)
+    }
+
+    public static func commandNames(windows: Bool) -> [String] {
+        windows ? ["zstdcat.exe", "zstdcat", "zstd.exe", "zstd"] : ["zstdcat", "zstd"]
+    }
+}
+
 /// 按路径缓存 DSH zstd 会话，并以有界内存、限频和硬超时流式提取任务上下文。
 final class DSHTranscriptDecoder: @unchecked Sendable {
     private struct Command {
@@ -323,26 +335,34 @@ final class DSHTranscriptDecoder: @unchecked Sendable {
 
     private static func resolveCommand() -> Command? {
         let fm = FileManager.default
-        let pathDirectories = (ProcessInfo.processInfo.environment["PATH"] ?? "")
-            .split(separator: ":")
-            .map(String.init)
+        #if os(Windows)
+        let isWindows = true
+        let extraDirectories: [String] = []
+        #else
+        let isWindows = false
         let extraDirectories = [
             "/opt/homebrew/bin",
             "/usr/local/bin",
             "/opt/homebrew/Caskroom/miniconda/base/bin",
             "/usr/bin"
         ]
+        #endif
+        let pathDirectories = DSHDecoderCommandDiscovery.pathDirectories(
+            searchPath: ProcessInfo.processInfo.environment["PATH"] ?? "",
+            windows: isWindows
+        )
 
-        for directory in pathDirectories + extraDirectories {
-            let candidate = URL(fileURLWithPath: directory).appendingPathComponent("zstdcat").path
-            if fm.isExecutableFile(atPath: candidate) {
-                return Command(executable: candidate, prefix: [])
-            }
-        }
-        for directory in pathDirectories + extraDirectories {
-            let candidate = URL(fileURLWithPath: directory).appendingPathComponent("zstd").path
-            if fm.isExecutableFile(atPath: candidate) {
-                return Command(executable: candidate, prefix: ["-dc"])
+        for commandName in DSHDecoderCommandDiscovery.commandNames(windows: isWindows) {
+            for directory in pathDirectories + extraDirectories {
+                let candidate = URL(fileURLWithPath: directory).appendingPathComponent(commandName).path
+                #if os(Windows)
+                let isRunnable = fm.fileExists(atPath: candidate)
+                #else
+                let isRunnable = fm.isExecutableFile(atPath: candidate)
+                #endif
+                if isRunnable {
+                    return Command(executable: candidate, prefix: commandName.lowercased().hasPrefix("zstdcat") ? [] : ["-dc"])
+                }
             }
         }
         return nil

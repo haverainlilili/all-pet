@@ -4,7 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
   APPLE_REF_MS, DONE_TTL_SECONDS, accumulateTaskHistory, canonicalID, dismissPlatformHistory,
-  dismissTaskHistory, expireTaskHistory, sessionDisplayName
+  dismissTaskHistory, expireTaskHistory, normalizeTaskHistory, sessionDisplayName
 } = require('../src/task-history')
 const { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows } = require('../src/tray-menu')
 
@@ -21,6 +21,60 @@ test('canonical IDs and display names match AppKit scheduled and DSH rules', () 
   assert.equal(canonicalID('dsh', { sessionID: '123e4567-e89b-12d3-a456-426614174000' }), 'dsh|session-123e4567-e89b-12d3-a456-426614174000')
   assert.equal(sessionDisplayName({ scheduledTaskName: 'daily' }), '定时任务 · daily')
   assert.equal(sessionDisplayName({ sessionID: 'session-1234567890' }), '会话 12345678')
+})
+
+test('history load migrates canonical IDs, deduplicates locators, and rejects malformed records', () => {
+  const uuid = '123e4567-e89b-12d3-a456-426614174000'
+  const now = APPLE_REF_MS + 500000 * 1000
+  const raw = {
+    platforms: {
+      dsh: [
+        { id: `dsh|${uuid}`, platform: 'wrong', sessionID: uuid, phase: 'running', title: 'old', updatedAt: 10, terminalTTY: '/dev/ttys001', sourcePath: `/tmp/session-${uuid}/session.jsonl.zstd` },
+        { id: 'stale-id', sessionID: `session-${uuid}`, phase: 'running', title: 'new', updatedAt: 20, sourcePath: `/tmp/session-${uuid}/session.jsonl.zstd`, extra: { unsafe: true } },
+        { sessionID: 'subagent', phase: 'running', title: 'subagent', sourcePath: '/tmp/agents/subagent/session.jsonl.zstd' }
+      ],
+      codex: [{ sessionID: 'synthetic', phase: 'running', title: '[Your previous response had no visible output', updatedAt: 20 }],
+      unknown: [{ sessionID: 'bad', phase: 'running' }]
+    },
+    dismissedTaskIDs: [`dsh|${uuid}`, `dsh|session-${uuid}`, 42, 'unknown|bad', 'codex|']
+  }
+  const value = normalizeTaskHistory(raw, now)
+  assert.deepEqual(Object.keys(value.platforms), ['dsh'])
+  assert.equal(value.platforms.dsh.length, 1)
+  assert.equal(value.platforms.dsh[0].id, `dsh|session-${uuid}`)
+  assert.equal(value.platforms.dsh[0].terminalTTY, '/dev/ttys001')
+  assert.equal(value.platforms.dsh[0].extra, undefined)
+  assert.deepEqual(value.dismissed, [`dsh|session-${uuid}`])
+})
+
+test('history load does not resurrect an already dismissed terminal card', () => {
+  const value = normalizeTaskHistory({
+    platforms: { codex: [{ sessionID: 'finished', phase: 'failed', title: 'failed', updatedAt: 10 }] },
+    dismissedTaskIDs: ['codex|finished']
+  }, APPLE_REF_MS + 20_000)
+  assert.deepEqual(value.platforms, {})
+  assert.deepEqual(value.dismissed, ['codex|finished'])
+})
+
+test('history load caps collections, expires terminals, and filters DSH-backed Codex records', () => {
+  const nowSeconds = 600000
+  const raw = {
+    platforms: {
+      codex: Array.from({ length: 14 }, (_, index) => ({
+        sessionID: `s${index}`, phase: index === 0 ? 'done' : 'running', title: `t${index}`,
+        updatedAt: index === 0 ? nowSeconds - DONE_TTL_SECONDS - 1 : index
+      }))
+    },
+    dismissedTaskIDs: Array.from({ length: 105 }, (_, index) => `codex|old-${index}`)
+  }
+  const value = normalizeTaskHistory(raw, APPLE_REF_MS + nowSeconds * 1000, {
+    isDSHBackedCodex: task => task.sessionID === 's13'
+  })
+  assert.equal(value.platforms.codex.length, 11)
+  assert.equal(value.platforms.codex.some(item => item.sessionID === 's13'), false)
+  assert.equal(value.platforms.codex.some(item => item.sessionID === 's0'), false)
+  assert.equal(value.dismissed.length, 100)
+  assert.equal(value.dismissed.at(-1), 'codex|s0')
 })
 
 test('idle pruning keeps only done and failed terminal cards', () => {
@@ -116,8 +170,8 @@ test('tray menu text matches AppKit action, grapheme, scale, and pet rows', () =
   const action = '😀'.repeat(30)
   assert.equal(Array.from(graphemePrefix(action, 28)).length, 28)
   assert.equal(platformStatusTitle({ label: 'Codex', phaseLabel: '运行中', task: { action } }), `Codex：运行中 · ${'😀'.repeat(28)}`)
-  assert.deepEqual(platformMenuTitles([{ platform: 'dsh', phaseLabel: '运行中', task: { action: '执行测试' } }]), [
-    'Codex：加载中…', 'Claude Code：加载中…', 'DSH：运行中 · 执行测试', 'Grok：加载中…'
+  assert.deepEqual(platformMenuTitles([{ platform: 'dsh', phaseLabel: '运行中', task: { action: '执行测试' } }], ['claude']), [
+    'Codex：加载中…', 'Claude Code：已禁用', 'DSH：运行中 · 执行测试', 'Grok：加载中…'
   ])
   assert.equal(scalePercentText(112 / 192), '100%')
   assert.equal(scalePercentText((112 / 192) + 0.05), '109%')

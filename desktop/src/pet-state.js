@@ -23,6 +23,12 @@ function petCapabilities(runtimePlatform) {
   }
 }
 
+function effectiveHome(environment, fallbackHome) {
+  const override = environment && typeof environment.ALLPET_HOME === 'string'
+    ? environment.ALLPET_HOME.trim() : ''
+  return override ? path.resolve(override) : fallbackHome
+}
+
 function expandHomePath(value, homeDirectory) {
   const raw = String(value || '')
   if (raw === '~') return homeDirectory
@@ -30,6 +36,25 @@ function expandHomePath(value, homeDirectory) {
     return path.join(homeDirectory, raw.slice(2).replace(/[\\/]+/g, path.sep))
   }
   return raw
+}
+
+function catalogPetForBundle(bundlePath, catalog) {
+  if (!bundlePath) return null
+  const normalized = path.resolve(bundlePath)
+  const metadata = (Array.isArray(catalog) ? catalog : []).find(item =>
+    item && item.directoryPath && path.resolve(item.directoryPath) === normalized
+  )
+  if (!metadata || !metadata.spritesheetPath
+      || !(metadata.columns > 0) || !(metadata.rows > 0)
+      || !(metadata.cellWidth > 0) || !(metadata.cellHeight > 0)) return null
+  return {
+    bundlePath: metadata.directoryPath,
+    spritesheetPath: metadata.spritesheetPath,
+    manifestId: metadata.id || path.basename(metadata.directoryPath),
+    displayName: metadata.displayName || metadata.id || 'Pet',
+    columns: metadata.columns, rows: metadata.rows,
+    cellWidth: metadata.cellWidth, cellHeight: metadata.cellHeight
+  }
 }
 
 function petMutationTarget(pet) {
@@ -107,8 +132,10 @@ function preservedWindowBounds(options) {
 
 module.exports = {
   attachRestartOnClose,
+  catalogPetForBundle,
   chooseCurrentPet,
   createOperationGate,
+  effectiveHome,
   expandHomePath,
   finishMutationRefresh,
   petCapabilities,

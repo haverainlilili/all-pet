@@ -367,12 +367,13 @@ failed > running/thinking > waiting > done > idle
 - 每个平台最多 12 条；
 - 以平台 + session ID/定时任务名形成 canonical ID 去重；
 - `dismissedTaskIDs` 最多 100 条；
-- macOS 与 Electron 共用兼容的数据结构；Electron 使用纯 reducer 处理生命周期，并在 macOS/Windows/Linux Node 测试中验证 canonical ID、12/100 上限、TTL、隐藏和定位字段继承。
+- macOS 与 Electron 共用兼容的数据结构；Electron 加载时执行 canonical ID migration、DSH UUID 归一化、非法 shape/未知平台/子代理/合成任务过滤、去重、12/100 上限和 TTL，已 dismiss 的终态不会复活；
+- Electron 与 sidecar 共同尊重 `ALLPET_HOME`，config、history、宠物发现和监控根目录不会再分裂。
 
 #### 7.4.2 完成/失败卡片
 
 - 完成/失败任务进入持久历史；
-- 自动保留 24 小时；
+- 自动保留 24 小时；Electron 使用独立 wall-clock timer，不依赖 sidecar 产生新快照；
 - 用户可点击 `×` 提前删除；
 - macOS 可检测用户是否已手动查看完成任务，并自动消失；
 - ⚠️ Electron 当前没有对应平台的精确“已查看”检测，主要依赖 `×` 和 24 小时 TTL。
@@ -446,7 +447,7 @@ macOS 精确唤起可能需要：
 - 从 Petdex / Awesome Codex Pet 远程安装；
 - 输入预设 ID 或 GitHub URL 安装；
 - 从本地文件/目录导入兼容宠物；
-- Electron 的 set/delete/install/import/refresh 进入同一事务锁：操作中禁用冲突控件，完成后一次性刷新精灵、管理器和托盘；显式刷新会修复外部删除或失效的当前选择；
+- Electron 的 set/delete/install/import/refresh 进入同一事务锁：操作中禁用冲突控件，完成后一次性刷新精灵、管理器和托盘；显式刷新会修复外部删除或失效的当前选择；精灵路径和 atlas 几何只采用 sidecar 已验证 catalog，不再次信任可能已被替换的原始 manifest；
 - AppKit 在菜单创建前校验并持久化当前宠物：fresh/stale `bundlePath` 回退第一只有效宠物；disabled 时持有隐藏窗口，无宠物后首次安装/选择可立即挂载而无需重启；
 - AppKit 的 install/import/select/delete/refresh 进入同一操作闸门：忙碌期间禁用冲突操作和大小调整，结束后统一恢复、重新发现目录和更新菜单；
 - 切换/删除使用规范化 bundle 路径，避免重复 ID 或子串 ID 误操作另一只宠物；
@@ -494,7 +495,7 @@ macOS 精确唤起可能需要：
 
 - 显示/隐藏宠物；点击托盘图标同样切换可见性；
 - 打开宠物管理窗口、打开配置；
-- 按 AppKit 顺序显示大小百分比、宠物子菜单、四个平台状态、配置与退出；平台状态包含最多 28 个字符的当前动作；
+- 按 AppKit 顺序显示大小百分比、宠物子菜单、四个平台状态、配置与退出；平台状态包含最多 28 个字符的当前动作，禁用的平台明确显示“已禁用”而非永久“加载中…”；
 - 宠物子菜单可直接切换/删除已安装宠物、安装未安装默认宠物、进入 GitHub 安装或本地导入入口，并进入完整管理器或刷新目录；删除确认显示规范化 bundle 路径；
 - 托盘提供 ±5%，管理窗口也提供大小调整；原生托盘菜单无法承载 macOS 同类自定义连续控件；
 - Electron 使用单实例、托盘常驻生命周期；关闭窗口不会退出，退出时只清理一次 watcher 和重启计时器。
@@ -628,7 +629,7 @@ macOS 精确唤起可能需要：
 - 日志缺失时平台进入 idle，不应导致全局崩溃；
 - 单个平台失败不影响其它平台快照；
 - 任务定位失败时保留气泡；
-- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 14 项宠物选择、操作闸门、持久化、窗口夹紧和降低动态效果契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、idle/no-task 僵尸清理、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 45 项 Node 测试（含 wall-clock 24 小时 TTL、可见任务动画、动态降低动态效果、任务历史、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、真实 reduced-motion、管理器和生命周期截图。
+- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 16 项宠物选择、操作闸门、持久化、窗口夹紧、降低动态效果和 Windows zstd 命令发现契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、idle/no-task 僵尸清理、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 50 项 Node 测试（含旧历史 canonical migration/防御过滤、`ALLPET_HOME`、可信 pet catalog、wall-clock 24 小时 TTL、可见任务动画、动态降低动态效果、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、真实 reduced-motion、管理器、独立 HOME/history migration 和生命周期截图。
 
 ### 9.3 隐私与安全
 
@@ -636,7 +637,7 @@ macOS 精确唤起可能需要：
 - 不需要 Codex/Claude/DSH/Grok API Key；
 - 当前代码没有任务遥测或日志上传；
 - 网络只用于用户主动下载宠物、GitHub clone/LFS、默认宠物缩略图预取或下载 Release；
-- ⚠️ `config.json` 和 `task-history.json` 是明文，历史包含标题、动作、会话 ID、源路径、cwd、PID/TTY 与来源信息；当前没有加密或通用文件权限收紧机制；
+- ⚠️ `config.json` 和 `task-history.json` 是明文，历史包含标题、动作、会话 ID、源路径、cwd、PID/TTY 与来源信息；Electron 新写/迁移文件使用原子替换并收紧为 `0600`（适用平台），但当前仍未加密；
 - 宠物导入限制文件大小、像素预算、路径深度、文件数并拒绝符号链接逃逸；
 - Electron 启用 `contextIsolation`、关闭 `nodeIntegration`，通过 preload IPC 暴露有限能力；
 - macOS 自动化权限由操作系统授权控制。
@@ -680,7 +681,7 @@ macOS 精确唤起可能需要：
 3. **Claude Desktop 无公开现有会话深链**：不能保证自动切到目标会话；禁止使用会 fork 副本的 resume 路径。
 4. **Grok 详细多会话不足**：只输出一个选中任务，`activeSessions` 与气泡任务数可能不同。
 5. **Windows/Linux 本地宠物转换尚未实现**：Electron 已禁用并解释该入口；标准宠物包远程安装仍可用。
-6. **DSH 依赖外部 zstd**：Windows 路径/可执行文件探测也不足；不可用时当前实现会退为“未能解析 DSH 会话”，而非可靠的任务文本降级。
+6. **DSH 依赖外部 zstd**：Windows 已使用分号 PATH 并探测 `zstdcat.exe`/`zstd.exe`；但安装包仍未内置 decoder，不可用时会显示“未能解析 DSH 会话”，而非可靠的任务文本降级。
 7. **v1.3.0 Release 资源遗漏**：已发布 ZIP 无法补救；main 的后续打包已复制平台对应 `.bundle/.resources`、采用自包含 sidecar 并增加空 HOME/实际 unpacked 应用校验。
 8. **未签名与无自动更新**：macOS 未公证/签名，Windows 也未配置代码签名；提高首次安装和升级成本。
 9. **上游日志格式风险**：四个平台升级后字段或目录变化可能使解析失效。

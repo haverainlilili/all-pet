@@ -187,6 +187,10 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 object: NSWorkspace.shared
             )
             let observesMotionChanges = self.accessibilityChangeCount == motionChangeCount + 1
+            let disabledPlatformsLabeled = PlatformKind.allCases.allSatisfy { kind in
+                self.config.platformConfig(for: kind).enabled
+                    || self.statusMenuItems[kind]?.title == "\(kind.label)：已禁用"
+            }
             let runningStatus = PlatformStatus(
                 platform: .codex, phase: .running, detail: "running", lastActivityAt: Date(),
                 activeSessions: 1, enabled: true,
@@ -235,6 +239,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 "windowWithinWorkArea": windowWithinWorkArea,
                 "observesMotionChanges": observesMotionChanges,
                 "idlePrunesActiveHistory": idlePrunesActiveHistory,
+                "disabledPlatformsLabeled": disabledPlatformsLabeled,
                 "bundlePath": self.config.pet.bundlePath ?? "",
                 "petID": self.bundle?.manifest.id ?? ""
             ]
@@ -1334,7 +1339,8 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
 
         menu.addItem(.separator())
         for kind in PlatformKind.allCases {
-            let statusItem = NSMenuItem(title: "\(kind.label)：加载中…", action: nil, keyEquivalent: "")
+            let initialStatus = config.platformConfig(for: kind).enabled ? "加载中…" : "已禁用"
+            let statusItem = NSMenuItem(title: "\(kind.label)：\(initialStatus)", action: nil, keyEquivalent: "")
             statusItem.isEnabled = false
             statusMenuItems[kind] = statusItem
             menu.addItem(statusItem)

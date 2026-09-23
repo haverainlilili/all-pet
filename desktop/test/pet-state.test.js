@@ -2,8 +2,9 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const path = require('node:path')
 const {
-  attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, finishMutationRefresh, petCapabilities, petMutationTarget,
+  attachRestartOnClose, catalogPetForBundle, chooseCurrentPet, createOperationGate, effectiveHome, expandHomePath, finishMutationRefresh, petCapabilities, petMutationTarget,
   preservedWindowBounds, runSerializedPetRefresh, spriteSizeForPet
 } = require('../src/pet-state')
 const { validatedAtlas } = require('../src/atlas')
@@ -50,9 +51,28 @@ test('fresh or stale config falls back to the first discovered pet', () => {
   assert.equal(chooseCurrentPet([]), null)
 })
 
+test('current pet uses only sidecar-validated catalog paths and atlas metadata', () => {
+  const catalog = [{
+    id: 'safe', displayName: 'Safe', directoryPath: '/pets/safe', spritesheetPath: '/pets/safe/spritesheet.webp',
+    columns: 8, rows: 11, cellWidth: 192, cellHeight: 208
+  }]
+  assert.deepEqual(catalogPetForBundle('/pets/safe', catalog), {
+    bundlePath: '/pets/safe', spritesheetPath: '/pets/safe/spritesheet.webp', manifestId: 'safe', displayName: 'Safe',
+    columns: 8, rows: 11, cellWidth: 192, cellHeight: 208
+  })
+  assert.equal(catalogPetForBundle('/pets/safe', [{ ...catalog[0], spritesheetPath: '', columns: 0 }]), null)
+  assert.equal(catalogPetForBundle('/pets/safe-evil', catalog), null)
+})
+
 test('manager mutations prefer an exact bundle path when IDs collide', () => {
   assert.equal(petMutationTarget({ id: 'same', directoryPath: '/pets/second.petbundle' }), '/pets/second.petbundle')
   assert.equal(petMutationTarget({ id: 'legacy' }), 'legacy')
+})
+
+test('effective home matches sidecar ALLPET_HOME override semantics', () => {
+  assert.equal(effectiveHome({ ALLPET_HOME: '  /tmp/allpet-home  ' }, '/fallback'), path.resolve('/tmp/allpet-home'))
+  assert.equal(effectiveHome({ ALLPET_HOME: '   ' }, '/fallback'), '/fallback')
+  assert.equal(effectiveHome({}, '/fallback'), '/fallback')
 })
 
 test('current pet config expands tilde paths before filesystem lookup', () => {

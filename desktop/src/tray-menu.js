@@ -27,11 +27,13 @@ const PLATFORM_ROWS = [
   { platform: 'grok', label: 'Grok' }
 ]
 
-function platformMenuTitles(statuses) {
+function platformMenuTitles(statuses, disabledPlatforms = []) {
   const list = Array.isArray(statuses) ? statuses : []
+  const disabled = new Set(Array.isArray(disabledPlatforms) ? disabledPlatforms : [])
   return PLATFORM_ROWS.map(row => {
     const status = list.find(item => item && item.platform === row.platform)
-    return status ? platformStatusTitle({ ...status, label: row.label }) : `${row.label}：加载中…`
+    if (status) return platformStatusTitle({ ...status, label: row.label })
+    return disabled.has(row.platform) ? `${row.label}：已禁用` : `${row.label}：加载中…`
   })
 }
 
