@@ -77,6 +77,8 @@ if (process.platform === 'win32') {
     inspected.add(binaryKey)
     for (const dependency of imports(binary)) {
       const key = dependency.toLowerCase()
+      // API Set 名称由 Windows loader 虚拟解析，不对应必须随包复制的实体 DLL。
+      if (key.startsWith('api-ms-win-') || key.startsWith('ext-ms-win-')) continue
       const adjacent = fileNamed(destination, dependency)
       if (adjacent) { queue.push(adjacent); continue }
       if (fileNamed(system32, dependency)) continue
