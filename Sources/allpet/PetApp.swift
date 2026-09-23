@@ -119,6 +119,8 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     private var taskTrayIsVisible = false
     private var globalClickMonitor: Any?
     private var localClickMonitor: Any?
+    private var accessibilityObserver: NSObjectProtocol?
+    private var accessibilityChangeCount = 0
     private var lastInternalMouseDownTimestamp: TimeInterval = -.infinity
     private var lastManualViewCheckAt: Date = .distantPast
     /// 最近一次通过宠物唤起任务的时间；完成气泡的自动消失会跳过其后的一小段窗口，
@@ -146,8 +148,26 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         _ = resolveBundle()
         setupMenuBar()
         setupPet()
+        installAccessibilityObserver()
         if !scheduleLifecycleSmokeIfRequested() { startPolling() }
         app.run()
+    }
+
+    private func installAccessibilityObserver() {
+        accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.accessibilityChangeCount += 1
+            self.frameTimer?.invalidate()
+            self.frameTimer = nil
+            self.playbackFrames.removeAll(keepingCapacity: true)
+            self.frameIndex = 0
+            self.setAnimation(self.interactionAnimation ?? self.statusAnimation)
+            self.taskTrayView?.accessibilityDisplayOptionsDidChange()
+        }
     }
 
     /// CI-only deterministic lifecycle probe. It never runs without an explicit output path.
@@ -161,6 +181,12 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             }
             let ownsWindow = self.window != nil
             let initiallyVisible = self.window?.isVisible ?? false
+            let motionChangeCount = self.accessibilityChangeCount
+            NSWorkspace.shared.notificationCenter.post(
+                name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                object: NSWorkspace.shared
+            )
+            let observesMotionChanges = self.accessibilityChangeCount == motionChangeCount + 1
             self.window?.orderOut(nil)
             let hidden = self.window?.isVisible == false
             if !ownsWindow,
@@ -195,6 +221,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 "shown": shown,
                 "operationUnlocked": !self.petOperationInProgress,
                 "windowWithinWorkArea": windowWithinWorkArea,
+                "observesMotionChanges": observesMotionChanges,
                 "bundlePath": self.config.pet.bundlePath ?? "",
                 "petID": self.bundle?.manifest.id ?? ""
             ]
@@ -1261,6 +1288,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     deinit {
         if let globalClickMonitor { NSEvent.removeMonitor(globalClickMonitor) }
         if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
+        if let accessibilityObserver { NSWorkspace.shared.notificationCenter.removeObserver(accessibilityObserver) }
     }
 
     // MARK: - Menu bar

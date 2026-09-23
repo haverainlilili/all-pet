@@ -10,8 +10,9 @@
   const CELL_W = 192
   const CELL_H = 208
   const DEFAULT_SCALE = 112 / 192
-  // 系统「降低动态效果」：与 macOS reduceMotion 对齐，只播放首帧。
-  const reduceMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  // 系统「降低动态效果」：与 macOS reduceMotion 对齐，只播放首帧、冻结 spinner 与轮播。
+  const reduceMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+  let reduceMotion = !!(reduceMotionQuery && reduceMotionQuery.matches)
 
   function applyScale(scale) {
     const s = Math.max(0.4, Math.min(1.2, typeof scale === 'number' ? scale : DEFAULT_SCALE))
@@ -92,8 +93,8 @@
     drawFrame(seq.frames[frameIndex])
   }
 
-  function setAnimation(name) {
-    if (name === currentAnimation) return
+  function setAnimation(name, force) {
+    if (!force && name === currentAnimation) return
     currentAnimation = name
     seq = buildSequence(name)
     frameIndex = 0
@@ -500,7 +501,13 @@
   }
 
   function syncRotationTimer(data) {
-    const needsRotation = bubbleStage === 'collapsed' && data.unfinished.length > 1 && !reduceMotion
+    const motion = window.petMotion.plan({
+      reduceMotion,
+      stageIsCollapsed: bubbleStage === 'collapsed',
+      hasActiveTask: data.unfinished.some(item => item.phase === 'running' || item.phase === 'thinking'),
+      unfinishedPlatformCount: data.unfinished.length
+    })
+    const needsRotation = motion.rotatesPlatforms
     if (needsRotation && !rotationTimer) {
       rotationTimer = setInterval(() => {
         const latest = buildData()
@@ -536,6 +543,20 @@
     else renderTasks(data)
     syncRotationTimer(data)
     reportBubbleSize()
+  }
+
+  function applyMotionPreference(nextReduceMotion) {
+    if (reduceMotion === nextReduceMotion) return
+    reduceMotion = nextReduceMotion
+    if (reduceMotion) rotationIndex = 0
+    setAnimation(interactionAnimation || statusAnimation || 'idle', true)
+    renderBubble()
+  }
+
+  if (reduceMotionQuery) {
+    const onMotionChange = event => applyMotionPreference(!!event.matches)
+    if (typeof reduceMotionQuery.addEventListener === 'function') reduceMotionQuery.addEventListener('change', onMotionChange)
+    else if (typeof reduceMotionQuery.addListener === 'function') reduceMotionQuery.addListener(onMotionChange)
   }
 
   function setStage(stage, platform) {

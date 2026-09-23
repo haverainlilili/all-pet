@@ -107,7 +107,7 @@ content.height = sprite.height + tray.height + 6
 
 - `idle`：自身 6 帧**循环**（loopStart = 0）。
 - 其余动画：**动作段连播 3 遍 + idle 尾巴**，循环起点 = 3 遍动作段之后（`loopStart = action×3.count`）。
-- `reduceMotion`（系统「降低动态效果」开启时）：只播放首帧。
+- `reduceMotion`（系统「降低动态效果」开启时）：只播放首帧；任务 spinner 固定为 0°、Stage 1 多平台轮播固定第一项。运行中切换系统设置会立即重置精灵和任务托盘 timer。
 
 ### 3.4 动画优先级
 
@@ -367,7 +367,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | --- | --- | --- | --- |
 | 1 | 宠物大小 | scale 共享；显示宽 clamp 80…224px | ✅ 已对齐（80–224px clamp） |
 | 2 | 动画帧表 | 9 组行号+帧时长 | ✅ 已对齐 |
-| 3 | 动画播放 | 非 idle 连播 3 遍 + idle 尾巴；reduceMotion 首帧 | ✅ 已对齐（连播 3 遍 + reduceMotion） |
+| 3 | 动画播放 | 非 idle 连播 3 遍 + idle 尾巴；reduceMotion 冻结精灵、spinner、轮播 | ✅ 已对齐（含运行时系统设置变更） |
 | 4 | 气泡内容 | 每平台 bubbleHeader + bubbleDetails | ✅ 已对齐（卡片：平台+会话名+动作） |
 | 5 | 气泡布局 | 气泡在精灵上方、间距 6pt | ✅ 已对齐（按 AppKit 实际坐标修正） |
 | 6 | 锚点定位 | anchor 四角 + 20pt | ✅ 已对齐（修正 Electron 上下方向反转） |

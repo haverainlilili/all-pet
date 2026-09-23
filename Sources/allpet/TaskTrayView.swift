@@ -207,6 +207,15 @@ final class TaskTrayView: NSView {
         setStage(.collapsed)
     }
 
+    func accessibilityDisplayOptionsDidChange() {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            spinnerAngle = 0
+            rotationIndex = 0
+        }
+        updateTimers()
+        needsDisplay = true
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
@@ -728,8 +737,17 @@ final class TaskTrayView: NSView {
 
     private func updateTimers() {
         let allTasks = tasksByPlatform.values.flatMap { $0 }
-        let needsSpinner = allTasks.contains { $0.phase == .running || $0.phase == .thinking }
+        let hasActiveTask = allTasks.contains { $0.phase == .running || $0.phase == .thinking }
             || statuses.contains { $0.phase == .running || $0.phase == .thinking }
+        let motion = PetMotionPolicy.plan(
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            stageIsCollapsed: stage == .collapsed,
+            hasActiveTask: hasActiveTask,
+            unfinishedPlatformCount: unfinishedPlatformBubbles.count
+        )
+        if !motion.spinsStatus { spinnerAngle = 0 }
+        if !motion.rotatesPlatforms { rotationIndex = 0 }
+        let needsSpinner = motion.spinsStatus
         if needsSpinner, spinnerTimer == nil {
             spinnerTimer = Timer.scheduledTimer(withTimeInterval: 0.09, repeats: true) { [weak self] _ in
                 guard let self else { return }
@@ -741,7 +759,7 @@ final class TaskTrayView: NSView {
             spinnerTimer = nil
         }
 
-        let needsRotation = stage == .collapsed && unfinishedPlatformBubbles.count > 1
+        let needsRotation = motion.rotatesPlatforms
         if needsRotation, rotationTimer == nil {
             rotationTimer = Timer.scheduledTimer(withTimeInterval: 3.2, repeats: true) { [weak self] _ in
                 guard let self else { return }

@@ -296,7 +296,7 @@ failed > running/thinking > waiting > done > idle
 
 - `idle` 自循环；
 - 非 idle 动作播放 3 遍后回到 idle 尾段；
-- 系统开启“降低动态效果”时只显示首帧；
+- 系统开启“降低动态效果”时只显示首帧，并冻结运行/思考 spinner 与 Stage 1 多平台轮播；运行中切换系统设置立即生效；
 - 状态动画可被拖动、悬停等交互动画临时覆盖。
 
 #### 7.2.2 macOS 原生窗口
@@ -628,7 +628,7 @@ macOS 精确唤起可能需要：
 - 日志缺失时平台进入 idle，不应导致全局崩溃；
 - 单个平台失败不影响其它平台快照；
 - 任务定位失败时保留气泡；
-- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 11 项宠物选择、操作闸门、持久化和窗口夹紧契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 40 项 Node 测试（含任务历史、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、管理器和生命周期截图。
+- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 14 项宠物选择、操作闸门、持久化、窗口夹紧和降低动态效果契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 42 项 Node 测试（含动态降低动态效果、任务历史、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、管理器和生命周期截图。
 
 ### 9.3 隐私与安全
 

@@ -572,6 +572,16 @@ func cmdSelectionSelfTest() {
         in: PetWindowBounds(x: 0, y: 0, width: 1000, height: 800)
     )
     expect(oversized.x == 0 && oversized.y == 0, "窗口大于工作区时应落到工作区原点")
+
+    let normalMotion = PetMotionPolicy.plan(
+        reduceMotion: false, stageIsCollapsed: true, hasActiveTask: true, unfinishedPlatformCount: 2
+    )
+    expect(normalMotion.spinsStatus, "正常动态效果应允许活跃任务 spinner")
+    expect(normalMotion.rotatesPlatforms, "正常动态效果应轮播多个未完成平台")
+    let reducedMotion = PetMotionPolicy.plan(
+        reduceMotion: true, stageIsCollapsed: true, hasActiveTask: true, unfinishedPlatformCount: 2
+    )
+    expect(!reducedMotion.spinsStatus && !reducedMotion.rotatesPlatforms, "降低动态效果应冻结 spinner 与平台轮播")
     print("✅ Pet parity contract self-test 通过（\(passed) 项）")
 }
 
