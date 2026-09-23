@@ -1,5 +1,7 @@
 'use strict'
 
+const { dshSessionURL } = require('./dsh-wake')
+
 const PLATFORM_LABELS = {
   codex: 'Codex',
   claude: 'Claude Code',
@@ -47,6 +49,15 @@ function wakePlanForTask(task) {
   const sessionID = typeof task.sessionID === 'string' ? task.sessionID.trim() : ''
   const launchOrigin = typeof task.launchOrigin === 'string' ? task.launchOrigin.trim().toLowerCase() : ''
 
+  if (platform === 'dsh' && sessionID) {
+    return {
+      kind: 'external',
+      platform,
+      url: dshSessionURL(sessionID),
+      message: null
+    }
+  }
+
   if (platform === 'codex' && sessionID && launchOrigin === 'codex-desktop' && !isCodexCLI(task)) {
     return {
       kind: 'external',
@@ -61,14 +72,14 @@ function wakePlanForTask(task) {
       ? '这是 Codex CLI 任务；Electron 无法安全聚焦此前的终端标签页。为避免创建重复任务，不会启动新的 Codex 进程，任务卡片会继续保留。'
       : '缺少可验证的 Codex Desktop 来源或会话标识，未发送深链、未打开应用首页。',
     claude: 'Claude Desktop 没有公开的“聚焦现有会话”深链，Claude CLI 也无法跨平台安全聚焦此前终端。为避免创建会话副本，不会启动新的 Claude 进程，任务卡片会继续保留。',
-    dsh: 'Electron 无法跨浏览器安全写入 DSH 当前会话并验证切换结果。为避免声称已定位到错误会话，任务卡片会继续保留。',
+    dsh: '缺少可定位的 DSH 会话标识，未打开可能显示其它会话的首页。',
     grok: 'Electron 无法跨平台安全聚焦此前的 Grok 终端标签页。为避免创建重复任务，不会启动新的 Grok 进程，任务卡片会继续保留。'
   }
 
   return {
     kind: 'fallback',
     platform,
-    canOpenPlatform: platform === 'dsh',
+    canOpenPlatform: false,
     message: messages[platform] || `无法安全定位到原 ${label} 任务，任务卡片会继续保留。`
   }
 }

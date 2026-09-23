@@ -347,7 +347,7 @@ failed > running/thinking > waiting > done > idle
 - 三阶段尺寸、卡片高度、Stage 1 完成卡与轮播露边堆栈、Stage 2 最多 5 条任务、Stage 3 最多 6 条任务已按 AppKit 基准对齐；
 - 运行/思考 spinner、等待时钟、完成勾、失败叹号、深浅色卡片和平台品牌色已对齐；
 - 支持点击返回/收起、窗口失焦收起，窗口按 304/324/334px 动态缩放并保持宠物位置；
-- 剩余差异：Codex Desktop 可发送 session 深链但无法验证最终页面；CLI/Claude 任务 fail-closed，DSH 仅允许用户明确打开基页，尚未达到 AppKit 的终端 tab/浏览器 session 精确聚焦。
+- 剩余差异：Codex Desktop 可发送 session 深链但无法验证最终页面；CLI/Claude/Grok 任务在无法验证目标时 fail-closed。DSH 任务卡改为向已认证的系统浏览器发送仅位于 URL fragment 的 session handoff；DSH 客户端等待该 session 出现在权威列表后执行 `sessions.open` 并清理 fragment，不再弹出“只打开基页”的降级提示。
 
 #### 7.3.5 品牌与状态颜色
 
@@ -406,8 +406,8 @@ failed > running/thinking > waiting > done > idle
 
 - 任务卡片与单任务平台卡只向主进程传 canonical task ID；路径、PID、终端绑定等 locator 不进入渲染层；
 - 只有来源明确为 Codex Desktop 且带 session ID 的任务才发送 `codex://threads/<sessionID>`；系统接收深链不等于已验证目标会话显示，因此卡片继续保留；
-- Codex/Claude/Grok CLI 与 Claude Desktop 在无法验证精确目标时采取 fail-closed：保留卡片且不启动裸 CLI，避免创建重复会话；DSH 可由用户明确选择只打开本地基页；
-- DSH 平台打开统一使用 Electron `shell.openExternal`，不再调用 Windows 无法直接 spawn 的 `start`；
+- Codex/Claude/Grok CLI 与 Claude Desktop 在无法验证精确目标时采取 fail-closed：保留卡片且不启动裸 CLI，避免创建重复会话；DSH 任务卡使用 `#allpet-session=<encoded ID>` 交给已认证的系统浏览器；fragment 不发送到服务器，DSH 客户端只在目标存在于权威 session 列表时选择并清理该 fragment，浏览器认证 cookie 不会复制给 AllPet；
+- 无具体任务的 DSH 平台打开继续使用 Electron `shell.openExternal`；具体任务卡使用同一系统浏览器的精确 session fragment handoff，不再打开可能落在其它会话的基页；
 - Windows/Linux 的显式 CLI 平台打开使用可见终端适配器；Linux 会依次探测多种终端，启动器非零退出/缺失时显示失败，成功也只标记 request accepted 而不宣称应用已显示；
 - sidecar JSON 传递完整 locator 元数据，`watch --json` 变更 key 纳入全部任务与 `activeSessions`，次级会话变化可及时送达。
 
@@ -629,7 +629,7 @@ macOS 精确唤起可能需要：
 - 日志缺失时平台进入 idle，不应导致全局崩溃；
 - 单个平台失败不影响其它平台快照；
 - 任务定位失败时保留气泡；
-- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 17 项宠物选择、操作闸门、持久化、窗口夹紧、降低动态效果、Windows zstd 命令发现及 decoder 参数契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、idle/no-task 僵尸清理、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 52 项 Node 测试（含旧历史 canonical migration/防御过滤、`ALLPET_HOME`、可信 pet catalog、wall-clock 24 小时 TTL、可见任务动画、动态降低动态效果、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、真实 reduced-motion、管理器缩略图边界、独立 HOME/history migration、clean-PATH 实际 DSH zstd transcript 和生命周期截图。
+- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 17 项宠物选择、操作闸门、持久化、窗口夹紧、降低动态效果、Windows zstd 命令发现及 decoder 参数契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、idle/no-task 僵尸清理、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 54 项 Node 测试（含旧历史 canonical migration/防御过滤、`ALLPET_HOME`、可信 pet catalog、wall-clock 24 小时 TTL、可见任务动画、动态降低动态效果、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、真实 reduced-motion、管理器缩略图边界、独立 HOME/history migration、clean-PATH 实际 DSH zstd transcript 和生命周期截图。
 
 ### 9.3 隐私与安全
 

@@ -41,11 +41,14 @@ test('Claude and Grok fail closed without duplicate-task launch', () => {
   }
 })
 
-test('DSH only offers an explicit non-exact base-page fallback', () => {
-  const plan = wakePlanForTask({ platform: 'dsh', sessionID: 'session-123' })
-  assert.equal(plan.kind, 'fallback')
-  assert.equal(plan.canOpenPlatform, true)
-  assert.match(plan.message, /继续保留/)
+test('DSH task uses an authenticated browser-fragment handoff instead of a base-page prompt', () => {
+  assert.deepEqual(wakePlanForTask({ platform: 'dsh', sessionID: 'session-123' }), {
+    kind: 'external', platform: 'dsh', url: 'http://127.0.0.1:3080/#allpet-session=session-123', message: null
+  })
+  const missing = wakePlanForTask({ platform: 'dsh' })
+  assert.equal(missing.kind, 'fallback')
+  assert.equal(missing.canOpenPlatform, false)
+  assert.match(missing.message, /缺少/)
 })
 
 test('Codex with missing or unknown launch origin never sends a deep link', () => {
