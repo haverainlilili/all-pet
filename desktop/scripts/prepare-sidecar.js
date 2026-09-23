@@ -44,6 +44,51 @@ if (process.platform === 'win32') {
     }
   }
   for (const root of roots) copyDLLs(root)
+
+  // FoundationNetworking 等 DLL 还会依赖 PATH 中的 curl/ICU 等运行库。
+  // 用 Swift toolchain 自带的 llvm-readobj 解析完整导入闭包，只复制真正需要的非系统 DLL。
+  const swiftBin = swiftExecutable && path.dirname(swiftExecutable)
+  const readobj = [swiftBin && path.join(swiftBin, 'llvm-readobj.exe'), 'llvm-readobj.exe'].find(candidate => {
+    if (!candidate) return false
+    if (path.isAbsolute(candidate)) return fs.existsSync(candidate)
+    return spawnSync('where.exe', [candidate], { encoding: 'utf8' }).status === 0
+  })
+  const system32 = process.env.SystemRoot && path.join(process.env.SystemRoot, 'System32')
+  const searchDirectories = String(process.env.PATH || '').split(path.delimiter).filter(Boolean)
+  function fileNamed(directory, name) {
+    if (!directory || !fs.existsSync(directory)) return null
+    const wanted = name.toLowerCase()
+    const found = fs.readdirSync(directory, { withFileTypes: true }).find(entry => entry.isFile() && entry.name.toLowerCase() === wanted)
+    return found ? path.join(directory, found.name) : null
+  }
+  function imports(file) {
+    if (!readobj) return []
+    const result = spawnSync(readobj, ['--coff-imports', file], { encoding: 'utf8' })
+    if (result.status !== 0) throw new Error(`llvm-readobj failed for ${file}: ${result.stderr || result.stdout}`)
+    return Array.from(result.stdout.matchAll(/Name:\s*([^\r\n]+?\.dll)\s*$/gmi), match => match[1].trim())
+  }
+  const queue = [copiedExecutable]
+  const inspected = new Set()
+  const missing = new Set()
+  while (queue.length) {
+    const binary = queue.pop()
+    const binaryKey = path.resolve(binary).toLowerCase()
+    if (inspected.has(binaryKey)) continue
+    inspected.add(binaryKey)
+    for (const dependency of imports(binary)) {
+      const key = dependency.toLowerCase()
+      const adjacent = fileNamed(destination, dependency)
+      if (adjacent) { queue.push(adjacent); continue }
+      if (fileNamed(system32, dependency)) continue
+      const source = searchDirectories.map(directory => fileNamed(directory, dependency)).find(Boolean)
+      if (!source) { missing.add(dependency); continue }
+      const target = path.join(destination, path.basename(source))
+      fs.copyFileSync(source, target)
+      copied.add(key)
+      queue.push(target)
+    }
+  }
+  if (missing.size) throw new Error(`missing Windows runtime DLL closure: ${Array.from(missing).join(', ')}`)
   runtimeDLLs = copied.size
   if (runtimeDLLs === 0) throw new Error(`no Windows Swift runtime DLLs found in: ${roots.join(', ')}`)
 }
