@@ -345,6 +345,7 @@ function sidecarEnvironment() {
   if (fs.existsSync(process.execPath) && decoder) {
     environment.ALLPET_ZSTD_EXECUTABLE = process.execPath
     environment.ALLPET_ZSTD_PREFIX_JSON = JSON.stringify([decoder])
+    environment.ALLPET_ZSTD_ELECTRON_NODE = '1'
     environment.ELECTRON_RUN_AS_NODE = '1'
   }
   if (process.env.ELECTRON_ENABLE_LOGGING) {

@@ -231,6 +231,11 @@ final class DSHTranscriptDecoder: @unchecked Sendable {
         let terminated = DispatchSemaphore(value: 0)
         process.executableURL = URL(fileURLWithPath: command.executable)
         process.arguments = command.prefix + [path]
+        if ProcessInfo.processInfo.environment["ALLPET_ZSTD_ELECTRON_NODE"] == "1" {
+            var environment = ProcessInfo.processInfo.environment
+            environment["ELECTRON_RUN_AS_NODE"] = "1"
+            process.environment = environment
+        }
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
         process.terminationHandler = { _ in terminated.signal() }
