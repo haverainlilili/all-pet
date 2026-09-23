@@ -15,7 +15,7 @@ const sidecar = fs.existsSync(sidecarInput) && fs.statSync(sidecarInput).isDirec
 
 fs.rmSync(home, { recursive: true, force: true })
 fs.mkdirSync(home, { recursive: true })
-const childEnv = { ...process.env, HOME: home, USERPROFILE: home, CFFIXED_USER_HOME: home }
+const childEnv = { ...process.env, ALLPET_HOME: home, HOME: home, USERPROFILE: home, CFFIXED_USER_HOME: home }
 if (process.env.ALLPET_CLEAN_PATH === '1') {
   childEnv.PATH = process.platform === 'win32'
     ? [process.env.SystemRoot && path.join(process.env.SystemRoot, 'System32'), process.env.SystemRoot].filter(Boolean).join(path.delimiter)

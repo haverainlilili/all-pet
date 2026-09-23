@@ -8,7 +8,13 @@ import CRT
 #endif
 import AllPetCore
 
-func home() -> URL { FileManager.default.homeDirectoryForCurrentUser }
+func home() -> URL {
+    if let override = ProcessInfo.processInfo.environment["ALLPET_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !override.isEmpty {
+        return URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+    }
+    return FileManager.default.homeDirectoryForCurrentUser
+}
 func configURL() -> URL { AllPetConfiguration.configURL(home: home()) }
 
 func terminalSafe(_ value: String, maximumLength: Int = 1_024) -> String {
