@@ -209,7 +209,7 @@ jobs:
           node -e "const j=require('/tmp/allpet-electron-zstd-home/status.json'),d=j.platforms.find(x=>x.platform==='dsh');console.log(d);if(!d||!d.task||d.task.title!=='内置 decoder 验收')process.exit(1)"
           xvfb-run -a --server-args="-screen 0 1024x768x24" \
             env CFFIXED_USER_HOME=/tmp/allpet-electron-zstd-home HOME=/tmp/allpet-electron-zstd-home ALLPET_HOME=/tmp/allpet-electron-zstd-home PATH=/usr/bin:/bin \
-                ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT_STAGE=collapsed ALLPET_EXPECT_DSH_TASK_TITLE='内置 decoder 验收' \
+                ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_EXPECT_DSH_TASK_TITLE='内置 decoder 验收' \
                 ALLPET_LIFECYCLE_SMOKE=/tmp/lifecycle-zstd.json ELECTRON_ENABLE_LOGGING=1 \
             "$PACKAGED" --no-sandbox
           node -e "const j=require('/tmp/lifecycle-zstd.json');if(j.dshTaskTitle!=='内置 decoder 验收')process.exit(1);console.log({dshTaskTitle:j.dshTaskTitle})"
