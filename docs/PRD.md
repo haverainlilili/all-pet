@@ -448,7 +448,9 @@ macOS 精确唤起可能需要：
 - 从本地文件/目录导入兼容宠物；
 - Electron 的 set/delete/install/import 进入同一事务锁：操作中禁用冲突控件，完成后一次性刷新精灵、管理器和托盘；
 - AppKit 在菜单创建前校验并持久化当前宠物：fresh/stale `bundlePath` 回退第一只有效宠物；disabled 时持有隐藏窗口，无宠物后首次安装/选择可立即挂载而无需重启；
-- 切换/删除使用规范化 bundle 路径，避免重复 ID 或子串 ID 误操作另一只宠物。
+- AppKit 的 install/import/select/delete/refresh 进入同一操作闸门：忙碌期间禁用冲突操作和大小调整，结束后统一恢复、重新发现目录和更新菜单；
+- 切换/删除使用规范化 bundle 路径，避免重复 ID 或子串 ID 误操作另一只宠物；
+- AppKit 与 Electron 在气泡、缩放、换宠物后均保持精灵左下角，并将完整窗口夹紧到当前显示器 work area 的 20px 边距；支持负坐标副屏。
 
 #### 7.6.3 支持格式
 
@@ -626,7 +628,7 @@ macOS 精确唤起可能需要：
 - 日志缺失时平台进入 idle，不应导致全局崩溃；
 - 单个平台失败不影响其它平台快照；
 - 任务定位失败时保留气泡；
-- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 4 项宠物选择/持久化契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期及无宠物后同进程安装恢复；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 40 项 Node 测试（含任务历史、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、管理器和生命周期截图。
+- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 11 项宠物选择、操作闸门、持久化和窗口夹紧契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 40 项 Node 测试（含任务历史、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、管理器和生命周期截图。
 
 ### 9.3 隐私与安全
 

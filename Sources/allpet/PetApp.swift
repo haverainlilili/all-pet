@@ -95,7 +95,8 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     private var spriteView: SpriteView?
     private var taskTrayView: TaskTrayView?
     private var statusItem: NSStatusItem?
-    private var petImportInProgress = false
+    private var petOperationGate = PetOperationGate()
+    private var statusMenuIsOpen = false
     private var statusMenuItems: [PlatformKind: NSMenuItem] = [:]
     private var defaultPetThumbnailCache: [String: NSImage] = [:]
     private var defaultPetThumbnailRequests: Set<String> = []
@@ -179,11 +180,21 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             }
             self.togglePet()
             let shown = self.window?.isVisible ?? false
+            self.refreshPets()
+            var windowWithinWorkArea = false
+            if let window = self.window, let visible = window.screen?.visibleFrame {
+                window.setFrameOrigin(NSPoint(x: visible.minX - 500, y: visible.minY - 500))
+                self.updateTaskTrayLayout(visible: true, traySize: NSSize(width: 334, height: 429))
+                windowWithinWorkArea = NSContainsRect(visible.insetBy(dx: 20, dy: 20), window.frame)
+                self.updateTaskTrayLayout(visible: false, traySize: NSSize(width: 334, height: 429))
+            }
             let payload: [String: Any] = [
                 "ownsWindow": ownsWindow,
                 "initiallyVisible": initiallyVisible,
                 "hidden": hidden,
                 "shown": shown,
+                "operationUnlocked": !self.petOperationInProgress,
+                "windowWithinWorkArea": windowWithinWorkArea,
                 "bundlePath": self.config.pet.bundlePath ?? "",
                 "petID": self.bundle?.manifest.id ?? ""
             ]
@@ -230,6 +241,28 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             fputs("[allpet] 保存宠物选择失败：\(error)\n", stderr)
         }
         if statusItem?.menu != nil { petsMenuNeedsRebuild = true }
+    }
+
+    private var petOperationInProgress: Bool { petOperationGate.isBusy }
+
+    private func beginPetOperation(_ label: String) -> Bool {
+        guard petOperationGate.begin(label) else { return false }
+        statusItem?.button?.title = "🐾 \(label)中…"
+        petSizeControl?.isInteractionEnabled = false
+        requestPetsMenuRebuild()
+        return true
+    }
+
+    private func finishPetOperation() {
+        petOperationGate.finish()
+        statusItem?.button?.title = bundle == nil ? "🐾(无宠物)" : "🐾"
+        petSizeControl?.isInteractionEnabled = true
+        requestPetsMenuRebuild()
+    }
+
+    private func requestPetsMenuRebuild() {
+        petsMenuNeedsRebuild = true
+        if !statusMenuIsOpen { rebuildPetsMenu() }
     }
 
     private func loadFrames(_ bundle: PetBundle) -> [CGImage]? {
@@ -459,6 +492,48 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         setAnimation(.idle)
     }
 
+    private func layoutBounds(_ rect: NSRect) -> PetWindowBounds {
+        PetWindowBounds(
+            x: Double(rect.minX), y: Double(rect.minY),
+            width: Double(rect.width), height: Double(rect.height)
+        )
+    }
+
+    private func workArea(for window: NSWindow) -> PetWindowBounds? {
+        let center = NSPoint(x: window.frame.midX, y: window.frame.midY)
+        let screen = window.screen
+            ?? NSScreen.screens.first(where: { $0.frame.contains(center) })
+            ?? NSScreen.main
+        guard let visible = screen?.visibleFrame else { return nil }
+        return layoutBounds(visible)
+    }
+
+    private func applyPreservedSpriteLayout(
+        window: NSWindow,
+        oldWindow: PetWindowBounds,
+        oldSprite: PetWindowBounds,
+        nextContentSize: NSSize,
+        nextSprite: NSRect,
+        workArea: PetWindowBounds?
+    ) {
+        let nextWindow = PetWindowBounds(x: 0, y: 0, width: Double(nextContentSize.width), height: Double(nextContentSize.height))
+        let nextSpriteBounds = layoutBounds(nextSprite)
+        let next: PetWindowBounds
+        if let workArea {
+            next = PetWindowLayout.preservingSprite(
+                oldWindow: oldWindow, oldSprite: oldSprite,
+                nextWindow: nextWindow, nextSprite: nextSpriteBounds, workArea: workArea
+            )
+        } else {
+            next = PetWindowBounds(
+                x: oldWindow.x + oldSprite.x - nextSpriteBounds.x,
+                y: oldWindow.y + oldSprite.y - nextSpriteBounds.y,
+                width: nextWindow.width, height: nextWindow.height
+            )
+        }
+        window.setFrameOrigin(NSPoint(x: CGFloat(next.x), y: CGFloat(next.y)))
+    }
+
     private func positionWindow(
         _ window: NSWindow,
         metrics: (sprite: NSSize, content: NSSize, tray: NSSize)
@@ -475,7 +550,12 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         let spriteOriginY = isTop
             ? visible.maxY - metrics.content.height - margin
             : visible.minY + margin
-        window.setFrameOrigin(NSPoint(x: spriteOriginX, y: spriteOriginY))
+        let requested = PetWindowBounds(
+            x: Double(spriteOriginX), y: Double(spriteOriginY),
+            width: Double(window.frame.width), height: Double(window.frame.height)
+        )
+        let clamped = PetWindowLayout.clamped(requested, in: layoutBounds(visible))
+        window.setFrameOrigin(NSPoint(x: CGFloat(clamped.x), y: CGFloat(clamped.y)))
     }
 
     // MARK: - Animation
@@ -1120,19 +1200,20 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     /// 气泡隐藏时把窗口缩到精灵；展开列表/详情时保持宠物在屏幕上的位置不跳动。
     private func updateTaskTrayLayout(visible: Bool, traySize: NSSize) {
         guard let window, let bundle, let spriteView, let taskTrayView else { return }
-        let spriteScreenOrigin = NSPoint(
-            x: window.frame.minX + spriteView.frame.minX,
-            y: window.frame.minY + spriteView.frame.minY
-        )
+        let oldWindow = layoutBounds(window.frame)
+        let oldSprite = layoutBounds(spriteView.frame)
+        let workArea = workArea(for: window)
         taskTrayIsVisible = visible
         let metrics = layoutMetrics(for: bundle, traySize: traySize)
-        window.setContentSize(visible ? metrics.content : metrics.sprite)
-        spriteView.frame = NSRect(
+        let contentSize = visible ? metrics.content : metrics.sprite
+        let nextSprite = NSRect(
             x: visible ? (metrics.content.width - metrics.sprite.width) / 2 : 0,
             y: 0,
             width: metrics.sprite.width,
             height: metrics.sprite.height
         )
+        window.setContentSize(contentSize)
+        spriteView.frame = nextSprite
         taskTrayView.frame = NSRect(
             x: visible ? (metrics.content.width - metrics.tray.width) / 2 : 0,
             y: metrics.sprite.height + 6,
@@ -1140,10 +1221,10 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             height: metrics.tray.height
         )
         taskTrayView.isHidden = !visible
-        window.setFrameOrigin(NSPoint(
-            x: spriteScreenOrigin.x - spriteView.frame.minX,
-            y: spriteScreenOrigin.y
-        ))
+        applyPreservedSpriteLayout(
+            window: window, oldWindow: oldWindow, oldSprite: oldSprite,
+            nextContentSize: contentSize, nextSprite: nextSprite, workArea: workArea
+        )
     }
 
     private func installOutsideClickHandling() {
@@ -1231,15 +1312,24 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         self.statusItem = item
     }
 
+    func menuWillOpen(_ menu: NSMenu) {
+        statusMenuIsOpen = true
+    }
+
     func menuDidClose(_ menu: NSMenu) {
+        statusMenuIsOpen = false
         // 切换宠物或安装/导入后，等菜单关闭再重建子菜单，更新「当前宠物」勾选。
-        if petsMenuNeedsRebuild {
-            rebuildPetsMenu()
-        }
+        if petsMenuNeedsRebuild { rebuildPetsMenu() }
     }
 
     private func makePetsMenu() -> NSMenu {
         let menu = NSMenu()
+        if let label = petOperationGate.label {
+            let busy = NSMenuItem(title: "正在\(label)宠物…", action: nil, keyEquivalent: "")
+            busy.isEnabled = false
+            menu.addItem(busy)
+            menu.addItem(.separator())
+        }
         let configured = config.pet.bundlePath.map { URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path }
         let discovered = PetDiscovery.discover(home: home)
         for bundle in discovered {
@@ -1249,6 +1339,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 title: bundle.manifest.displayName,
                 isCurrent: bundle.directoryURL.standardizedFileURL.path == configured
             )
+            view.isInteractionEnabled = !petOperationInProgress
             view.onSelect = { [weak self] in
                 self?.selectPet(bundle: bundle)
             }
@@ -1271,6 +1362,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                     title: pet.displayName,
                     slug: pet.slug
                 )
+                view.isInteractionEnabled = !petOperationInProgress
                 view.onDownload = { [weak self] in
                     self?.installDefaultPet(pet)
                 }
@@ -1284,25 +1376,28 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         menu.addItem(.separator())
         let installItem = NSMenuItem(title: "从 GitHub 安装宠物…", action: #selector(PetApp.installPetFromSource), keyEquivalent: "")
         installItem.target = self
-        installItem.isEnabled = !petImportInProgress
+        installItem.isEnabled = !petOperationInProgress
         menu.addItem(installItem)
         let importItem = NSMenuItem(title: "导入本地宠物…", action: #selector(PetApp.importPetModel), keyEquivalent: "")
         importItem.target = self
-        importItem.isEnabled = !petImportInProgress
+        importItem.isEnabled = !petOperationInProgress
         menu.addItem(importItem)
         let formats = NSMenuItem(title: "cc-haha · clawd-on-desk · LingChat", action: nil, keyEquivalent: "")
         formats.isEnabled = false
         menu.addItem(formats)
+        let refresh = NSMenuItem(title: "刷新宠物目录", action: #selector(PetApp.refreshPets), keyEquivalent: "")
+        refresh.target = self
+        refresh.isEnabled = !petOperationInProgress
+        menu.addItem(refresh)
         return menu
     }
 
     private func installDefaultPet(_ pet: DefaultPet) {
-        guard !petImportInProgress else { return }
         runPetInstall(source: pet.installCommand)
     }
 
     @objc private func installPetFromSource() {
-        guard !petImportInProgress else { return }
+        guard !petOperationInProgress else { return }
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = "安装宠物"
@@ -1324,15 +1419,13 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     }
 
     private func runPetInstall(source: String) {
-        petImportInProgress = true
-        statusItem?.button?.title = "🐾 安装中…"
+        guard beginPetOperation("安装") else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let result = Result { try PetInstaller.install(source: source, home: self.home) }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.petImportInProgress = false
-                self.statusItem?.button?.title = "🐾"
+                defer { self.finishPetOperation() }
                 switch result {
                 case .success(let installed):
                     do {
@@ -1344,7 +1437,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                         alert.runModal()
                         return
                     }
-                    self.rebuildPetsMenu()
+                    self.requestPetsMenuRebuild()
                     let alert = NSAlert()
                     alert.messageText = "已安装：\(installed.bundle.manifest.displayName)"
                     alert.informativeText = "\(installed.note)\n\n授权提示：\(installed.sourceKind.licenseNotice)"
@@ -1360,7 +1453,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     }
 
     @objc private func importPetModel() {
-        guard !petImportInProgress else { return }
+        guard !petOperationInProgress else { return }
         NSApp.activate(ignoringOtherApps: true)
         let panel = NSOpenPanel()
         panel.title = "导入本地宠物模型"
@@ -1371,19 +1464,13 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         panel.allowsMultipleSelection = false
         panel.treatsFilePackagesAsDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        petImportInProgress = true
-        statusItem?.button?.title = "🐾 导入中…"
-        statusItem?.menu?.items.first(where: { $0.title == "宠物" })?.submenu?.items
-            .first(where: { $0.action == #selector(PetApp.importPetModel) })?.isEnabled = false
+        guard beginPetOperation("导入") else { return }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
             let result = Result { try PetModelImporter.importModel(from: url, home: self.home) }
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                self.petImportInProgress = false
-                self.statusItem?.button?.title = "🐾"
-                self.statusItem?.menu?.items.first(where: { $0.title == "宠物" })?.submenu?.items
-                    .first(where: { $0.action == #selector(PetApp.importPetModel) })?.isEnabled = true
+                defer { self.finishPetOperation() }
                 switch result {
                 case .success(let imported):
                     do {
@@ -1395,7 +1482,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                         alert.runModal()
                         return
                     }
-                    self.rebuildPetsMenu()
+                    self.requestPetsMenuRebuild()
                     let alert = NSAlert()
                     alert.messageText = "已导入：\(imported.bundle.manifest.displayName)"
                     alert.informativeText = "\(imported.note)\n\n授权提示：\(imported.sourceKind.licenseNotice)"
@@ -1411,6 +1498,8 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     }
 
     private func selectPet(bundle: PetBundle) {
+        guard beginPetOperation("切换") else { return }
+        defer { finishPetOperation() }
         do {
             try switchPet(to: bundle.directoryURL)
         } catch {
@@ -1430,6 +1519,8 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         confirm.addButton(withTitle: "取消")
         NSApp.activate(ignoringOtherApps: true)
         guard confirm.runModal() == .alertFirstButtonReturn else { return }
+        guard beginPetOperation("删除") else { return }
+        defer { finishPetOperation() }
 
         do {
             try FileManager.default.removeItem(at: bundle.directoryURL)
@@ -1454,7 +1545,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 clearCurrentPet()
             }
         }
-        rebuildPetsMenu()
+        requestPetsMenuRebuild()
     }
 
     private func clearCurrentPet() {
@@ -1469,9 +1560,33 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         playbackFrames.removeAll(keepingCapacity: true)
         spriteView?.frameImage = nil
         statusItem?.button?.title = "🐾(无宠物)"
+        requestPetsMenuRebuild()
+    }
+
+    @objc private func refreshPets() {
+        guard beginPetOperation("刷新") else { return }
+        defer { finishPetOperation() }
+        guard let selected = resolveBundle() else {
+            clearCurrentPet()
+            return
+        }
+        let current = bundle?.directoryURL.standardizedFileURL.path
+        guard current != selected.directoryURL.standardizedFileURL.path else { return }
+        do {
+            try switchPet(to: selected.directoryURL)
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.messageText = "刷新后无法切换宠物"
+            NSApp.activate(ignoringOtherApps: true)
+            alert.runModal()
+        }
     }
 
     private func rebuildPetsMenu() {
+        guard !statusMenuIsOpen else {
+            petsMenuNeedsRebuild = true
+            return
+        }
         petsMenuNeedsRebuild = false
         if let petsItem = statusItem?.menu?.items.first(where: { $0.title == "宠物" }) {
             petsItem.submenu = makePetsMenu()
@@ -1489,7 +1604,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         self.frames = frames
         statusItem?.button?.title = "🐾"
         // 菜单保持打开期间不重建子菜单（否则会打断 tracking）；等菜单关闭后再更新当前宠物勾选。
-        petsMenuNeedsRebuild = true
+        requestPetsMenuRebuild()
 
         relayoutPet(bundle: bundle)
         frameTimer?.invalidate()
@@ -1505,34 +1620,35 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             setupPet()
             return
         }
-        let oldSpriteScreenOrigin = NSPoint(
-            x: window.frame.minX + spriteView.frame.minX,
-            y: window.frame.minY + spriteView.frame.minY
-        )
+        let oldWindow = layoutBounds(window.frame)
+        let oldSprite = layoutBounds(spriteView.frame)
+        let workArea = workArea(for: window)
         let traySize = taskTrayView?.preferredSize ?? NSSize(width: 304, height: 72)
         let metrics = layoutMetrics(for: bundle, traySize: traySize)
-        window.setContentSize(taskTrayIsVisible ? metrics.content : metrics.sprite)
+        let contentSize = taskTrayIsVisible ? metrics.content : metrics.sprite
+        let nextSprite = NSRect(
+            x: taskTrayIsVisible ? (metrics.content.width - metrics.sprite.width) / 2 : 0,
+            y: 0,
+            width: metrics.sprite.width,
+            height: metrics.sprite.height
+        )
+        window.setContentSize(contentSize)
         taskTrayView?.frame = NSRect(
             x: taskTrayIsVisible ? (metrics.content.width - metrics.tray.width) / 2 : 0,
             y: metrics.sprite.height + 6,
             width: metrics.tray.width,
             height: metrics.tray.height
         )
-        spriteView.frame = NSRect(
-            x: taskTrayIsVisible ? (metrics.content.width - metrics.sprite.width) / 2 : 0,
-            y: 0,
-            width: metrics.sprite.width,
-            height: metrics.sprite.height
+        spriteView.frame = nextSprite
+        applyPreservedSpriteLayout(
+            window: window, oldWindow: oldWindow, oldSprite: oldSprite,
+            nextContentSize: contentSize, nextSprite: nextSprite, workArea: workArea
         )
-        window.setFrameOrigin(NSPoint(
-            x: oldSpriteScreenOrigin.x - spriteView.frame.minX,
-            y: oldSpriteScreenOrigin.y
-        ))
     }
 
     /// 增大/减小宠物大小：调整 scale 并重新布局；菜单保持打开，可连续点击。
     private func adjustPetScale(by delta: Double) {
-        guard let bundle else { return }
+        guard !petOperationInProgress, let bundle else { return }
         let newScale = min(1.2, max(0.4, config.pet.scale + delta))
         guard abs(newScale - config.pet.scale) > 0.0001 else { return }
         var nextConfig = config

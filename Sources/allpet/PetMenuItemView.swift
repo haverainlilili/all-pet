@@ -6,6 +6,12 @@ import AppKit
 final class PetMenuItemView: NSView {
     var onSelect: (() -> Void)?
     var onDelete: (() -> Void)?
+    var isInteractionEnabled = true {
+        didSet {
+            if !isInteractionEnabled { isHighlighted = false; isDeleteHovered = false }
+            needsDisplay = true
+        }
+    }
 
     private let thumbnail: NSImage?
     private let title: String
@@ -54,7 +60,7 @@ final class PetMenuItemView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        isHighlighted = true
+        if isInteractionEnabled { isHighlighted = true }
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -63,11 +69,13 @@ final class PetMenuItemView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        guard isInteractionEnabled else { return }
         let point = convert(event.locationInWindow, from: nil)
         isDeleteHovered = deleteButtonRect.insetBy(dx: -3, dy: -3).contains(point)
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard isInteractionEnabled else { return }
         let point = convert(event.locationInWindow, from: nil)
         let isDelete = deleteButtonRect.insetBy(dx: -4, dy: -4).contains(point)
         if isDelete {
@@ -86,7 +94,9 @@ final class PetMenuItemView: NSView {
             NSColor.selectedContentBackgroundColor.setFill()
             bounds.fill()
         }
-        let textColor: NSColor = isHighlighted ? .selectedMenuItemTextColor : .labelColor
+        let textColor: NSColor = !isInteractionEnabled
+            ? .disabledControlTextColor
+            : (isHighlighted ? .selectedMenuItemTextColor : .labelColor)
 
         // 缩略图
         if let thumbnail {
@@ -149,6 +159,13 @@ final class PetSizeControlView: NSView {
         didSet { if percentText != oldValue { needsDisplay = true } }
     }
 
+    var isInteractionEnabled = true {
+        didSet {
+            if !isInteractionEnabled { hoveredButton = 0 }
+            needsDisplay = true
+        }
+    }
+
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 288, height: 28))
     }
@@ -192,6 +209,10 @@ final class PetSizeControlView: NSView {
     }
 
     private func updateHover(with event: NSEvent) {
+        guard isInteractionEnabled else {
+            if hoveredButton != 0 { hoveredButton = 0; needsDisplay = true }
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         let next: Int
         if minusRect.insetBy(dx: -3, dy: -3).contains(point) { next = -1 }
@@ -204,6 +225,7 @@ final class PetSizeControlView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        guard isInteractionEnabled else { return }
         let point = convert(event.locationInWindow, from: nil)
         if minusRect.insetBy(dx: -4, dy: -4).contains(point) {
             onDecrease?()
@@ -232,7 +254,7 @@ final class PetSizeControlView: NSView {
             options: [.usesLineFragmentOrigin],
             attributes: [
                 .font: NSFont.systemFont(ofSize: 12, weight: .medium),
-                .foregroundColor: NSColor.labelColor,
+                .foregroundColor: isInteractionEnabled ? NSColor.labelColor : NSColor.disabledControlTextColor,
                 .paragraphStyle: paragraph
             ]
         )
@@ -246,7 +268,9 @@ final class PetSizeControlView: NSView {
     private func drawButton(_ rect: NSRect, symbol: String, fill: NSColor) {
         fill.setFill()
         NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
-        let textColor: NSColor = hoveredButton != 0 ? .controlAccentColor : .secondaryLabelColor
+        let textColor: NSColor = !isInteractionEnabled
+            ? .disabledControlTextColor
+            : (hoveredButton != 0 ? .controlAccentColor : .secondaryLabelColor)
         (symbol as NSString).draw(
             with: NSRect(x: rect.minX, y: rect.minY - 2, width: rect.width, height: rect.height),
             options: [.usesLineFragmentOrigin],
@@ -262,6 +286,12 @@ final class PetSizeControlView: NSView {
 /// 点击整行即可自动下载并设为当前宠物；无需进入二级菜单或手动输入命令。
 final class PetMenuDownloadItemView: NSView {
     var onDownload: (() -> Void)?
+    var isInteractionEnabled = true {
+        didSet {
+            if !isInteractionEnabled { isHighlighted = false }
+            needsDisplay = true
+        }
+    }
 
     private let title: String
     private let slug: String
@@ -302,10 +332,11 @@ final class PetMenuDownloadItemView: NSView {
         trackingArea = area
     }
 
-    override func mouseEntered(with event: NSEvent) { isHighlighted = true }
+    override func mouseEntered(with event: NSEvent) { if isInteractionEnabled { isHighlighted = true } }
     override func mouseExited(with event: NSEvent) { isHighlighted = false }
 
     override func mouseDown(with event: NSEvent) {
+        guard isInteractionEnabled else { return }
         enclosingMenuItem?.menu?.cancelTracking()
         if let onDownload {
             DispatchQueue.main.async { onDownload() }
@@ -318,10 +349,14 @@ final class PetMenuDownloadItemView: NSView {
             NSColor.selectedContentBackgroundColor.setFill()
             bounds.fill()
         }
-        let textColor: NSColor = isHighlighted ? .selectedMenuItemTextColor : .labelColor
-        let secondary: NSColor = isHighlighted
+        let textColor: NSColor = !isInteractionEnabled
+            ? .disabledControlTextColor
+            : (isHighlighted ? .selectedMenuItemTextColor : .labelColor)
+        let secondary: NSColor = !isInteractionEnabled
+            ? .disabledControlTextColor
+            : (isHighlighted
             ? .selectedMenuItemTextColor.withAlphaComponent(0.72)
-            : .secondaryLabelColor
+            : .secondaryLabelColor)
 
         // 缩略图（未加载完成前用下载图标占位）
         if let thumbnail {

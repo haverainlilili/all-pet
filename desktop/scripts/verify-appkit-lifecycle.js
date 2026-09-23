@@ -29,7 +29,7 @@ function launch(output, extraEnv = {}) {
 
 try {
   const fresh = launch(freshOutput)
-  if (!fresh.ownsWindow || !fresh.initiallyVisible || !fresh.hidden || !fresh.shown || !fresh.petID || !fresh.bundlePath) {
+  if (!fresh.ownsWindow || !fresh.initiallyVisible || !fresh.hidden || !fresh.shown || !fresh.operationUnlocked || !fresh.windowWithinWorkArea || !fresh.petID || !fresh.bundlePath) {
     throw new Error(`invalid fresh lifecycle result: ${JSON.stringify(fresh)}`)
   }
   const configPath = path.join(home, '.config', 'all-pet', 'config.json')
@@ -40,7 +40,7 @@ try {
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
 
   const disabled = launch(disabledOutput)
-  if (!disabled.ownsWindow || disabled.initiallyVisible || !disabled.hidden || !disabled.shown || !disabled.petID) {
+  if (!disabled.ownsWindow || disabled.initiallyVisible || !disabled.hidden || !disabled.shown || !disabled.operationUnlocked || !disabled.windowWithinWorkArea || !disabled.petID) {
     throw new Error(`invalid disabled lifecycle result: ${JSON.stringify(disabled)}`)
   }
   if (disabled.bundlePath === config.pet.bundlePath) throw new Error('stale bundle path was not healed')
@@ -53,7 +53,7 @@ try {
   emptyConfig.pet.enabled = true
   fs.writeFileSync(configPath, `${JSON.stringify(emptyConfig, null, 2)}\n`)
   const recovered = launch(recoveredOutput, { ALLPET_APPKIT_SMOKE_INSTALL_SOURCE: backup })
-  if (recovered.ownsWindow || recovered.initiallyVisible || recovered.hidden || !recovered.shown || !recovered.petID) {
+  if (recovered.ownsWindow || recovered.initiallyVisible || recovered.hidden || !recovered.shown || !recovered.operationUnlocked || !recovered.windowWithinWorkArea || !recovered.petID) {
     throw new Error(`invalid no-window recovery result: ${JSON.stringify(recovered)}`)
   }
   if (recovered.bundlePath === emptyConfig.pet.bundlePath) throw new Error('no-window recovery kept stale path')

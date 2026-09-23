@@ -29,7 +29,7 @@ jobs:
           sudo apt-get install -y libcurl4-openssl-dev
       - name: 构建
         run: swift build
-      - name: 宠物选择契约测试
+      - name: 宠物管理与窗口契约测试
         run: swift run allpet selection-self-test
       - name: AppKit 首启 / 失效路径 / 隐藏恢复
         if: runner.os == 'macOS'

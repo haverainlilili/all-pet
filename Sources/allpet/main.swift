@@ -545,7 +545,34 @@ func cmdSelectionSelfTest() {
         fputs("❌ PetSelection persistence self-test: \(error)\n", stderr)
         exit(EXIT_FAILURE)
     }
-    print("✅ PetSelection self-test 通过（\(passed) 项）")
+
+    var gate = PetOperationGate()
+    expect(gate.begin("安装"), "空闲操作闸门应允许首个操作")
+    expect(!gate.begin("删除"), "忙碌操作闸门应拒绝冲突操作")
+    expect(gate.label == "安装", "拒绝冲突操作后应保留原标签")
+    gate.finish()
+    expect(!gate.isBusy, "操作结束后应解锁")
+
+    let workArea = PetWindowBounds(x: 0, y: 30, width: 2560, height: 1410)
+    let preserved = PetWindowLayout.preservingSprite(
+        oldWindow: PetWindowBounds(x: 100, y: 200, width: 200, height: 121),
+        oldSprite: PetWindowBounds(x: 44, y: 0, width: 112, height: 121),
+        nextWindow: PetWindowBounds(x: 0, y: 0, width: 334, height: 429),
+        nextSprite: PetWindowBounds(x: 111, y: 0, width: 112, height: 121),
+        workArea: workArea
+    )
+    expect(preserved.x == 33 && preserved.y == 200, "扩展气泡时应保持精灵左下角")
+    let secondary = PetWindowLayout.clamped(
+        PetWindowBounds(x: -2200, y: -100, width: 334, height: 429),
+        in: PetWindowBounds(x: -1920, y: 0, width: 1920, height: 1080)
+    )
+    expect(secondary.x == -1900 && secondary.y == 20, "负坐标显示器应按自身工作区夹紧")
+    let oversized = PetWindowLayout.clamped(
+        PetWindowBounds(x: 100, y: 100, width: 1200, height: 900),
+        in: PetWindowBounds(x: 0, y: 0, width: 1000, height: 800)
+    )
+    expect(oversized.x == 0 && oversized.y == 0, "窗口大于工作区时应落到工作区原点")
+    print("✅ Pet parity contract self-test 通过（\(passed) 项）")
 }
 
 let args = Array(CommandLine.arguments.dropFirst())
