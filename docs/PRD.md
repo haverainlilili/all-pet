@@ -312,7 +312,7 @@ failed > running/thinking > waiting > done > idle
 
 - 透明、置顶、托盘常驻；
 - 复用相同 scale、动画表和图集，并尝试读取同一 anchor 配置；
-- ⚠️ 当前 Electron anchor 的纵向计算与 macOS 相反：`top-*` 会落到工作区底部、`bottom-*` 会落到顶部，尚未真正对齐；
+- Electron 已按左上坐标系修正 anchor 纵向映射，并在气泡阶段变化时保持宠物屏幕位置不跳动；
 - Linux 透明效果依赖 compositor；GNOME 托盘依赖 AppIndicator；
 - Windows 无 macOS Space 概念。
 
@@ -344,11 +344,10 @@ failed > running/thinking > waiting > done > idle
 
 #### 7.3.4 Electron 气泡差异
 
-- Stage 1 为最多 3 张终态卡 + 最多 3 个未完成平台的**平铺**，没有 macOS 的轮播露边堆栈；
-- Stage 2 只展示各平台主状态，不展示 macOS 同样的最多 5 条会话名称/计数；
-- Stage 3 最多显示 6 条历史任务，但点击任务仍只做平台级打开；
-- 没有 macOS 的“点击窗口外部收起”行为；
-- 等待态用橙点代替 macOS spinner。
+- 三阶段尺寸、卡片高度、Stage 1 完成卡与轮播露边堆栈、Stage 2 最多 5 条任务、Stage 3 最多 6 条任务已按 AppKit 基准对齐；
+- 运行/思考 spinner、等待时钟、完成勾、失败叹号、深浅色卡片和平台品牌色已对齐；
+- 支持点击返回/收起、窗口失焦收起，窗口按 304/324/334px 动态缩放并保持宠物位置；
+- 剩余差异：点击任务仍只做平台级打开，尚未实现 macOS 的任务/session 级唤醒。
 
 #### 7.3.5 品牌与状态颜色
 
@@ -647,7 +646,7 @@ macOS 精确唤起可能需要：
 | 能力 | macOS 原生 | macOS Electron | Windows Electron | Linux Electron |
 | --- | --- | --- | --- | --- |
 | 四平台监控 | ✅ | ✅ | ✅ | ✅ |
-| 动画与三层气泡 | ✅ 完整 | ⚠️ 简化 | ⚠️ 简化 | ⚠️ 简化 |
+| 动画与三层气泡 | ✅ 完整 | ✅ 展示与交互对齐 | ✅ 展示与交互对齐 | ✅ 展示与交互对齐 |
 | Codex/Claude/DSH 多会话展示 | ✅（DSH 修复在 main） | ⚠️ 依赖 JSON 事件推送；次级任务变更可能漏推 | ⚠️ 同左 | ⚠️ 同左 |
 | 精确任务唤起 | ✅ 尽力实现 | ⚠️ 平台级 | ⚠️ 平台级/CLI | ⚠️ 平台级/CLI |
 | 完成任务“已查看”自动消失 | ✅ | ⚠️ 无精确检测 | ⚠️ 无精确检测 | ⚠️ 无精确检测 |
@@ -674,10 +673,9 @@ macOS 精确唤起可能需要：
 5. **Grok 详细多会话不足**：只输出一个选中任务，`activeSessions` 与气泡任务数可能不同。
 6. **Windows/Linux 本地宠物导入入口与底层能力不一致**：UI 有入口，但转换实现仅 macOS。
 7. **DSH 依赖外部 zstd**：Windows 路径/可执行文件探测也不足；不可用时当前实现会退为“未能解析 DSH 会话”，而非可靠的任务文本降级。
-8. **Electron 与 macOS 展示仍有差距**：Stage 1 平铺、Stage 2 不列任务、无窗口外收起，且 anchor 上下方向当前反向。
-9. **Release 资源 bundle 确认遗漏**：v1.3.0 macOS ZIP 的 sidecar 仅含 `allpet`，缺少 `AllPet_AllPetCore.bundle`/内置宠物资源；新用户首次宠物发现不可靠。
-10. **未签名与无自动更新**：macOS 未公证/签名，Windows 也未配置代码签名；提高首次安装和升级成本。
-11. **上游日志格式风险**：四个平台升级后字段或目录变化可能使解析失效。
+8. **Release 资源 bundle 确认遗漏**：v1.3.0 macOS ZIP 的 sidecar 仅含 `allpet`，缺少 `AllPet_AllPetCore.bundle`/内置宠物资源；新用户首次宠物发现不可靠。
+9. **未签名与无自动更新**：macOS 未公证/签名，Windows 也未配置代码签名；提高首次安装和升级成本。
+10. **上游日志格式风险**：四个平台升级后字段或目录变化可能使解析失效。
 
 ### 11.2 数据准确性风险
 
@@ -696,7 +694,7 @@ macOS 精确唤起可能需要：
 1. 修复 Release：复制 `AllPet_AllPetCore.bundle` 到 sidecar（或将资源嵌入 sidecar）并以全新 HOME 验证首启、`pet list` 和宠物管理；明确 Release 使用 Electron 而非 AppKit GUI；
 2. 发布 v1.3.1，包含 DSH 多会话修复；
 3. 让 `watch --json` 的变更 key 纳入所有 `tasks`，保证 Electron 能及时收到次级会话变化；
-4. 修正 Electron anchor 纵向反向、Windows DSH 打开和 show/hide 行为；
+4. 修正 Windows DSH 打开和 show/hide 行为；
 5. 补充 Grok 多会话详细任务输出；
 6. DSH 内置 zstd 解码或在安装时明确检查依赖；
 7. 修正 README 的内置宠物数量、全平台 `self-test`、会话级唤起和非 macOS 导入承诺；

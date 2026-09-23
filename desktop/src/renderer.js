@@ -109,291 +109,495 @@
     setAnimation(name || statusAnimation || 'idle')
   }
 
-  // ---- 气泡三阶段（对齐 macOS TaskTrayView：collapsed / platforms / tasks）----
+  // ---- 气泡三阶段（以 macOS TaskTrayView 为唯一行为基准）----
 
-  let stage = 'collapsed' // 'collapsed' | 'platforms' | 'tasks'
-  let stagePlatform = null
-  let bubbleData = null
-  let lastReportedBubbleHeight = -1
+  let bubbleStage = 'collapsed' // collapsed | platforms | tasks
+  let selectedPlatform = null
+  let rotationIndex = 0
+  let rotationTimer = null
+  let lastBubbleWidth = -1
+  let lastBubbleHeight = -1
 
-  const PLATFORM_LABELS = { codex: 'Codex', claude: 'Claude Code', dsh: 'DSH', grok: 'Grok' }
-  const PLATFORM_COLORS = { codex: '#0a84ff', claude: '#ff9f0a', dsh: '#30d158', grok: '#bf5af2' }
+  const PLATFORM_ORDER = ['codex', 'claude', 'dsh', 'grok']
+  const PLATFORM_COLORS = {
+    codex: '#0fa380',
+    claude: '#cc6b4d',
+    dsh: '#4d6bfa',
+    grok: 'var(--grok-color)'
+  }
 
-  function platformLabel(p) { return PLATFORM_LABELS[p] || p }
-  function platformColor(p) { return PLATFORM_COLORS[p] || '#8e8e93' }
+  function labelOf(platform) {
+    return { codex: 'Codex', claude: 'Claude Code', dsh: 'DSH', grok: 'Grok' }[platform] || platform
+  }
 
-  function sessionDisplayNameOf(t) {
-    if (t.scheduledTaskName) return '定时任务 · ' + t.scheduledTaskName
-    if (t.sessionName && t.sessionName.trim()) return t.sessionName.trim()
-    if (t.sessionID) {
-      const v = t.sessionID.indexOf('session-') === 0 ? t.sessionID.slice(8) : t.sessionID
-      return '会话 ' + String(v).slice(0, 8)
+  function phaseRank(phase) {
+    return { failed: 0, running: 1, thinking: 1, waiting: 2, idle: 3, done: 4 }[phase] ?? 5
+  }
+
+  function platformRank(platform) {
+    const rank = PLATFORM_ORDER.indexOf(platform)
+    return rank < 0 ? PLATFORM_ORDER.length : rank
+  }
+
+  function sortedTasks(tasks) {
+    return (tasks || []).slice().sort((a, b) => {
+      const phaseDelta = phaseRank(a.phase) - phaseRank(b.phase)
+      if (phaseDelta !== 0) return phaseDelta
+      return (b.updatedAt || 0) - (a.updatedAt || 0)
+    })
+  }
+
+  function canonicalTaskID(platform, task) {
+    if (task && task.scheduledTaskName) return `${platform}|scheduled:${task.scheduledTaskName}`
+    let identity = task && task.sessionID ? task.sessionID : String(task && task.title || '').trim()
+    if (platform === 'dsh' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identity)) {
+      identity = `session-${identity}`
+    }
+    return `${platform}|${identity || 'current'}`
+  }
+
+  function buildData() {
+    const snap = currentSnapshot || { platforms: [] }
+    const historyMeta = snap.history || {}
+    const history = historyMeta.platforms || {}
+    const dismissed = new Set(historyMeta.dismissed || [])
+    const hidden = new Set(historyMeta.hidden || [])
+    const isLiveHidden = (platform, task) => {
+      const id = canonicalTaskID(platform, task)
+      // 主进程会在同一会话出现新非终态活动时先移除 dismissed；渲染层可直接按 ID 隐藏。
+      return hidden.has(id) || dismissed.has(id)
+    }
+
+    const groups = (snap.platforms || [])
+      .slice()
+      .sort((a, b) => platformRank(a.platform) - platformRank(b.platform))
+      .map((rawStatus) => {
+        const liveTasks = (rawStatus.tasks && rawStatus.tasks.length) ? rawStatus.tasks : (rawStatus.task ? [rawStatus.task] : [])
+        const visibleLiveTasks = liveTasks.filter(task => !isLiveHidden(rawStatus.platform, task))
+        let status = rawStatus
+        if (liveTasks.length > 0 && visibleLiveTasks.length === 0) {
+          status = { ...rawStatus, phase: 'idle', phaseLabel: '空闲', detail: '空闲', task: null, tasks: [] }
+        } else if (visibleLiveTasks.length !== liveTasks.length) {
+          const primary = visibleLiveTasks[0]
+          status = { ...rawStatus, phase: primary.phase || rawStatus.phase, task: primary, tasks: visibleLiveTasks }
+        }
+        return {
+          status,
+          platform: status.platform,
+          label: status.label || labelOf(status.platform),
+          tasks: sortedTasks((history[status.platform] || []).filter(task => !dismissed.has(task.id) && !hidden.has(task.id)))
+        }
+      })
+
+    // 与 AppKit 一致：Stage 1 完成卡片从全部历史生成，不依赖当前快照是否仍含该平台。
+    const completed = Object.entries(history)
+      .flatMap(([platform, tasks]) => (tasks || []).map(task => ({ ...task, platform: task.platform || platform })))
+      .filter(task => task.phase === 'done' && !dismissed.has(task.id) && !hidden.has(task.id))
+      .sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0))
+
+    const unfinished = groups.map((group) => {
+      const task = group.tasks.find(item => item.phase !== 'done')
+      if (task) return { ...task, platform: group.platform }
+      const primary = group.status && group.status.task
+      const hasStableIdentity = primary && (primary.sessionID || primary.scheduledTaskName)
+      if (group.status && group.status.phase !== 'idle' && group.status.phase !== 'done' && hasStableIdentity) {
+        return {
+          id: canonicalTaskID(group.platform, primary),
+          platform: group.platform,
+          sessionDisplayName: primary.sessionName || primary.title || '未命名会话',
+          action: primary.action || group.status.detail || '',
+          progress: primary.progressLabel,
+          phase: primary.phase || group.status.phase
+        }
+      }
+      return null
+    }).filter(Boolean)
+
+    const hasNotification = completed.length > 0
+      || unfinished.length > 0
+      || groups.some(group => group.tasks.length > 0 || group.status.phase !== 'idle')
+
+    return { groups, completed, unfinished, hasNotification }
+  }
+
+  function displayName(item) {
+    if (item.sessionDisplayName) return item.sessionDisplayName
+    if (item.scheduledTaskName) return `定时任务 · ${item.scheduledTaskName}`
+    if (item.sessionName && item.sessionName.trim()) return item.sessionName.trim()
+    if (item.sessionID) {
+      const value = item.sessionID.startsWith('session-') ? item.sessionID.slice(8) : item.sessionID
+      return `会话 ${String(value).slice(0, 8)}`
     }
     return '未命名会话'
   }
 
-  function reportBubbleHeight() {
-    if (!window.petAPI || !window.petAPI.resizeForBubble) return
-    const h = bubble.classList.contains('hidden') ? 0 : Math.ceil(bubble.offsetHeight)
-    if (h === lastReportedBubbleHeight) return
-    lastReportedBubbleHeight = h
-    window.petAPI.resizeForBubble(h)
+  function platformColor(platform) {
+    return PLATFORM_COLORS[platform] || '#8e8e93'
   }
 
-  function buildBubbleData(snap) {
-    const history = (snap.history && snap.history.platforms) || {}
-    const dismissed = (snap.history && snap.history.dismissed) || []
-    const current = snap.platforms || []
-
-    // 完成/失败任务（未 dismiss），跨平台，最新在前。
-    const completed = []
-    for (const [platform, list] of Object.entries(history)) {
-      for (const item of list) {
-        if (item.phase === 'done' || item.phase === 'failed') {
-          if (dismissed.includes(item.id)) continue
-          completed.push(Object.assign({}, item, { platform }))
-        }
-      }
-    }
-    completed.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-
-    // 未完成平台：当前非 idle/done/failed。
-    const unfinished = current.filter(p => p.phase !== 'idle' && p.phase !== 'done' && p.phase !== 'failed')
-
-    // 当前各平台 phase：仅用于「展示层」过滤僵尸任务（平台已 idle 但历史任务仍是活跃态）。
-    // 绝不回写共享的 task-history.json——那会破坏 macOS 唤醒任务/加载会话消息所需的 sourcePath/sessionID。
-    const currentPhase = {}
-    for (const p of current) currentPhase[p.platform] = p.phase
-
-    // 平台卡片（Stage 2）：当前平台 + 该平台历史任务（未 dismiss、且排除僵尸）。
-    const platforms = current.map(p => {
-      const tasks = (history[p.platform] || []).filter(t => {
-        if (dismissed.includes(t.id)) return false
-        if (currentPhase[p.platform] === 'idle'
-          && (t.phase === 'running' || t.phase === 'thinking' || t.phase === 'waiting')) return false
-        return true
-      })
-      return Object.assign({}, p, { tasks })
-    })
-
-    return {
-      completed,
-      unfinished,
-      platforms,
-      hasNotification: completed.length > 0 || unfinished.length > 0
-    }
+  function statusIndicator(phase) {
+    const indicator = document.createElement('span')
+    indicator.className = `status-indicator ${phase || 'idle'}`
+    indicator.setAttribute('aria-label', phase || 'idle')
+    return indicator
   }
 
-  function buildCard(item, opts) {
-    const o = opts || {}
+  function dismissButton(kind, value) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'bc-dismiss'
+    button.dataset.dismiss = kind
+    button.dataset.value = value || ''
+    button.setAttribute('aria-label', '关闭')
+    button.textContent = '×'
+    return button
+  }
+
+  function compactCard(item, options) {
+    const opts = options || {}
     const card = document.createElement('div')
-    card.className = 'bubble-card'
-    card.dataset.platform = item.platform
-    card.dataset.phase = item.phase || ''
-    if (o.kind === 'platform') card.dataset.kind = 'platform'
-    else if (item.id) card.dataset.id = item.id
+    card.className = 'bubble-card compact-card'
+    card.dataset.kind = opts.kind || 'open-platforms'
+    card.dataset.platform = item.platform || ''
+    if (item.id) card.dataset.id = item.id
 
-    const header = document.createElement('div')
-    header.className = 'bc-header'
-    const pname = document.createElement('span')
-    pname.className = 'bc-platform'
-    pname.textContent = platformLabel(item.platform)
-    pname.style.color = platformColor(item.platform)
-    header.appendChild(pname)
-    const status = document.createElement('span')
-    status.className = 'bc-status ' + (item.phase || 'idle')
-    header.appendChild(status)
-    card.appendChild(header)
+    const platform = document.createElement('div')
+    platform.className = 'compact-platform'
+    platform.style.color = platformColor(item.platform)
+    platform.textContent = labelOf(item.platform)
+    card.appendChild(platform)
 
     const title = document.createElement('div')
-    title.className = 'bc-title'
-    title.textContent = item.sessionDisplayName || sessionDisplayNameOf(item)
+    title.className = 'compact-title'
+    title.textContent = displayName(item)
     card.appendChild(title)
+    card.appendChild(statusIndicator(item.phase))
 
-    if (o.showAction && item.action) {
-      const action = document.createElement('div')
-      action.className = 'bc-action'
-      action.textContent = item.action
-      card.appendChild(action)
-    }
-
-    if (o.dismiss) {
-      const x = document.createElement('button')
-      x.className = 'bc-dismiss'
-      x.textContent = '×'
-      x.dataset.kind = o.dismiss // 'task' | 'platform'
-      x.title = o.dismiss === 'platform' ? '清除该平台' : '清除该任务'
-      card.appendChild(x)
-    }
+    if (opts.dismiss && item.id) card.appendChild(dismissButton('task', item.id))
     return card
   }
 
+  function taskCard(item) {
+    const card = document.createElement('div')
+    card.className = 'bubble-card task-card'
+    card.dataset.kind = 'task'
+    card.dataset.platform = item.platform || ''
+    card.dataset.id = item.id || ''
+
+    const title = document.createElement('div')
+    title.className = 'task-title'
+    const platform = document.createElement('span')
+    platform.className = 'task-platform'
+    platform.style.color = platformColor(item.platform)
+    platform.textContent = labelOf(item.platform)
+    const separator = document.createElement('span')
+    separator.className = 'task-separator'
+    separator.textContent = ' － '
+    const name = document.createElement('span')
+    name.textContent = displayName(item)
+    title.append(platform, separator, name)
+    card.appendChild(title)
+
+    const subtitle = document.createElement('div')
+    subtitle.className = 'task-subtitle'
+    subtitle.textContent = [item.progress, item.action].filter(Boolean).join(' · ') || '暂无任务详情'
+    card.appendChild(subtitle)
+
+    card.appendChild(statusIndicator(item.phase))
+    const arrow = document.createElement('span')
+    arrow.className = 'task-arrow'
+    arrow.textContent = '›'
+    card.appendChild(arrow)
+    if (item.id) card.appendChild(dismissButton('task', item.id))
+    return card
+  }
+
+  function stageHeader(platform) {
+    const header = document.createElement('div')
+    header.className = 'bc-stage-header'
+
+    if (platform) {
+      const back = document.createElement('button')
+      back.type = 'button'
+      back.className = 'bc-back'
+      back.dataset.back = 'platforms'
+      back.setAttribute('aria-label', '返回平台任务')
+      back.textContent = '‹'
+      header.appendChild(back)
+
+      const title = document.createElement('div')
+      title.className = 'bc-stage-title'
+      const platformName = document.createElement('span')
+      platformName.style.color = platformColor(platform)
+      platformName.textContent = labelOf(platform)
+      title.appendChild(platformName)
+      title.appendChild(document.createTextNode(' 的任务'))
+      header.appendChild(title)
+    } else {
+      const title = document.createElement('div')
+      title.className = 'bc-stage-title'
+      title.textContent = '平台任务'
+      header.appendChild(title)
+    }
+
+    const collapse = document.createElement('button')
+    collapse.type = 'button'
+    collapse.className = 'bc-collapse'
+    collapse.dataset.back = 'collapsed'
+    collapse.textContent = '收起'
+    header.appendChild(collapse)
+    return header
+  }
+
+  function platformGroup(group) {
+    const tasks = group.tasks.slice(0, 5)
+    const rows = Math.min(group.tasks.length, 5)
+    const height = rows <= 1 ? 58 : Math.max(58, 29 + rows * 14)
+    const card = document.createElement('div')
+    card.className = 'bubble-card platform-group'
+    card.style.height = `${height}px`
+    card.dataset.kind = 'platform'
+    card.dataset.platform = group.platform
+
+    const title = document.createElement('div')
+    title.className = 'platform-group-title'
+    const name = document.createElement('span')
+    name.style.color = platformColor(group.platform)
+    name.textContent = group.label
+    title.appendChild(name)
+    if (group.tasks.length > 5) {
+      const count = document.createElement('span')
+      count.className = 'platform-group-count'
+      count.textContent = ` +${group.tasks.length - 5}`
+      title.appendChild(count)
+    }
+    card.appendChild(title)
+
+    const list = document.createElement('div')
+    list.className = 'platform-task-list'
+    if (tasks.length === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'platform-task-empty'
+      empty.textContent = '暂无会话 · 点击打开'
+      list.appendChild(empty)
+    } else {
+      for (const task of tasks) {
+        const row = document.createElement('div')
+        row.className = 'platform-task-row'
+        const dot = document.createElement('span')
+        dot.className = `platform-task-dot ${task.phase || 'idle'}`
+        const text = document.createElement('span')
+        text.textContent = displayName(task)
+        row.append(dot, text)
+        list.appendChild(row)
+      }
+    }
+    card.appendChild(list)
+    card.appendChild(statusIndicator(tasks[0] ? tasks[0].phase : group.status.phase))
+    if (group.tasks.length > 0) card.appendChild(dismissButton('platform', group.platform))
+    return card
+  }
+
+  function fallbackBubbles(data) {
+    return data.groups.map((group) => {
+      const primary = group.status.task || {}
+      return {
+        id: null,
+        platform: group.platform,
+        sessionDisplayName: primary.sessionName || primary.title || (group.status.phase === 'idle' ? '暂无会话' : '未命名会话'),
+        action: primary.action || group.status.detail || '',
+        phase: primary.phase || group.status.phase
+      }
+    })
+  }
+
+  function renderCollapsed(data) {
+    const completed = data.completed.slice(-3)
+    if (data.completed.length > 3) {
+      const count = document.createElement('div')
+      count.className = 'bc-count completed-count'
+      count.textContent = `+${data.completed.length - 3} 个已完成`
+      bubble.appendChild(count)
+    }
+
+    for (const task of completed) {
+      bubble.appendChild(compactCard(task, { kind: 'task', dismiss: true }))
+    }
+
+    let stackItems = data.unfinished
+    if (stackItems.length === 0 && completed.length === 0) stackItems = fallbackBubbles(data)
+    if (stackItems.length === 0) return
+    rotationIndex %= stackItems.length
+
+    const stack = document.createElement('div')
+    const visibleCount = Math.min(3, stackItems.length)
+    stack.className = `platform-stack visible-${visibleCount}`
+    stack.dataset.kind = 'open-platforms'
+    stack.style.height = `${stackItems.length > 1 ? 78 : 58}px`
+
+    for (let depth = visibleCount - 1; depth >= 0; depth -= 1) {
+      const index = (rotationIndex + depth) % stackItems.length
+      const item = stackItems[index]
+      const reveal = depth === 0 ? 0 : (visibleCount === 2 ? 18 : depth * 9)
+      const inset = depth * 5
+      const card = compactCard(item, { kind: 'open-platforms', dismiss: depth === 0 })
+      card.classList.add('stack-card')
+      card.style.left = `${inset}px`
+      card.style.top = `${reveal}px`
+      card.style.width = `calc(100% - ${inset * 2}px)`
+      card.style.opacity = depth === 0 ? '1' : String(Math.max(0.70, 0.88 - depth * 0.09))
+      card.style.zIndex = String(visibleCount - depth)
+      if (depth !== 0) card.style.pointerEvents = 'none'
+      stack.appendChild(card)
+    }
+    bubble.appendChild(stack)
+  }
+
+  function renderPlatforms(data) {
+    bubble.appendChild(stageHeader(null))
+    for (const group of data.groups.slice(0, 4)) bubble.appendChild(platformGroup(group))
+  }
+
+  function renderTasks(data) {
+    const group = data.groups.find(item => item.platform === selectedPlatform) || data.groups[0]
+    if (!group) return
+    selectedPlatform = group.platform
+    bubble.appendChild(stageHeader(group.platform))
+    const tasks = group.tasks.slice(0, 6)
+    if (tasks.length === 0) {
+      const primary = group.status.task || {}
+      bubble.appendChild(taskCard({
+        id: '',
+        platform: group.platform,
+        sessionDisplayName: primary.sessionName || primary.title || '未命名会话',
+        action: primary.action || group.status.detail || '点击打开平台',
+        phase: primary.phase || group.status.phase
+      }))
+    } else {
+      for (const task of tasks) bubble.appendChild(taskCard({ ...task, platform: group.platform }))
+    }
+    if (group.tasks.length > tasks.length) {
+      const count = document.createElement('div')
+      count.className = 'bc-count task-count'
+      count.textContent = `+${group.tasks.length - tasks.length} 个任务`
+      bubble.appendChild(count)
+    }
+  }
+
+  function reportBubbleSize() {
+    if (!window.petAPI || !window.petAPI.resizeForBubble) return
+    requestAnimationFrame(() => {
+      const hidden = bubble.classList.contains('hidden')
+      const rect = hidden ? { width: 0, height: 0 } : bubble.getBoundingClientRect()
+      const width = Math.max(0, Math.ceil(rect.width || 0))
+      const height = Math.max(0, Math.ceil(rect.height || 0))
+      if (width === lastBubbleWidth && height === lastBubbleHeight) return
+      lastBubbleWidth = width
+      lastBubbleHeight = height
+      window.petAPI.resizeForBubble(width, height)
+    })
+  }
+
+  function syncRotationTimer(data) {
+    const needsRotation = bubbleStage === 'collapsed' && data.unfinished.length > 1 && !reduceMotion
+    if (needsRotation && !rotationTimer) {
+      rotationTimer = setInterval(() => {
+        const latest = buildData()
+        if (bubbleStage !== 'collapsed' || latest.unfinished.length <= 1) return
+        rotationIndex = (rotationIndex + 1) % latest.unfinished.length
+        renderBubble()
+      }, 3200)
+    } else if (!needsRotation && rotationTimer) {
+      clearInterval(rotationTimer)
+      rotationTimer = null
+    }
+  }
+
   function renderBubble() {
-    if (!bubbleData || !bubbleData.hasNotification) {
-      bubble.classList.add('hidden')
-      bubble.innerHTML = ''
-      reportBubbleHeight()
+    const data = buildData()
+    if (!data.hasNotification) {
+      bubble.replaceChildren()
+      bubble.className = 'hidden'
+      syncRotationTimer(data)
+      reportBubbleSize()
       return
     }
-    bubble.classList.remove('hidden')
-    bubble.innerHTML = ''
-    if (stage === 'platforms') renderStage2()
-    else if (stage === 'tasks') renderStage3(stagePlatform)
-    else renderStage1()
-    reportBubbleHeight()
+
+    if (bubbleStage === 'tasks' && !data.groups.some(group => group.platform === selectedPlatform)) {
+      bubbleStage = 'platforms'
+      selectedPlatform = null
+    }
+
+    bubble.replaceChildren()
+    bubble.className = `stage-${bubbleStage}`
+    if (bubbleStage === 'collapsed') renderCollapsed(data)
+    else if (bubbleStage === 'platforms') renderPlatforms(data)
+    else renderTasks(data)
+    syncRotationTimer(data)
+    reportBubbleSize()
   }
 
-  function renderStage1() {
-    const d = bubbleData
-    const completed = d.completed.slice(0, 3)
-    for (const item of completed) {
-      bubble.appendChild(buildCard(item, { showAction: true, dismiss: 'task' }))
-    }
-    if (d.completed.length > 3) {
-      const more = document.createElement('div')
-      more.className = 'bc-count'
-      more.textContent = `+${d.completed.length - 3} 个已完成`
-      bubble.appendChild(more)
-    }
-    for (const p of d.unfinished.slice(0, 3)) {
-      const t = p.task || {}
-      bubble.appendChild(buildCard({
-        id: p.platform + '|current',
-        platform: p.platform,
-        phase: p.phase,
-        action: t.action || p.detail || '',
-        sessionName: t.sessionName,
-        sessionID: t.sessionID,
-        scheduledTaskName: t.scheduledTaskName
-      }, { showAction: true, kind: 'platform' }))
-    }
-  }
-
-  function renderStage2() {
-    const header = document.createElement('div')
-    header.className = 'bc-stage-header'
-    const title = document.createElement('span')
-    title.textContent = '平台任务'
-    header.appendChild(title)
-    const close = document.createElement('button')
-    close.className = 'bc-back'
-    close.textContent = '收起'
-    close.dataset.back = 'collapsed'
-    header.appendChild(close)
-    bubble.appendChild(header)
-
-    for (const p of bubbleData.platforms.slice(0, 4)) {
-      const t = p.task || {}
-      bubble.appendChild(buildCard({
-        id: p.platform + '|current',
-        platform: p.platform,
-        phase: p.phase,
-        action: t.action || p.detail || '',
-        sessionName: t.sessionName,
-        sessionID: t.sessionID,
-        scheduledTaskName: t.scheduledTaskName,
-        taskCount: p.tasks ? p.tasks.length : 0
-      }, { kind: 'platform', dismiss: 'platform' }))
-    }
-  }
-
-  function renderStage3(platform) {
-    const p = bubbleData.platforms.find(x => x.platform === platform)
-    const header = document.createElement('div')
-    header.className = 'bc-stage-header'
-    const title = document.createElement('span')
-    title.textContent = platformLabel(platform) + ' 的任务'
-    header.appendChild(title)
-    const back = document.createElement('button')
-    back.className = 'bc-back'
-    back.textContent = '返回'
-    back.dataset.back = 'platforms'
-    header.appendChild(back)
-    bubble.appendChild(header)
-
-    const tasks = p ? p.tasks.slice(0, 6) : []
-    for (const item of tasks) {
-      bubble.appendChild(buildCard(item, { showAction: true, dismiss: 'task' }))
-    }
-    if (p && p.tasks.length > 6) {
-      const more = document.createElement('div')
-      more.className = 'bc-count'
-      more.textContent = `+${p.tasks.length - 6} 个任务`
-      bubble.appendChild(more)
-    }
-  }
-
-  function setStage(next, platform) {
-    stage = next
-    stagePlatform = platform || null
+  function setStage(stage, platform) {
+    bubbleStage = stage
+    selectedPlatform = stage === 'tasks' ? platform : null
     renderBubble()
   }
 
+  function launchPlatform(platform) {
+    if (window.petAPI && window.petAPI.launchPlatform) window.petAPI.launchPlatform(platform)
+    setStage('collapsed')
+  }
+
   function onPlatformClick(platform) {
-    const p = bubbleData.platforms.find(x => x.platform === platform)
-    const tasks = p ? p.tasks : []
-    if (!tasks.length) {
-      if (window.petAPI.launchPlatform) window.petAPI.launchPlatform(platform)
-      setStage('collapsed')
-    } else if (tasks.length === 1) {
-      if (window.petAPI.launchPlatform) window.petAPI.launchPlatform(platform)
+    const group = buildData().groups.find(item => item.platform === platform)
+    if (!group || group.tasks.length === 0) {
+      launchPlatform(platform)
+    } else if (group.tasks.length === 1) {
+      launchPlatform(platform)
     } else {
       setStage('tasks', platform)
     }
   }
 
-  // 气泡点击委托：× 删除；返回/收起；平台卡片；任务卡片（唤醒）。
-  bubble.addEventListener('click', (e) => {
-    const dismiss = e.target.closest('.bc-dismiss')
+  bubble.addEventListener('click', (event) => {
+    const dismiss = event.target.closest('[data-dismiss]')
     if (dismiss) {
-      const card = dismiss.closest('.bubble-card')
-      if (!card) return
-      if (dismiss.dataset.kind === 'platform') {
-        if (window.petAPI.dismissPlatform) window.petAPI.dismissPlatform(card.dataset.platform)
-      } else if (card.dataset.id) {
-        if (window.petAPI.dismissTask) window.petAPI.dismissTask(card.dataset.id)
+      event.stopPropagation()
+      const kind = dismiss.dataset.dismiss
+      const value = dismiss.dataset.value
+      if (kind === 'task' && window.petAPI && window.petAPI.dismissTask) window.petAPI.dismissTask(value)
+      if (kind === 'platform' && window.petAPI && window.petAPI.dismissPlatform) {
+        window.petAPI.dismissPlatform(value)
+        setStage('collapsed')
       }
       return
     }
-    const back = e.target.closest('.bc-back')
+
+    const back = event.target.closest('[data-back]')
     if (back) {
-      setStage(back.dataset.back === 'platforms' ? 'platforms' : 'collapsed')
+      event.stopPropagation()
+      setStage(back.dataset.back)
       return
     }
-    const card = e.target.closest('.bubble-card')
-    if (!card) return
-    if (card.dataset.kind === 'platform') {
-      onPlatformClick(card.dataset.platform)
-    } else if (card.dataset.id) {
-      const platform = card.dataset.platform
-      // 只唤醒/打开平台，绝不自动删除历史记录——
-      // task-history.json 的 sourcePath/sessionID 是 macOS 加载会话消息的依据，
-      // 提前删除会导致「之前的消息加载不了」。
-      if (window.petAPI.launchPlatform) window.petAPI.launchPlatform(platform)
-    }
+
+    const target = event.target.closest('[data-kind]')
+    if (!target) return
+    const kind = target.dataset.kind
+    if (kind === 'open-platforms') setStage('platforms')
+    else if (kind === 'platform') onPlatformClick(target.dataset.platform)
+    else if (kind === 'task') launchPlatform(target.dataset.platform)
   })
 
   function updateBubble(snap) {
-    bubbleData = buildBubbleData(snap)
-    if (!bubbleData.hasNotification) {
-      // 全部空闲：收起回 Stage 1（与 macOS collapseToStage1 一致）。
-      stage = 'collapsed'
-      stagePlatform = null
-    } else if (stage === 'tasks' && stagePlatform) {
-      if (!bubbleData.platforms.some(x => x.platform === stagePlatform)) {
-        stage = 'platforms'
-        stagePlatform = null
-      }
-    }
+    currentSnapshot = snap
     renderBubble()
   }
 
   function onPet(payload) {
     if (!payload || !payload.ok) {
-      canvas.width = 192
-      canvas.height = 208
-      canvas.style.width = '192px'
-      canvas.style.height = '208px'
+      canvas.width = CELL_W
+      canvas.height = CELL_H
+      applyScale(payload && payload.scale)
       drawPlaceholder()
       return
     }
@@ -462,9 +666,19 @@
     window.petAPI.onPet(onPet)
     window.petAPI.onSnapshot(onSnapshot)
     window.petAPI.onScaleChanged((scale) => applyScale(scale))
+    window.petAPI.onCollapseBubble(() => {
+      if (bubbleStage !== 'collapsed') setStage('collapsed')
+    })
+    window.petAPI.onDebugBubble((payload) => {
+      if (!payload || !payload.snapshot) return
+      onSnapshot(payload.snapshot)
+      const stage = ['collapsed', 'platforms', 'tasks'].includes(payload.stage) ? payload.stage : 'collapsed'
+      setStage(stage, stage === 'tasks' ? (payload.platform || 'codex') : null)
+    })
     window.petAPI.onWatchError((msg) => {
-      bubble.classList.remove('hidden')
+      bubble.className = 'stage-collapsed'
       bubble.textContent = '监控异常：' + msg
+      reportBubbleSize()
     })
   } else {
     drawPlaceholder()

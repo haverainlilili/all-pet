@@ -68,12 +68,23 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y xvfb libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
-      - name: 无头启动 + 截图
+      - name: 无头启动 + 三阶段任务气泡截图
         working-directory: desktop
         run: |
-          xvfb-run -a --server-args="-screen 0 1024x768x24" \
-            env ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT=/tmp/shot.png ELECTRON_ENABLE_LOGGING=1 \
-            ./node_modules/.bin/electron . --no-sandbox
+          for stage in collapsed platforms tasks; do
+            xvfb-run -a --server-args="-screen 0 1024x768x24" \
+              env ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 \
+                  ALLPET_SCREENSHOT="/tmp/bubble-${stage}.png" ALLPET_SCREENSHOT_STAGE="$stage" \
+                  ELECTRON_ENABLE_LOGGING=1 \
+              ./node_modules/.bin/electron . --no-sandbox
+          done
+          for anchor in top-left top-right bottom-left bottom-right; do
+            xvfb-run -a --server-args="-screen 0 1024x768x24" \
+              env ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 \
+                  ALLPET_SCREENSHOT="/tmp/anchor-${anchor}.png" ALLPET_SCREENSHOT_STAGE=tasks ALLPET_SCREENSHOT_ANCHOR="$anchor" \
+                  ELECTRON_ENABLE_LOGGING=1 \
+              ./node_modules/.bin/electron . --no-sandbox
+          done
       - name: 无头启动宠物管理窗口 + 截图
         working-directory: desktop
         run: |
@@ -81,6 +92,29 @@ jobs:
             env ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_PET_MANAGER_SCREENSHOT=/tmp/pets.png ELECTRON_ENABLE_LOGGING=1 \
             ./node_modules/.bin/electron . --no-sandbox
       - name: 校验截图
-        run: test -s /tmp/shot.png && echo "截图已生成，Electron 启动成功"
+        run: |
+          test -s /tmp/bubble-collapsed.png
+          test -s /tmp/bubble-platforms.png
+          test -s /tmp/bubble-tasks.png
+          test -s /tmp/anchor-top-left.png
+          test -s /tmp/anchor-top-right.png
+          test -s /tmp/anchor-bottom-left.png
+          test -s /tmp/anchor-bottom-right.png
+          echo "三阶段任务气泡与四锚点截图已生成，DOM/工作区几何校验已通过"
       - name: 校验宠物管理截图
         run: test -s /tmp/pets.png && echo "宠物管理窗口截图已生成"
+      - name: 上传气泡截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-bubble-screenshots
+          path: |
+            /tmp/bubble-collapsed.png
+            /tmp/bubble-platforms.png
+            /tmp/bubble-tasks.png
+            /tmp/anchor-top-left.png
+            /tmp/anchor-top-right.png
+            /tmp/anchor-bottom-left.png
+            /tmp/anchor-bottom-right.png
+            /tmp/pets.png
+          if-no-files-found: ignore

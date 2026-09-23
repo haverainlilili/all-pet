@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('petAPI', {
   onPet: (cb) => ipcRenderer.on('pet', (_e, payload) => cb(payload)),
   onSnapshot: (cb) => ipcRenderer.on('snapshot', (_e, snap) => cb(snap)),
   onWatchError: (cb) => ipcRenderer.on('watch-error', (_e, msg) => cb(msg)),
+  onDebugBubble: (cb) => ipcRenderer.on('debug-bubble', (_e, payload) => cb(payload)),
 
   // 宠物管理（渲染层 → 主进程）
   listPets: () => ipcRenderer.invoke('pets:list'),
@@ -19,8 +20,9 @@ contextBridge.exposeInMainWorld('petAPI', {
   setScale: (delta) => ipcRenderer.invoke('pets:setScale', delta),
   onScaleChanged: (cb) => ipcRenderer.on('pet-scale', (_e, scale) => cb(scale)),
 
-  // 气泡高度（渲染层 → 主进程，用于窗口高度对齐）
-  resizeForBubble: (height) => ipcRenderer.invoke('pets:resizeBubble', height),
+  // 气泡尺寸（渲染层 → 主进程，用于按 AppKit 三阶段宽高调整窗口）
+  resizeForBubble: (width, height) => ipcRenderer.invoke('pets:resizeBubble', width, height),
+  onCollapseBubble: (cb) => ipcRenderer.on('collapse-bubble', () => cb()),
 
   // 气泡交互 + 精灵拖动
   launchPlatform: (platform) => ipcRenderer.invoke('pets:launchPlatform', platform),

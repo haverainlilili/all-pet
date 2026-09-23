@@ -76,11 +76,12 @@ function readScale() {
   }
 }
 
-// 当前气泡高度（0 = 隐藏）；渲染层实时上报，用于窗口高度对齐 macOS 的「宠物在上、气泡在下」。
+// 当前气泡尺寸（0 = 隐藏）；渲染层实时上报。AppKit 的任务托盘位于宠物上方。
+let bubbleWidth = 0
 let bubbleHeight = 0
 
 // 精灵按 scale 缩放；显示宽 clamp 80…224px（与 macOS layoutMetrics 一致）。
-// 气泡宽度保持最小可读（160px），高度随气泡行数动态调整。
+// 三阶段气泡宽度由渲染层按 AppKit 304/324/334px 实时上报。
 function spriteSizeForScale(scale) {
   const spriteW = Math.min(224, Math.max(80, Math.round(CELL_W * scale)))
   const spriteH = Math.round(spriteW * (CELL_H / CELL_W))
@@ -90,12 +91,37 @@ function spriteSizeForScale(scale) {
 function windowSizeForScale(scale) {
   const sprite = spriteSizeForScale(scale)
   return {
-    width: Math.max(sprite.width, 160) + 24,
-    height: sprite.height + (bubbleHeight > 0 ? bubbleHeight + 14 : 8)
+    width: Math.max(sprite.width, bubbleWidth),
+    height: sprite.height + (bubbleHeight > 0 ? bubbleHeight + 6 : 0)
   }
 }
 
+// 气泡展开/收起或阶段尺寸变化时，保持宠物本体在屏幕上的位置不跳动。
+function resizeWindowPreservingSprite(scale) {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const oldBounds = mainWindow.getBounds()
+  const sprite = spriteSizeForScale(scale)
+  const oldSpriteX = oldBounds.x + Math.round((oldBounds.width - sprite.width) / 2)
+  const oldSpriteY = oldBounds.y + oldBounds.height - sprite.height
+  const next = windowSizeForScale(scale)
+  let x = oldSpriteX - Math.round((next.width - sprite.width) / 2)
+  let y = oldSpriteY - (next.height - sprite.height)
+
+  // 优先保持宠物不跳；若扩大后的托盘会越出工作区，则只移动到最近的可见边界。
+  const area = screen.getDisplayMatching(oldBounds).workArea
+  const margin = 20
+  const minX = area.x + margin
+  const maxX = area.x + area.width - next.width - margin
+  const minY = area.y + margin
+  const maxY = area.y + area.height - next.height - margin
+  x = maxX < minX ? area.x : Math.min(maxX, Math.max(minX, x))
+  y = maxY < minY ? area.y : Math.min(maxY, Math.max(minY, y))
+  mainWindow.setBounds({ x: Math.round(x), y: Math.round(y), width: next.width, height: next.height }, false)
+}
+
 function readAnchor() {
+  const debugAnchor = process.env.ALLPET_SCREENSHOT_ANCHOR
+  if (['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(debugAnchor)) return debugAnchor
   try {
     const cfg = JSON.parse(fs.readFileSync(configPath(), 'utf8'))
     const a = cfg && cfg.pet && typeof cfg.pet.anchor === 'string' ? cfg.pet.anchor : 'bottom-right'
@@ -114,8 +140,14 @@ function positionWindow() {
   const isTop = anchor.startsWith('top')
   const area = screen.getPrimaryDisplay().workArea
   const size = mainWindow.getSize()
-  const x = isLeft ? area.x + margin : area.x + area.width - size[0] - margin
-  const y = isTop ? area.y + area.height - size[1] - margin : area.y + margin
+  // AppKit 初始隐藏托盘时仍按 304×72pt 预留位置，避免首次展开向屏幕外生长。
+  const reservedWidth = bubbleWidth > 0 ? size[0] : Math.max(size[0], 304)
+  const fullX = isLeft ? area.x + margin : area.x + area.width - reservedWidth - margin
+  const x = bubbleWidth > 0 ? fullX : fullX + (reservedWidth - size[0]) / 2
+  // Electron 屏幕坐标原点在左上；隐藏托盘的 top anchor 需为上方托盘预留 72+6px。
+  const y = isTop
+    ? area.y + margin + (bubbleHeight > 0 ? 0 : 78)
+    : area.y + area.height - size[1] - margin
   mainWindow.setPosition(Math.round(x), Math.round(y))
 }
 
@@ -123,6 +155,7 @@ function positionWindow() {
 
 let taskHistory = {}      // { [platform]: [item] }
 let dismissedTaskIDs = []
+let manuallyHiddenTaskTitles = {} // 非终态手动隐藏：同一标题保持隐藏，标题变化后视为新活动
 let dragStartScreen = null  // 精灵拖动起点（屏幕坐标）
 let dragStartPosition = null // 拖动开始时窗口位置
 
@@ -223,7 +256,17 @@ function accumulateHistory(snap) {
         workingDirectory: t.workingDirectory,
         scheduledTaskName: t.scheduledTaskName
       }
-      // 复活：非终态任务出现新活动时移除 dismiss 标记（对齐 macOS）。
+      const hiddenTitle = manuallyHiddenTaskTitles[item.id]
+      if (hiddenTitle !== undefined) {
+        if (hiddenTitle === item.title) {
+          const before = taskHistory[p.platform] || []
+          const kept = before.filter(existing => existing.id !== item.id)
+          if (kept.length !== before.length) { taskHistory[p.platform] = kept; changed = true }
+          continue
+        }
+        delete manuallyHiddenTaskTitles[item.id]
+      }
+      // 复活：非终态任务出现新活动时移除旧的终态 dismiss 标记（对齐 macOS）。
       if (item.phase !== 'done' && item.phase !== 'failed') {
         const di = dismissedTaskIDs.indexOf(item.id)
         if (di >= 0) { dismissedTaskIDs.splice(di, 1); changed = true }
@@ -273,6 +316,7 @@ function historyPayload() {
       platform: item.platform,
       sessionName: item.sessionName,
       action: item.action,
+      progress: item.progress,
       phase: item.phase,
       phaseLabel: phaseLabelOf(item.phase),
       scheduledTaskName: item.scheduledTaskName,
@@ -281,7 +325,7 @@ function historyPayload() {
       sessionDisplayName: sessionDisplayName(item)
     }))
   }
-  return { platforms, dismissed: dismissedTaskIDs }
+  return { platforms, dismissed: dismissedTaskIDs, hidden: Object.keys(manuallyHiddenTaskTitles) }
 }
 
 function phaseLabelOf(phase) {
@@ -353,6 +397,12 @@ function createWindow() {
     if (currentSnapshot) sendSnapshot(currentSnapshot)
   })
 
+  mainWindow.on('blur', () => {
+    // 确定性截图必须保持指定阶段；正常运行时失焦收起到 Stage 1。
+    if (!process.env.ALLPET_SCREENSHOT_STAGE && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('collapse-bubble')
+    }
+  })
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
@@ -560,15 +610,13 @@ function registerPetIpc() {
     return { ok: true, scale }
   })
 
-  ipcMain.handle('pets:resizeBubble', async (_e, height) => {
+  ipcMain.handle('pets:resizeBubble', async (_e, width, height) => {
+    const w = Math.max(0, Math.round(Number(width) || 0))
     const h = Math.max(0, Math.round(Number(height) || 0))
-    if (h === bubbleHeight) return { ok: true }
+    if (w === bubbleWidth && h === bubbleHeight) return { ok: true }
+    bubbleWidth = w
     bubbleHeight = h
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      const size = windowSizeForScale(readScale())
-      mainWindow.setSize(size.width, size.height)
-      positionWindow()
-    }
+    resizeWindowPreservingSprite(readScale())
     return { ok: true }
   })
 
@@ -580,10 +628,15 @@ function registerPetIpc() {
   ipcMain.handle('pets:dismissTask', async (_e, id) => {
     const taskId = String(id || '')
     const platform = taskId.split('|')[0]
-    if (platform && taskHistory[platform]) {
-      taskHistory[platform] = taskHistory[platform].filter(t => t.id !== taskId)
+    const task = (taskHistory[platform] || []).find(item => item.id === taskId)
+    if (task) {
+      if (task.phase === 'done') {
+        if (!dismissedTaskIDs.includes(taskId)) dismissedTaskIDs.push(taskId)
+      } else {
+        manuallyHiddenTaskTitles[taskId] = task.title || task.action || ''
+      }
+      taskHistory[platform] = (taskHistory[platform] || []).filter(item => item.id !== taskId)
     }
-    if (taskId && !dismissedTaskIDs.includes(taskId)) dismissedTaskIDs.push(taskId)
     if (dismissedTaskIDs.length > 100) dismissedTaskIDs = dismissedTaskIDs.slice(-100)
     persistHistory()
     if (currentSnapshot) sendSnapshot(currentSnapshot)
@@ -592,12 +645,25 @@ function registerPetIpc() {
 
   ipcMain.handle('pets:dismissPlatform', async (_e, platform) => {
     const key = String(platform || '')
-    if (key && taskHistory[key]) {
-      for (const t of taskHistory[key]) {
-        if (!dismissedTaskIDs.includes(t.id)) dismissedTaskIDs.push(t.id)
+    const rememberHidden = (id, title, phase) => {
+      if (!id) return
+      if (phase === 'done') {
+        if (!dismissedTaskIDs.includes(id)) dismissedTaskIDs.push(id)
+      } else {
+        manuallyHiddenTaskTitles[id] = title || ''
       }
-      taskHistory[key] = []
     }
+    for (const task of taskHistory[key] || []) {
+      rememberHidden(task.id, task.title || task.action, task.phase)
+    }
+    const live = currentSnapshot && (currentSnapshot.platforms || []).find(item => item.platform === key)
+    const liveTasks = live ? ((live.tasks && live.tasks.length) ? live.tasks : (live.task ? [live.task] : [])) : []
+    for (const task of liveTasks) {
+      const id = canonicalID(key, task)
+      const title = (task.title || '').trim() || task.action || (live && live.detail) || ''
+      rememberHidden(id, title, task.phase || (live && live.phase))
+    }
+    if (key) taskHistory[key] = []
     if (dismissedTaskIDs.length > 100) dismissedTaskIDs = dismissedTaskIDs.slice(-100)
     persistHistory()
     if (currentSnapshot) sendSnapshot(currentSnapshot)
@@ -680,6 +746,59 @@ function quit() {
   app.quit()
 }
 
+// 仅用于截图/CI 的确定性气泡数据，不写入用户历史。
+function debugBubbleSnapshot() {
+  const now = (Date.now() - APPLE_REF_MS) / 1000
+  const task = (platform, id, sessionName, action, phase, offset, extra = {}) => ({
+    id: `${platform}|${id}`,
+    platform,
+    title: action,
+    sessionName,
+    sessionDisplayName: sessionName,
+    action,
+    phase,
+    updatedAt: now + offset,
+    sessionID: id,
+    ...extra
+  })
+  const codexTasks = [
+    task('codex', 'codex-running', '重构跨平台任务气泡', '正在调整窗口尺寸与卡片层级', 'running', 7, { progress: '进度 4/6' }),
+    task('codex', 'codex-waiting', 'Windows DPI 与透明窗口验证', '等待测试环境', 'waiting', 6),
+    task('codex', 'codex-done-1', 'Electron 状态图标设计', '任务已完成', 'done', 5),
+    task('codex', 'codex-done-2', 'macOS 深浅色基准', '任务已完成', 'done', 4),
+    task('codex', 'codex-extra-1', '超长中文会话名称用于验证卡片文本截断不会越界', '检查超长文本省略号', 'running', 3),
+    task('codex', 'codex-extra-2', 'Retina 缩放测试', '正在采集截图', 'thinking', 2),
+    task('codex', 'codex-extra-3', '第七个任务', '用于验证 +N 任务提示', 'waiting', 1)
+  ]
+  const claudeTasks = [
+    task('claude', 'claude-done-1', '定时审查 · 每日代码检查', '任务已完成', 'done', 8, { scheduledTaskName: '每日代码检查' }),
+    task('claude', 'claude-done-2', 'Claude Desktop 会话', '任务已完成', 'done', 2)
+  ]
+  const dshTasks = [
+    task('dsh', 'session-debug-running', '全平台桌面宠物', '运行命令：Electron screenshot smoke', 'running', 9),
+    task('dsh', 'session-debug-failed', 'DSH 失败状态示例', '工具执行失败', 'failed', 3)
+  ]
+  const grokTasks = [
+    task('grok', 'grok-waiting', 'Grok 终端会话', '等待后续活动', 'waiting', 4)
+  ]
+  return {
+    observedAt: new Date().toISOString(),
+    animation: 'running',
+    phase: 'running',
+    summary: 'Codex 运行中 · Claude Code 完成 · DSH 运行中 · Grok 等待中',
+    platforms: [
+      { platform: 'codex', label: 'Codex', phase: 'running', phaseLabel: '运行中', detail: codexTasks[0].action, task: codexTasks[0], tasks: codexTasks, activeSessions: 7 },
+      { platform: 'claude', label: 'Claude Code', phase: 'done', phaseLabel: '完成', detail: claudeTasks[0].action, task: claudeTasks[0], tasks: claudeTasks, activeSessions: 2 },
+      { platform: 'dsh', label: 'DSH', phase: 'running', phaseLabel: '运行中', detail: dshTasks[0].action, task: dshTasks[0], tasks: dshTasks, activeSessions: 2 },
+      { platform: 'grok', label: 'Grok', phase: 'waiting', phaseLabel: '等待中', detail: grokTasks[0].action, task: grokTasks[0], tasks: grokTasks, activeSessions: 1 }
+    ],
+    history: {
+      platforms: { codex: codexTasks, claude: claudeTasks, dsh: dshTasks, grok: grokTasks },
+      dismissed: []
+    }
+  }
+}
+
 // ---- 应用生命周期 ----
 
 app.whenReady().then(() => {
@@ -688,17 +807,85 @@ app.whenReady().then(() => {
   registerPetIpc()
   createWindow()
   createTray()
-  startWatch()
+  // 三阶段截图使用确定性 fixture，避免真实 watcher 快照覆盖测试数据。
+  if (!process.env.ALLPET_SCREENSHOT_STAGE) startWatch()
 
   // 调试：ALLPET_SCREENSHOT=/path.png 时，启动 5s 后截图退出（用于无头验证渲染）。
   if (process.env.ALLPET_SCREENSHOT) {
     const target = process.env.ALLPET_SCREENSHOT
+    const screenshotStage = process.env.ALLPET_SCREENSHOT_STAGE
+    if (screenshotStage) {
+      const sendFixture = () => {
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('debug-bubble', {
+              snapshot: debugBubbleSnapshot(),
+              stage: screenshotStage,
+              platform: process.env.ALLPET_SCREENSHOT_PLATFORM || 'codex'
+            })
+          }
+        }, 500)
+      }
+      if (mainWindow.webContents.isLoadingMainFrame()) {
+        mainWindow.webContents.once('did-finish-load', sendFixture)
+      } else {
+        sendFixture()
+      }
+    }
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.capturePage().then((img) => {
+        const validate = screenshotStage
+          ? mainWindow.webContents.executeJavaScript(`(() => {
+              const bubble = document.getElementById('bubble').getBoundingClientRect()
+              const pet = document.getElementById('pet').getBoundingClientRect()
+              const cards = Array.from(document.querySelectorAll('.bubble-card')).map((node) => {
+                const rect = node.getBoundingClientRect()
+                return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+              })
+              return {
+                stage: ${JSON.stringify(screenshotStage)},
+                viewport: { width: innerWidth, height: innerHeight },
+                bubble: { left: bubble.left, top: bubble.top, right: bubble.right, bottom: bubble.bottom, width: bubble.width, height: bubble.height },
+                pet: { left: pet.left, top: pet.top, right: pet.right, bottom: pet.bottom },
+                cardCount: cards.length,
+                cards
+              }
+            })()`)
+          : Promise.resolve(null)
+        validate.then((metrics) => {
+          if (metrics) {
+            const expected = {
+              collapsed: { width: 304, height: 281, cards: 6 },
+              platforms: { width: 324, height: 336, cards: 4 },
+              tasks: { width: 334, height: 429, cards: 6 }
+            }[metrics.stage]
+            const epsilon = 1
+            const cardsFit = metrics.cards.every((rect) => rect.left >= -epsilon && rect.right <= metrics.viewport.width + epsilon && rect.top >= -epsilon && rect.bottom <= metrics.viewport.height + epsilon)
+            const windowBounds = mainWindow.getBounds()
+            const workArea = screen.getDisplayMatching(windowBounds).workArea
+            metrics.window = windowBounds
+            metrics.workArea = workArea
+            const windowFits = windowBounds.x >= workArea.x - epsilon
+              && windowBounds.y >= workArea.y - epsilon
+              && windowBounds.x + windowBounds.width <= workArea.x + workArea.width + epsilon
+              && windowBounds.y + windowBounds.height <= workArea.y + workArea.height + epsilon
+            if (Math.abs(metrics.bubble.width - expected.width) > epsilon || Math.abs(metrics.bubble.height - expected.height) > epsilon || metrics.bubble.right > metrics.viewport.width + epsilon || metrics.bubble.bottom > metrics.viewport.height + epsilon || metrics.pet.bottom > metrics.viewport.height + epsilon || metrics.cardCount !== expected.cards || !cardsFit || !windowFits) {
+              throw new Error(`bubble geometry mismatch: ${JSON.stringify(metrics)}`)
+            }
+            console.log('[allpet] 气泡几何校验通过:', JSON.stringify(metrics))
+          }
+          return mainWindow.webContents.capturePage()
+        }).then((img) => {
           fs.writeFileSync(target, img.toPNG())
           console.log('[allpet] 截图已保存:', target)
-        }).catch((e) => console.error('[allpet] 截图失败:', e)).finally(() => quit())
+        }).catch((e) => {
+          console.error('[allpet] 截图失败:', e)
+          if (watchProc) { try { watchProc.kill() } catch {} }
+          app.isQuitting = true
+          app.exit(1)
+        }).finally(() => {
+          if (!app.isQuitting) quit()
+        })
       } else {
         quit()
       }

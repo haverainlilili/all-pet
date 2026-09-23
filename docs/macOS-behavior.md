@@ -363,12 +363,12 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 2 | 动画帧表 | 9 组行号+帧时长 | ✅ 已对齐 |
 | 3 | 动画播放 | 非 idle 连播 3 遍 + idle 尾巴；reduceMotion 首帧 | ✅ 已对齐（连播 3 遍 + reduceMotion） |
 | 4 | 气泡内容 | 每平台 bubbleHeader + bubbleDetails | ✅ 已对齐（卡片：平台+会话名+动作） |
-| 5 | 气泡布局 | 精灵上、气泡下、间距 6pt | ✅ 已对齐 |
-| 6 | 锚点定位 | anchor 四角 + 20pt | ✅ 已对齐 |
-| 7 | 气泡三阶段 | Stage1/2/3 + 点击展开收起 | ✅ 已对齐（Stage1/2/3 + 点击切换） |
-| 8 | 完成卡片常驻 | done 终态卡片 + 轮播堆栈 + 「+N」 | ⚠️ 完成卡片 + 「+N」已对齐，但常驻需手动 × 删除；轮播堆栈简化为平铺 |
+| 5 | 气泡布局 | 气泡在精灵上方、间距 6pt | ✅ 已对齐（按 AppKit 实际坐标修正） |
+| 6 | 锚点定位 | anchor 四角 + 20pt | ✅ 已对齐（修正 Electron 上下方向反转） |
+| 7 | 气泡三阶段 | Stage1/2/3 + 点击展开收起 | ✅ 已对齐（含返回、收起、失焦收起） |
+| 8 | 完成卡片常驻 | done 终态卡片 + 轮播堆栈 + 「+N」 | ✅ 已对齐（3.2s 轮播、18/9pt 露边、最多 3 张完成卡） |
 | 9 | 任务删除/隐藏 | × 删除气泡 + dismissed 持久化 | ✅ 已对齐（× 删除 + dismissed 持久化） |
-| 10 | 唤醒任务 | 点击任务唤醒原平台 | ⚠️ 点击任务打开平台（无终端/session 唤醒） |
+| 10 | 唤醒任务 | 点击任务唤醒原平台 | ⚠️ 点击任务仍只打开平台（无终端/session 唤醒） |
 | 11 | 交互动画 | 悬停 jumping / 拖动 running | ✅ 已对齐（悬停/拖动动画） |
 | 12 | 点击宠物展开 | 点击精灵 → Stage 2 | ✅ 已对齐 |
 | 13 | 窗口属性 | transparent / alwaysOnTop / 全空间 | ⚠️ 已 alwaysOnTop；全空间仅 darwin/linux（Windows 无此概念） |
@@ -376,9 +376,8 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 15 | 任务历史持久化 | task-history.json + 去重 + 12 条上限 | ✅ 已对齐（共享 task-history.json，字段兼容） |
 
 > 已知简化（平台限制 / 暂未实现）：
-> - **#8 轮播堆栈**：Electron Stage 1 未完成平台平铺（最多 3 个），无 macOS 的轮播/露边动画。
 > - **#10 唤醒**：Electron 无终端/session 唤起，点击任务仅「打开对应平台」。Claude Desktop 上游未提供「聚焦现有会话」的对外深链——`code/{id}` 与 `code/continue?session=` 被 feature gate 关闭，`resume?session=` 会 fork 副本，`epitaxy/` 是 silent no-op；因此 macOS 与 Electron 对 Claude Desktop 都只能打开应用本体、提示用户在侧栏手动选择会话。Codex 的 `codex://threads/<id>` 深链有效，可精确定位。
 > - **#13 全空间**：Windows 无「所有 Space 可见」概念。
 > - **#14 大小控件位置**：Electron 大小调节在「宠物管理」窗口（原生托盘菜单不支持不关菜单的自定义视图）。
-> - 等待态 spinner（macOS 转圈图标）在 Electron 简化为橙色圆点。
+> - 等待态时钟、运行/思考 spinner、完成勾、失败叹号与深浅色卡片已按 AppKit 绘制逻辑对齐。
 > - 任务完成后的僵尸任务：Electron 只在渲染层过滤（平台已 idle 但历史任务仍显示活跃态的僵尸不显示），不改写共享历史；macOS 在 `updateTaskTray` 里清理——平台 idle 时清空活跃任务、会话切换时清空「非当前任务」的活跃记录，只保留完成卡片 done/failed 与当前任务（sourcePath/terminalBinding 从保留记录继承）。注意：task-history.json 与 macOS 共享，其 sourcePath/sessionID 是 macOS 加载会话消息的依据，Electron 绝不删除/改写这些记录。

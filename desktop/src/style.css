@@ -1,163 +1,476 @@
-html, body {
-  margin: 0;
-  padding: 0;
-  background: transparent;
-  overflow: hidden;
-  user-select: none;
-  -webkit-user-select: none;
+* {
+  box-sizing: border-box;
 }
 
+:root {
+  color-scheme: light dark;
+  --card: rgba(255, 255, 255, 0.94);
+  --card-hover: rgba(255, 255, 255, 0.99);
+  --border: rgba(0, 0, 0, 0.10);
+  --text: rgba(0, 0, 0, 0.88);
+  --secondary: rgba(0, 0, 0, 0.62);
+  --tertiary: rgba(0, 0, 0, 0.42);
+  --subtle: rgba(0, 0, 0, 0.05);
+  --hover: rgba(0, 0, 0, 0.08);
+  --shadow: rgba(0, 0, 0, 0.14);
+  --running: #0a84ff;
+  --waiting: #ff9f0a;
+  --done: #30d158;
+  --failed: #ff3b30;
+  --grok-color: #1f1f1f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --card: rgba(31, 31, 31, 0.94);
+    --card-hover: rgba(43, 43, 43, 0.97);
+    --border: rgba(255, 255, 255, 0.12);
+    --text: rgba(255, 255, 255, 0.94);
+    --secondary: rgba(255, 255, 255, 0.68);
+    --tertiary: rgba(255, 255, 255, 0.46);
+    --subtle: rgba(255, 255, 255, 0.08);
+    --hover: rgba(255, 255, 255, 0.13);
+    --shadow: rgba(0, 0, 0, 0.28);
+    --grok-color: #ebebeb;
+  }
+}
+
+html,
 body {
-  width: 100vw;
-  height: 100vh;
-  /* 拖动由 renderer 在精灵上手动实现（与 macOS 只能拖精灵本体一致）。 */
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
 #stage {
-  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
-  padding-top: 4px;
+  justify-content: flex-end;
   gap: 6px;
+  overflow: hidden;
 }
 
 #pet {
   display: block;
+  flex: 0 0 auto;
   image-rendering: pixelated;
+  cursor: pointer;
 }
 
 #bubble {
-  max-width: 200px;
+  position: relative;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  width: 304px;
+  padding: 4px;
+  gap: 7px;
+  color: var(--text);
   text-align: left;
   pointer-events: auto;
 }
 
-#bubble.hidden { display: none; }
+#bubble.hidden {
+  display: none;
+}
 
-/* ---- 气泡卡片（对齐 macOS TaskTrayView 的 MaterialCard 视觉）---- */
+#bubble.stage-platforms {
+  width: 324px;
+  padding: 0 4px 8px;
+  gap: 0;
+}
+
+#bubble.stage-tasks {
+  width: 334px;
+  padding: 0 4px 8px;
+  gap: 0;
+}
+
+.stage-platforms .platform-group + .platform-group,
+.stage-tasks .task-card + .task-card {
+  margin-top: 7px;
+}
 
 .bubble-card {
   position: relative;
-  background: rgba(30, 30, 30, 0.88);
-  border-radius: 10px;
-  padding: 7px 10px 7px 12px;
-  color: #fff;
-  font: 12px/1.35 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  width: 100%;
+  height: 58px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 21px;
+  box-shadow: 0 2px 7px var(--shadow);
   cursor: pointer;
-  min-width: 164px;
-  max-width: 200px;
+  transition: background-color 120ms ease, border-color 120ms ease, transform 120ms ease;
 }
 
 .bubble-card:hover {
-  background: rgba(45, 45, 45, 0.92);
+  background: var(--card-hover);
+  border-color: color-mix(in srgb, var(--border) 55%, var(--running));
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--shadow) 72%, black);
 }
 
-.bc-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.bc-platform {
-  font-size: 10.5px;
-  font-weight: 700;
-  white-space: nowrap;
+.compact-platform {
+  position: absolute;
+  top: 8px;
+  left: 18px;
+  right: 72px;
   overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 14px;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.bc-status {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-left: auto;
-  flex: 0 0 auto;
-}
-
-.bc-status.running, .bc-status.thinking { background: #0a84ff; }
-.bc-status.waiting { background: #ff9f0a; }
-.bc-status.done { background: #30d158; }
-.bc-status.failed { background: #ff3b30; }
-.bc-status.idle { background: #8e8e93; }
-
-.bc-title {
+.compact-title {
+  position: absolute;
+  top: 27px;
+  left: 18px;
+  right: 72px;
+  overflow: hidden;
+  color: var(--text);
   font-size: 13px;
   font-weight: 600;
-  margin-top: 3px;
-  white-space: nowrap;
-  overflow: hidden;
+  line-height: 17px;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.bc-action {
-  font-size: 11px;
-  opacity: 0.85;
-  margin-top: 1px;
+.platform-stack {
+  position: relative;
+  width: 100%;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.stack-card {
+  position: absolute;
+}
+
+.bc-stage-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 34px;
+  flex: 0 0 34px;
+  padding: 0 10px;
+  color: var(--text);
+}
+
+.stage-tasks .bc-stage-header {
+  height: 38px;
+  flex-basis: 38px;
+  padding-left: 4px;
+}
+
+.bc-stage-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.bc-collapse {
+  height: 22px;
+  margin-left: auto;
+  padding: 0 10px;
+  color: var(--secondary);
+  background: var(--subtle);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.bc-collapse:hover,
+.bc-back:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.bc-back {
+  width: 26px;
+  height: 26px;
+  margin-right: 8px;
+  padding: 0 0 2px;
+  color: var(--secondary);
+  background: var(--subtle);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font: 500 22px/22px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+
+.platform-group-title {
+  position: absolute;
+  top: 7px;
+  left: 18px;
+  right: 78px;
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-group-count {
+  color: var(--tertiary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.platform-task-list {
+  position: absolute;
+  top: 25px;
+  left: 18px;
+  right: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.platform-task-row,
+.platform-task-empty {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 14px;
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: 11px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-task-row > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.platform-task-dot {
+  width: 5px;
+  height: 5px;
+  margin-right: 6px;
+  flex: 0 0 auto;
+  background: var(--tertiary);
+  border-radius: 50%;
+}
+
+.platform-task-dot.running,
+.platform-task-dot.thinking { background: var(--running); }
+.platform-task-dot.waiting { background: var(--waiting); }
+.platform-task-dot.done { background: var(--done); }
+.platform-task-dot.failed { background: var(--failed); }
+
+.task-title {
+  position: absolute;
+  top: 9px;
+  left: 18px;
+  right: 82px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-platform {
+  font-weight: 700;
+}
+
+.task-separator {
+  color: var(--tertiary);
+}
+
+.task-subtitle {
+  position: absolute;
+  top: 31px;
+  left: 18px;
+  right: 82px;
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: 11.5px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-arrow {
+  position: absolute;
+  right: 14px;
+  bottom: 8px;
+  color: var(--tertiary);
+  font-size: 19px;
+  font-weight: 400;
+  line-height: 16px;
 }
 
 .bc-dismiss {
   position: absolute;
-  top: 4px;
-  right: 6px;
-  width: 18px;
-  height: 18px;
-  line-height: 16px;
-  text-align: center;
-  border: none;
+  top: 5px;
+  right: 8px;
+  z-index: 8;
+  width: 19px;
+  height: 19px;
+  padding: 0 0 2px;
+  color: var(--tertiary);
+  background: var(--subtle);
+  border: 1px solid transparent;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14);
-  color: #ccc;
-  font-size: 12px;
+  font: 500 15px/15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   cursor: pointer;
-  padding: 0;
 }
 
 .bc-dismiss:hover {
-  background: rgba(255, 59, 48, 0.8);
   color: #fff;
+  background: var(--failed);
 }
 
-.bc-stage-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.status-indicator {
+  position: absolute;
+  top: 50%;
+  right: 34px;
+  width: 21px;
+  height: 21px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.task-card .status-indicator {
+  right: 37px;
+}
+
+.status-indicator.running::before,
+.status-indicator.thinking::before {
+  position: absolute;
+  inset: 2px;
+  content: "";
+  background: conic-gradient(var(--running) 0deg 255deg, transparent 255deg 360deg);
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 0);
+  animation: status-spin 1800ms linear infinite;
+}
+
+.status-indicator.waiting::before {
+  position: absolute;
+  inset: 2px;
+  content: "";
+  border: 2px solid var(--waiting);
+  border-radius: 50%;
+}
+
+.status-indicator.waiting::after {
+  position: absolute;
+  top: 5px;
+  left: 10px;
+  width: 1.5px;
+  height: 6px;
+  content: "";
+  background: var(--waiting);
+  border-radius: 1px;
+  box-shadow: 3px 5px 0 -0.25px var(--waiting);
+  transform-origin: 0.75px 5px;
+  transform: rotate(-22deg);
+}
+
+.status-indicator.done::before,
+.status-indicator.failed::before {
+  position: absolute;
+  inset: 2px;
   color: #fff;
+  border-radius: 50%;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 12px;
-  font-weight: 600;
-  padding: 2px 2px;
+  font-weight: 800;
+  line-height: 17px;
+  text-align: center;
 }
 
-.bc-stage-header span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.status-indicator.done::before {
+  content: "✓";
+  background: var(--done);
 }
 
-.bc-back {
-  margin-left: auto;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.10);
-  color: #fff;
-  font-size: 11px;
-  padding: 2px 8px;
-  cursor: pointer;
+.status-indicator.failed::before {
+  content: "!";
+  background: var(--failed);
 }
 
-.bc-back:hover { background: rgba(255, 255, 255, 0.2); }
+.status-indicator.idle::before {
+  position: absolute;
+  inset: 3px;
+  content: "";
+  border: 2px solid var(--tertiary);
+  border-radius: 50%;
+}
 
 .bc-count {
-  color: #bbb;
-  font-size: 11px;
-  padding-left: 12px;
+  z-index: 12;
+  max-width: 150px;
+  height: 20px;
+  padding: 0 9px;
+  overflow: hidden;
+  color: var(--secondary);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 2px 7px var(--shadow);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.completed-count {
+  position: absolute;
+  top: 0;
+  left: 13px;
+}
+
+.task-count {
+  position: absolute;
+  right: 14px;
+  bottom: 1px;
+}
+
+@keyframes status-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }
