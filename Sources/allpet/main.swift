@@ -333,15 +333,29 @@ func cmdPetList() {
     print("  ./allpet pet import <本地路径>")
 }
 
+func matchingPetBundle(_ target: String, in bundles: [PetBundle]) -> PetBundle? {
+    let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+    let key = trimmed.lowercased()
+    let targetPath = URL(fileURLWithPath: PathExpander.expand(trimmed)).standardizedFileURL.path.lowercased()
+    if let exact = bundles.first(where: { $0.directoryURL.standardizedFileURL.path.lowercased() == targetPath }) {
+        return exact
+    }
+    if let exact = bundles.first(where: {
+        $0.manifest.id.lowercased() == key || $0.manifest.displayName.lowercased() == key
+    }) {
+        return exact
+    }
+    return bundles.first { bundle in
+        bundle.manifest.displayName.lowercased().contains(key)
+            || bundle.manifest.id.lowercased().contains(key)
+            || bundle.directoryURL.path.lowercased().contains(key)
+    }
+}
+
 func cmdPetSet(_ target: String) {
     let bundles = PetDiscovery.discover(home: home())
-    let key = target.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-    let matches = bundles.filter { b in
-        b.manifest.displayName.lowercased().contains(key)
-            || b.manifest.id.lowercased().contains(key)
-            || b.directoryURL.path.lowercased().contains(key)
-    }
-    guard let bundle = matches.first else {
+    guard let bundle = matchingPetBundle(target, in: bundles) else {
         print("❌ 未找到匹配的宠物：\(terminalSafe(target))")
         print("   可执行 ./allpet pet list 查看已安装宠物。")
         exit(EXIT_FAILURE)
@@ -389,14 +403,8 @@ func cmdPetInstall(_ source: String) {
 }
 
 func cmdPetDelete(_ target: String) {
-    let key = target.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
     let bundles = PetDiscovery.discover(home: home())
-    let matches = bundles.filter { b in
-        b.manifest.displayName.lowercased().contains(key)
-            || b.manifest.id.lowercased().contains(key)
-            || b.directoryURL.path.lowercased().contains(key)
-    }
-    guard let bundle = matches.first else {
+    guard let bundle = matchingPetBundle(target, in: bundles) else {
         print("❌ 未找到匹配的宠物：\(terminalSafe(target))")
         print("   可执行 ./allpet pet list 查看已安装宠物。")
         exit(EXIT_FAILURE)

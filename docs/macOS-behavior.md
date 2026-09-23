@@ -374,6 +374,10 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 13 | 窗口属性 | transparent / alwaysOnTop / 全空间 | ⚠️ 已 alwaysOnTop；全空间仅 darwin/linux（Windows 无此概念） |
 | 14 | 菜单大小控件 | 点按钮不关菜单连续点击 | ⚠️ 在独立管理窗口（Electron 托盘菜单无自定义视图） |
 | 15 | 任务历史持久化 | task-history.json + 去重 + 12 条上限 | ✅ 已对齐（共享 task-history.json，字段兼容） |
+| 16 | 托盘生命周期 | 显示/隐藏、打开配置、常驻、退出清理 | ✅ 已对齐（单实例；关闭窗口不退出；托盘点击切换） |
+| 17 | 宠物选择与删除 | 按 bundle URL 精确操作，删除当前后回退 | ✅ 已对齐（规范 bundle 路径；事务锁；一次刷新） |
+| 18 | 首启与图集 | 首只发现宠物；按实际 atlas cell 排版 | ✅ 已对齐（失效配置回退；动态 8×9/11 图集；元数据/图片不一致则占位） |
+| 19 | 本地导入能力 | AppKit/ImageIO 多格式导入 | ⚠️ macOS 可用；Windows/Linux 明示禁用，标准包安装可用 |
 
 > 已知简化（平台限制 / 暂未实现）：
 > - **#10 唤醒**：Electron 已按 canonical task ID 规划唤醒；来源明确的 Codex Desktop 任务可发送 `codex://threads/<id>`，但系统接收深链无法证明目标会话已显示，因此仍保留卡片。CLI 终端 tab 与 DSH 浏览器 session 暂无可移植的精确聚焦 API，CLI/Claude fail-closed，DSH 仅允许用户明确选择打开基页。Claude Desktop 上游未提供「聚焦现有会话」的安全深链，`resume` 可能 fork 副本，因此继续采用手动侧栏选择。

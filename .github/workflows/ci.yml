@@ -47,7 +47,7 @@ jobs:
       - name: JS 语法检查
         shell: bash
         run: |
-          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/pets.js && node -c src/wake.js && echo "syntax OK"
+          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/pets.js && node -c src/wake.js && node -c src/pet-state.js && node -c src/atlas.js && node -c src/latest.js && node -c scripts/verify-sidecar.js && echo "syntax OK"
         working-directory: desktop
       - name: 任务唤醒规划测试
         run: npm test
@@ -65,8 +65,27 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 20
-      - name: 构建 Swift 核心
-        run: swift build -c release
+      - name: 构建自包含 Swift 核心
+        run: swift build -c release --static-swift-stdlib
+      - name: 准备并验证打包 sidecar 资源
+        run: |
+          set -euo pipefail
+          BIN_PATH="$(swift build -c release --static-swift-stdlib --show-bin-path)"
+          rm -rf desktop/sidecar /tmp/allpet-fresh-home
+          mkdir -p desktop/sidecar /tmp/allpet-fresh-home
+          cp "$BIN_PATH/allpet" desktop/sidecar/allpet
+          if [ -d "$BIN_PATH/AllPet_AllPetCore.bundle" ]; then
+            RESOURCE="$BIN_PATH/AllPet_AllPetCore.bundle"
+          elif [ -d "$BIN_PATH/AllPet_AllPetCore.resources" ]; then
+            RESOURCE="$BIN_PATH/AllPet_AllPetCore.resources"
+          else
+            echo "missing AllPetCore resources in $BIN_PATH" >&2
+            exit 1
+          fi
+          cp -R "$RESOURCE" "desktop/sidecar/$(basename "$RESOURCE")"
+          NODE="$(command -v node)"
+          CFFIXED_USER_HOME=/tmp/allpet-fresh-home HOME=/tmp/allpet-fresh-home PATH=/usr/bin:/bin \
+            "$NODE" desktop/scripts/verify-sidecar.js desktop/sidecar/allpet /tmp/allpet-fresh-home
       - name: 安装 Electron
         run: npm ci
         working-directory: desktop
@@ -74,6 +93,9 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y xvfb libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
+      - name: 构建解包 Electron 应用
+        run: npm run dist:dir
+        working-directory: desktop
       - name: 无头启动 + 三阶段任务气泡截图
         working-directory: desktop
         run: |
@@ -107,6 +129,27 @@ jobs:
           test -s /tmp/anchor-bottom-left.png
           test -s /tmp/anchor-bottom-right.png
           echo "三阶段任务气泡与四锚点截图已生成，DOM/工作区几何校验已通过"
+      - name: 托盘生命周期与缩放位置冒烟
+        working-directory: desktop
+        run: |
+          rm -rf /tmp/allpet-electron-home
+          mkdir -p /tmp/allpet-electron-home
+          PACKAGED=dist/linux-unpacked/allpet-desktop
+          [ -x "$PACKAGED" ] || PACKAGED=dist/linux-unpacked/AllPet
+          [ -x "$PACKAGED" ] || PACKAGED=dist/linux-unpacked/allpet
+          test -x "$PACKAGED"
+          xvfb-run -a --server-args="-screen 0 1024x768x24" \
+            env CFFIXED_USER_HOME=/tmp/allpet-electron-home HOME=/tmp/allpet-electron-home PATH=/usr/bin:/bin \
+                ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT_STAGE=collapsed \
+                ALLPET_LIFECYCLE_SMOKE=/tmp/lifecycle.json ELECTRON_ENABLE_LOGGING=1 \
+            "$PACKAGED" --no-sandbox
+          node -e "const j=require('/tmp/lifecycle.json');if(!j.initiallyVisible||!j.hidden||!j.shown||!j.petID||!j.preserved)process.exit(1);const fs=require('fs'),p=require('path').join('/tmp/allpet-electron-home','.config','all-pet','config.json'),c=require(p);c.pet.enabled=false;fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');console.log(j)"
+          xvfb-run -a --server-args="-screen 0 1024x768x24" \
+            env CFFIXED_USER_HOME=/tmp/allpet-electron-home HOME=/tmp/allpet-electron-home PATH=/usr/bin:/bin \
+                ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT_STAGE=collapsed ALLPET_EXPECT_HIDDEN_START=1 \
+                ALLPET_LIFECYCLE_SMOKE=/tmp/lifecycle-disabled.json ELECTRON_ENABLE_LOGGING=1 \
+            "$PACKAGED" --no-sandbox
+          node -e "const j=require('/tmp/lifecycle-disabled.json');if(j.initiallyVisible||!j.hidden||!j.shown||!j.petID||!j.preserved)process.exit(1);console.log(j)"
       - name: 校验宠物管理截图
         run: test -s /tmp/pets.png && echo "宠物管理窗口截图已生成"
       - name: 上传气泡截图

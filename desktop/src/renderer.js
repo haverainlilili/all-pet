@@ -5,7 +5,7 @@
   const bubble = document.getElementById('bubble')
   const ctx = canvas.getContext('2d')
 
-  // Codex 图集：8 列，cell 192×208（v1=9 行，v2=11 行，cell 高度固定 208）。
+  // Codex 图集默认为 8 列 × 9/11 行；实际 cell 几何由主进程按当前 PetBundle 下发。
   const COLS = 8
   const CELL_W = 192
   const CELL_H = 208
@@ -15,8 +15,8 @@
 
   function applyScale(scale) {
     const s = Math.max(0.4, Math.min(1.2, typeof scale === 'number' ? scale : DEFAULT_SCALE))
-    const w = Math.min(224, Math.max(80, Math.round(CELL_W * s)))
-    const h = Math.round(w * (CELL_H / CELL_W))
+    const w = Math.min(224, Math.max(80, Math.round(cellW * s)))
+    const h = Math.round(w * (cellH / cellW))
     canvas.style.width = w + 'px'
     canvas.style.height = h + 'px'
   }
@@ -34,6 +34,7 @@
   }
 
   let sprite = null // Image
+  const petLoadGate = window.latestCommit.createLatestGate()
   let rows = 9
   let cellW = CELL_W
   let cellH = CELL_H
@@ -603,24 +604,51 @@
   }
 
   function onPet(payload) {
+    const isLatest = petLoadGate.begin()
     if (!payload || !payload.ok) {
-      canvas.width = CELL_W
-      canvas.height = CELL_H
+      sprite = null
+      cellW = CELL_W
+      cellH = CELL_H
+      rows = 9
+      canvas.width = cellW
+      canvas.height = cellH
       applyScale(payload && payload.scale)
       drawPlaceholder()
       return
     }
     const img = new Image()
     img.onload = () => {
+      if (!isLatest()) return
+      const atlas = window.petAtlas.validatedAtlas(payload, img.naturalWidth, img.naturalHeight)
+      if (!atlas.ok) {
+        sprite = null
+        cellW = CELL_W
+        cellH = CELL_H
+        canvas.width = cellW
+        canvas.height = cellH
+        applyScale(payload.scale)
+        drawPlaceholder()
+        return
+      }
       sprite = img
-      cellW = img.naturalWidth / COLS
-      cellH = CELL_H
-      rows = Math.max(1, Math.round(img.naturalHeight / cellH))
-      canvas.width = cellW
-      canvas.height = cellH
+      rows = atlas.rows
+      cellW = atlas.cellWidth
+      cellH = atlas.cellHeight
+      canvas.width = Math.round(cellW)
+      canvas.height = Math.round(cellH)
       applyScale(payload.scale)
       // 首次载入后按当前快照设定动画（无快照则 idle）。
       setStatusAnimation(statusAnimation || 'idle')
+    }
+    img.onerror = () => {
+      if (!isLatest()) return
+      sprite = null
+      cellW = CELL_W
+      cellH = CELL_H
+      canvas.width = cellW
+      canvas.height = cellH
+      applyScale(payload.scale)
+      drawPlaceholder()
     }
     img.src = payload.spritesheet
   }

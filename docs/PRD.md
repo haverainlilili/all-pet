@@ -434,7 +434,7 @@ macOS 精确唤起可能需要：
 
 从源码运行时，首次发现宠物会物化到 `~/.config/all-pet/pets/`；写入标记后不再强制补回用户主动删除的内置宠物。
 
-> ❌ **已核验的 v1.3.0 Release 缺陷：** 已检查 `AllPet-1.3.0-arm64-mac.zip`；其 `Contents/Resources/sidecar/` 只有 `allpet`，不含 SwiftPM 生成的 `AllPet_AllPetCore.bundle` 或任何 `BundledPets`/`spritesheet.webp`。该 bundle 承载内置宠物资源。对全新用户（尚无 `.bundled-pets.v1` 标记）执行宠物发现时，`Bundle.module` 找不到资源，内置宠物无法被可靠物化；Release 不能再宣称“开箱内置宠物”。
+> ❌ **v1.3.0 Release 历史缺陷：** `AllPet-1.3.0-arm64-mac.zip` 的 sidecar 只有 `allpet`，遗漏承载内置宠物的 SwiftPM 资源。✅ main 已修复后续打包：按平台保留 `AllPet_AllPetCore.bundle`（macOS）或 `.resources`（Windows/Linux）的原名，sidecar 使用静态 Swift stdlib 构建，并在空 HOME、无 Swift toolchain PATH 下验证资源发现；Linux CI 还会启动 electron-builder 的实际 unpacked 应用。该修复尚未回填已发布的 v1.3.0。
 
 #### 7.6.2 管理操作
 
@@ -445,7 +445,9 @@ macOS 精确唤起可能需要：
 - 下载默认宠物；
 - 从 Petdex / Awesome Codex Pet 远程安装；
 - 输入预设 ID 或 GitHub URL 安装；
-- 从本地文件/目录导入兼容宠物。
+- 从本地文件/目录导入兼容宠物；
+- Electron 的 set/delete/install/import 进入同一事务锁：操作中禁用冲突控件，完成后一次性刷新精灵、管理器和托盘；
+- 切换/删除使用规范化 bundle 路径，避免重复 ID 或子串 ID 误操作另一只宠物。
 
 #### 7.6.3 支持格式
 
@@ -459,7 +461,7 @@ macOS 精确唤起可能需要：
 
 - ✅ Petdex/Awesome Codex Pet 的标准图集下载逻辑为跨平台 Foundation 实现；
 - ⚠️ 本地图片转换及第三方格式归一化依赖 AppKit/ImageIO，当前完整导入能力仅 macOS；
-- Electron 在 Windows/Linux 显示了导入入口，但底层会返回“当前平台暂不支持导入本地宠物”；
+- Electron 在 Windows/Linux 将本地导入显示为禁用的“仅 macOS”入口，并给出原因，不再调用已知不支持的底层转换；
 - GitHub 预设若需要格式转换，在 Windows/Linux 同样受限。
 
 #### 7.6.5 宠物制作规范
@@ -487,10 +489,11 @@ macOS 精确唤起可能需要：
 
 #### 7.7.2 Electron 托盘
 
-- 打开宠物管理窗口；
-- 查看平台状态、刷新、退出；
-- 大小调整位于独立宠物管理窗口，因为原生托盘菜单不支持 macOS 同类自定义控件；
-- ⚠️ 当前没有与 macOS 对等的“显示/隐藏宠物”菜单；关闭主浮窗会退出 Electron 应用。
+- 显示/隐藏宠物；点击托盘图标同样切换可见性；
+- 打开宠物管理窗口、打开配置；
+- 查看平台状态、当前宠物、事务忙碌状态、刷新、退出；
+- 托盘提供 ±5%，管理窗口也提供大小调整；原生托盘菜单无法承载 macOS 同类自定义连续控件；
+- Electron 使用单实例、托盘常驻生命周期；关闭窗口不会退出，退出时只清理一次 watcher 和重启计时器。
 
 #### 7.7.3 配置
 
@@ -573,8 +576,8 @@ macOS 精确唤起可能需要：
 ### 8.1 首次启动
 
 1. 从源码启动原生 AppKit GUI，或安装 Electron Release；
-2. 源码 AppKit 在首次发现宠物时物化内置宠物；Electron 则读取 `config.pet.bundlePath`；
-3. 若无配置，Swift core 在内存中使用默认值，但 Electron 不会自动写入配置或选择第一只内置宠物，可能显示 🐾 占位；
+2. AppKit 与 Electron 首次发现宠物时都会物化内置宠物；打包版必须携带对应平台原名的 SwiftPM 资源目录；
+3. Electron 在无配置或 `bundlePath` 失效时选择发现顺序中的第一只宠物并通过 CLI 原子写入配置；`~` 路径按 AppKit/CLI 语义展开；
 4. 启动四平台监控；
 5. 有可用宠物时显示 idle 动画；平台产生活动后切换动画并显示气泡；
 6. macOS 原生用户按需授权辅助功能/自动化权限。
@@ -655,7 +658,7 @@ macOS 精确唤起可能需要：
 | 24h 完成卡 TTL | ✅ | ✅ | ✅ | ✅ |
 | 拖动/悬停动画 | ✅ | ✅ | ✅ | ✅ |
 | 所有工作区可见 | ✅ | ✅ | 不适用 | ⚠️ 依赖桌面环境 |
-| 宠物大小/切换/删除 | ✅ | ⚠️ 配置已存在时可用 | ⚠️ 配置已存在时可用 | ⚠️ 配置已存在时可用 |
+| 宠物大小/切换/删除 | ✅ | ✅ 事务化、精确 bundle | ✅ 事务化、精确 bundle | ✅ 事务化、精确 bundle |
 | 标准远程宠物下载 | ✅ | ✅ | ✅ | ✅ |
 | 本地多格式宠物转换 | ✅ | ✅（调用 Swift） | ❌ | ❌ |
 | 系统托盘 | ✅ | ✅ | ✅ | ⚠️ GNOME 需扩展 |
@@ -672,9 +675,9 @@ macOS 精确唤起可能需要：
 2. **Electron 精确唤起仍受平台限制**：Codex Desktop 可发送会话深链但无法验证最终页面；CLI 终端 tab、DSH 浏览器 session 仍缺少可移植的精确聚焦 API，因此保留卡片并 fail-closed。
 3. **Claude Desktop 无公开现有会话深链**：不能保证自动切到目标会话；禁止使用会 fork 副本的 resume 路径。
 4. **Grok 详细多会话不足**：只输出一个选中任务，`activeSessions` 与气泡任务数可能不同。
-5. **Windows/Linux 本地宠物导入入口与底层能力不一致**：UI 有入口，但转换实现仅 macOS。
+5. **Windows/Linux 本地宠物转换尚未实现**：Electron 已禁用并解释该入口；标准宠物包远程安装仍可用。
 6. **DSH 依赖外部 zstd**：Windows 路径/可执行文件探测也不足；不可用时当前实现会退为“未能解析 DSH 会话”，而非可靠的任务文本降级。
-7. **Release 资源 bundle 确认遗漏**：v1.3.0 macOS ZIP 的 sidecar 仅含 `allpet`，缺少 `AllPet_AllPetCore.bundle`/内置宠物资源；新用户首次宠物发现不可靠。
+7. **v1.3.0 Release 资源遗漏**：已发布 ZIP 无法补救；main 的后续打包已复制平台对应 `.bundle/.resources`、采用自包含 sidecar 并增加空 HOME/实际 unpacked 应用校验。
 8. **未签名与无自动更新**：macOS 未公证/签名，Windows 也未配置代码签名；提高首次安装和升级成本。
 9. **上游日志格式风险**：四个平台升级后字段或目录变化可能使解析失效。
 
@@ -692,9 +695,9 @@ macOS 精确唤起可能需要：
 
 ### P0：可靠性与发布
 
-1. 修复 Release：复制 `AllPet_AllPetCore.bundle` 到 sidecar（或将资源嵌入 sidecar）并以全新 HOME 验证首启、`pet list` 和宠物管理；明确 Release 使用 Electron 而非 AppKit GUI；
-2. 发布 v1.3.1，包含 DSH 多会话修复；
-3. 修正 Electron show/hide 生命周期；
+1. ✅ main 已修复后续 Release 资源、自包含 sidecar、空 HOME 与 unpacked 应用校验；仍需在下一次正式发布前确认三平台产物；
+2. 发布后续版本，包含 DSH 多会话与本轮 Electron 对齐修复；
+3. ✅ Electron show/hide、单实例与托盘常驻生命周期已对齐；
 4. 补充 Grok 多会话详细任务输出；
 5. DSH 内置 zstd 解码或在安装时明确检查依赖；
 6. 修正 README 的内置宠物数量、全平台 `self-test`、会话级唤起和非 macOS 导入承诺；

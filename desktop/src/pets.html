@@ -32,6 +32,8 @@
     button { flex: 1; padding: 9px; border-radius: 8px; border: 1px solid #d0d0d0; background: #fff; cursor: pointer; font-size: 13px; }
     button.primary { background: #0a84ff; color: #fff; border-color: #0a84ff; }
     button:hover { opacity: .88; }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    body.operation-busy .pet-card, body.operation-busy #defaults .row { cursor: wait; opacity: .65; pointer-events: none; }
     .modal { position: fixed; inset: 0; background: rgba(0,0,0,.35); display: flex; align-items: center; justify-content: center; }
     .modal.hidden { display: none; }
     .modal-box { width: 320px; background: #fff; border-radius: 12px; padding: 16px; }
@@ -71,6 +73,7 @@
     </div>
   </div>
 
+  <script src="latest.js"></script>
   <script src="pets.js"></script>
 </body>
 </html>

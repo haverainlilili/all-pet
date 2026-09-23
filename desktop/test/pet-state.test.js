@@ -1,0 +1,166 @@
+'use strict'
+
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const {
+  attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, petCapabilities, petMutationTarget,
+  preservedWindowBounds, spriteSizeForPet
+} = require('../src/pet-state')
+const { validatedAtlas } = require('../src/atlas')
+const { createLatestGate } = require('../src/latest')
+
+test('watch spawn error restarts exactly once from close and never during quit', () => {
+  const { EventEmitter } = require('node:events')
+  let current = true
+  let quitting = false
+  let errors = 0
+  let restarts = 0
+  const child = new EventEmitter()
+  attachRestartOnClose(child, {
+    onError: () => { errors += 1 },
+    isCurrent: () => current,
+    clearCurrent: () => { current = false },
+    shouldRestart: () => !quitting,
+    scheduleRestart: () => { restarts += 1 }
+  })
+  child.emit('error', new Error('ENOENT'))
+  child.emit('close', -2)
+  child.emit('close', -2)
+  assert.equal(errors, 1)
+  assert.equal(restarts, 1)
+  assert.equal(current, false)
+
+  const quittingChild = new EventEmitter()
+  current = true
+  quitting = true
+  attachRestartOnClose(quittingChild, {
+    onError: () => {}, isCurrent: () => current, clearCurrent: () => { current = false },
+    shouldRestart: () => !quitting, scheduleRestart: () => { restarts += 1 }
+  })
+  quittingChild.emit('close', 0)
+  assert.equal(restarts, 1)
+})
+
+test('fresh or stale config falls back to the first discovered pet', () => {
+  const pets = [{ id: 'first', current: false }, { id: 'second', current: false }]
+  assert.equal(chooseCurrentPet(pets).id, 'first')
+  pets[1].current = true
+  assert.equal(chooseCurrentPet(pets).id, 'second')
+  assert.equal(chooseCurrentPet([]), null)
+})
+
+test('manager mutations prefer an exact bundle path when IDs collide', () => {
+  assert.equal(petMutationTarget({ id: 'same', directoryPath: '/pets/second.petbundle' }), '/pets/second.petbundle')
+  assert.equal(petMutationTarget({ id: 'legacy' }), 'legacy')
+})
+
+test('current pet config expands tilde paths before filesystem lookup', () => {
+  assert.equal(expandHomePath('~/pets/boba.petbundle', '/home/demo'), require('node:path').join('/home/demo', 'pets/boba.petbundle'))
+  assert.equal(expandHomePath('~\\pets\\boba.petbundle', '/home/demo'), require('node:path').join('/home/demo', 'pets/boba.petbundle'))
+  assert.equal(expandHomePath('/opt/pets/boba.petbundle', '/home/demo'), '/opt/pets/boba.petbundle')
+})
+
+test('local import capability is honest on all supported operating systems', () => {
+  assert.equal(petCapabilities('darwin').importLocal, true)
+  for (const platform of ['win32', 'linux']) {
+    const capabilities = petCapabilities(platform)
+    assert.equal(capabilities.importLocal, false)
+    assert.match(capabilities.importLocalReason, /macOS/)
+  }
+})
+
+test('pet mutations are serialized and publish busy transitions', async () => {
+  const transitions = []
+  const gate = createOperationGate(state => transitions.push(state))
+  let release
+  const first = gate.run('安装宠物', () => new Promise(resolve => { release = resolve }))
+  const rejected = await gate.run('删除宠物', async () => ({ ok: true }))
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.busy, true)
+  assert.match(rejected.error, /安装宠物/)
+  release({ ok: true, message: 'installed' })
+  assert.deepEqual(await first, { ok: true, message: 'installed' })
+  assert.deepEqual(transitions, [
+    { busy: true, label: '安装宠物' },
+    { busy: false, label: null }
+  ])
+})
+
+test('operation gate catches spawn and mutation failures and always unlocks', async () => {
+  const gate = createOperationGate()
+  const failed = await gate.run('导入宠物', async () => { throw new Error('ENOENT') })
+  assert.equal(failed.ok, false)
+  assert.match(failed.error, /ENOENT/)
+  assert.equal(gate.active, null)
+  assert.deepEqual(await gate.run('切换宠物', async () => ({ ok: true })), { ok: true })
+})
+
+test('only the newest async catalog or spritesheet completion may commit', () => {
+  const gate = createLatestGate()
+  const first = gate.begin()
+  const second = gate.begin()
+  assert.equal(first(), false)
+  assert.equal(second(), true)
+  gate.invalidate()
+  assert.equal(second(), false)
+})
+
+test('renderer accepts exact dynamic atlas geometry and rejects stale metadata', () => {
+  assert.deepEqual(
+    validatedAtlas({ columns: 8, rows: 11, cellWidth: 256, cellHeight: 128 }, 2048, 1408),
+    { ok: true, columns: 8, rows: 11, cellWidth: 256, cellHeight: 128 }
+  )
+  assert.deepEqual(
+    validatedAtlas({ columns: 8, rows: 9, cellWidth: 192, cellHeight: 208 }, 2048, 1408),
+    { ok: false }
+  )
+})
+
+test('sprite metrics use each atlas cell instead of fixed 192 by 208', () => {
+  assert.deepEqual(spriteSizeForPet({ cellWidth: 256, cellHeight: 128 }, 0.5), { width: 128, height: 64 })
+  assert.deepEqual(spriteSizeForPet(null, 112 / 192), { width: 112, height: 121 })
+  assert.equal(spriteSizeForPet({ cellWidth: 1000, cellHeight: 500 }, 1.2).width, 224)
+})
+
+test('scale and pet changes preserve dragged sprite bottom-left origin', () => {
+  const oldBounds = { x: 500, y: 300, width: 304, height: 260 }
+  const oldSprite = { width: 112, height: 121 }
+  const nextSprite = { width: 160, height: 80 }
+  const nextWindow = { width: 324, height: 422 }
+  const result = preservedWindowBounds({
+    oldBounds, oldSprite, nextSprite, nextWindow,
+    workArea: { x: 0, y: 0, width: 1600, height: 1000 }, margin: 20
+  })
+  const oldLeft = oldBounds.x + Math.round((oldBounds.width - oldSprite.width) / 2)
+  const nextLeft = result.x + Math.round((result.width - nextSprite.width) / 2)
+  assert.equal(nextLeft, oldLeft)
+  assert.equal(result.y + result.height, oldBounds.y + oldBounds.height)
+})
+
+test('preserved layout supports negative-coordinate secondary displays', () => {
+  const area = { x: -1920, y: -180, width: 1920, height: 1080 }
+  const result = preservedWindowBounds({
+    oldBounds: { x: -1500, y: 300, width: 304, height: 260 },
+    oldSprite: { width: 112, height: 121 },
+    nextSprite: { width: 160, height: 172 },
+    nextWindow: { width: 324, height: 400 }, workArea: area, margin: 20
+  })
+  assert.ok(result.x >= area.x + 20)
+  assert.ok(result.x + result.width <= area.x + area.width - 20)
+  assert.ok(result.y >= area.y + 20)
+  assert.ok(result.y + result.height <= area.y + area.height - 20)
+})
+
+test('preserved layout clamps enlarged windows into the selected work area', () => {
+  const result = preservedWindowBounds({
+    oldBounds: { x: 980, y: 700, width: 120, height: 140 },
+    oldSprite: { width: 120, height: 140 },
+    nextSprite: { width: 224, height: 240 },
+    nextWindow: { width: 334, height: 700 },
+    workArea: { x: 0, y: 0, width: 1024, height: 768 }, margin: 20
+  })
+  assert.ok(result.x + result.width <= 1004)
+  assert.ok(result.y + result.height <= 748)
+  assert.ok(result.x >= 20)
+  assert.ok(result.y >= 20)
+})

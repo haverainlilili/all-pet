@@ -10,8 +10,13 @@ const {
   failedExternalWakePlan, isTrustedMainFrame, mergeDefined, pickLaunchCandidate, platformLabel,
   platformLaunchSpec, rendererSnapshot, runCommandLauncher, wakePlanForTask
 } = require('./src/wake')
+const {
+  attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, petCapabilities, petMutationTarget,
+  preservedWindowBounds, spriteSizeForPet
+} = require('./src/pet-state')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
+const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).href
 
 // CI / 无头环境：禁用沙箱与 GPU，便于 xvfb 下冒烟测试。
 if (process.env.ALLPET_NO_SANDBOX) {
@@ -19,12 +24,31 @@ if (process.env.ALLPET_NO_SANDBOX) {
   app.commandLine.appendSwitch('disable-gpu')
 }
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock()
+if (!hasSingleInstanceLock) app.quit()
+
 let mainWindow = null
 let petManagerWindow = null
 let tray = null
 let watchProc = null
+let watchRestartTimer = null
+let lifecycleCleaned = false
 let currentSnapshot = null
-let pet = null // { bundlePath, spritesheetPath, manifestId, displayName }
+let pet = null // { bundlePath, spritesheetPath, manifestId, displayName, atlas geometry }
+let petCatalog = []
+let petCatalogDefaults = []
+let petStateEpoch = 0
+let petOperationState = { busy: false, label: null }
+const petOperationGate = createOperationGate((state) => {
+  const mutationFinished = petOperationState.busy && !state.busy
+  if (state.busy) petStateEpoch += 1
+  petOperationState = state
+  if (petManagerWindow && !petManagerWindow.isDestroyed()) {
+    petManagerWindow.webContents.send('pet-operation', state)
+    if (mutationFinished) petManagerWindow.webContents.send('pets-changed')
+  }
+  updateTrayMenu()
+})
 
 // ---- 路径解析 ----
 
@@ -52,15 +76,24 @@ function configPath() {
 function readCurrentPet() {
   try {
     const cfg = JSON.parse(fs.readFileSync(configPath(), 'utf8'))
-    const bundlePath = cfg && cfg.pet && cfg.pet.bundlePath
+    const bundlePath = expandHomePath(cfg && cfg.pet && cfg.pet.bundlePath, os.homedir())
     if (!bundlePath || !fs.existsSync(path.join(bundlePath, 'pet.json'))) return null
     const manifest = JSON.parse(fs.readFileSync(path.join(bundlePath, 'pet.json'), 'utf8'))
     const sp = manifest.spritesheetPath || 'spritesheet.webp'
+    const normalizedPath = path.resolve(bundlePath)
+    const metadata = petCatalog.find(item => item && item.directoryPath && path.resolve(item.directoryPath) === normalizedPath)
+    if (!metadata || !(metadata.columns > 0) || !(metadata.rows > 0) || !(metadata.cellWidth > 0) || !(metadata.cellHeight > 0)) {
+      return null
+    }
     return {
       bundlePath,
       spritesheetPath: path.join(bundlePath, sp),
       manifestId: manifest.id || path.basename(bundlePath),
-      displayName: manifest.displayName || manifest.id || 'Pet'
+      displayName: manifest.displayName || manifest.id || 'Pet',
+      columns: metadata.columns,
+      rows: metadata.rows,
+      cellWidth: metadata.cellWidth,
+      cellHeight: metadata.cellHeight
     }
   } catch {
     return null
@@ -72,6 +105,15 @@ const CELL_H = 208
 const DEFAULT_SCALE = 112 / 192
 const MIN_SCALE = 0.4
 const MAX_SCALE = 1.2
+
+function readPetEnabled() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(configPath(), 'utf8'))
+    return !cfg.pet || cfg.pet.enabled !== false
+  } catch {
+    return true
+  }
+}
 
 function readScale() {
   try {
@@ -89,41 +131,31 @@ let bubbleHeight = 0
 
 // 精灵按 scale 缩放；显示宽 clamp 80…224px（与 macOS layoutMetrics 一致）。
 // 三阶段气泡宽度由渲染层按 AppKit 304/324/334px 实时上报。
-function spriteSizeForScale(scale) {
-  const spriteW = Math.min(224, Math.max(80, Math.round(CELL_W * scale)))
-  const spriteH = Math.round(spriteW * (CELL_H / CELL_W))
-  return { width: spriteW, height: spriteH }
+function spriteSizeForScale(scale, targetPet = pet) {
+  return spriteSizeForPet(targetPet, scale)
 }
 
-function windowSizeForScale(scale) {
-  const sprite = spriteSizeForScale(scale)
+function windowSizeForScale(scale, targetPet = pet) {
+  const sprite = spriteSizeForScale(scale, targetPet)
   return {
     width: Math.max(sprite.width, bubbleWidth),
     height: sprite.height + (bubbleHeight > 0 ? bubbleHeight + 6 : 0)
   }
 }
 
-// 气泡展开/收起或阶段尺寸变化时，保持宠物本体在屏幕上的位置不跳动。
-function resizeWindowPreservingSprite(scale) {
+// 气泡、scale 或图集变化时，保持宠物本体左下角在屏幕上的位置不跳动。
+function resizeWindowPreservingSprite(nextScale, previousScale = nextScale, nextPet = pet, previousPet = nextPet) {
   if (!mainWindow || mainWindow.isDestroyed()) return
   const oldBounds = mainWindow.getBounds()
-  const sprite = spriteSizeForScale(scale)
-  const oldSpriteX = oldBounds.x + Math.round((oldBounds.width - sprite.width) / 2)
-  const oldSpriteY = oldBounds.y + oldBounds.height - sprite.height
-  const next = windowSizeForScale(scale)
-  let x = oldSpriteX - Math.round((next.width - sprite.width) / 2)
-  let y = oldSpriteY - (next.height - sprite.height)
-
-  // 优先保持宠物不跳；若扩大后的托盘会越出工作区，则只移动到最近的可见边界。
-  const area = screen.getDisplayMatching(oldBounds).workArea
-  const margin = 20
-  const minX = area.x + margin
-  const maxX = area.x + area.width - next.width - margin
-  const minY = area.y + margin
-  const maxY = area.y + area.height - next.height - margin
-  x = maxX < minX ? area.x : Math.min(maxX, Math.max(minX, x))
-  y = maxY < minY ? area.y : Math.min(maxY, Math.max(minY, y))
-  mainWindow.setBounds({ x: Math.round(x), y: Math.round(y), width: next.width, height: next.height }, false)
+  const oldSprite = spriteSizeForScale(previousScale, previousPet)
+  const nextSprite = spriteSizeForScale(nextScale, nextPet)
+  const nextWindow = windowSizeForScale(nextScale, nextPet)
+  const bounds = preservedWindowBounds({
+    oldBounds, oldSprite, nextSprite, nextWindow,
+    workArea: screen.getDisplayMatching(oldBounds).workArea,
+    margin: 20
+  })
+  mainWindow.setBounds(bounds, false)
 }
 
 function readAnchor() {
@@ -369,20 +401,62 @@ function runAllpet(args) {
   })
 }
 
-function refreshPet() {
+async function readPetCatalog() {
+  const epoch = petStateEpoch
+  const result = await runAllpet(['pet', 'list', '--json'])
+  if (result.code !== 0) throw new Error(result.err.trim() || result.out.trim() || `pet list exited ${result.code}`)
+  const data = JSON.parse(result.out.trim())
+  const pets = Array.isArray(data.pets) ? data.pets : []
+  const defaults = Array.isArray(data.defaults) ? data.defaults : []
+  // 变更开始前发出的旧 list 不得覆盖变更事务刷新出的目录。
+  if (epoch === petStateEpoch) {
+    petCatalog = pets
+    petCatalogDefaults = defaults
+  }
+  return { pets, defaults, stale: epoch !== petStateEpoch }
+}
+
+async function ensureCurrentPetSelection() {
+  let catalog = await readPetCatalog()
+  const selected = chooseCurrentPet(catalog.pets)
+  if (selected && !selected.current) {
+    const result = await runAllpet(['pet', 'set', selected.id])
+    if (result.code !== 0) throw new Error(result.err.trim() || result.out.trim() || `pet set exited ${result.code}`)
+    catalog = await readPetCatalog()
+  }
+  return catalog
+}
+
+async function refreshDesktopState(options = {}) {
+  if (petOperationGate.active && !options.fromMutation) {
+    return { ok: false, busy: true, error: `正在${petOperationGate.active}，请稍候。` }
+  }
+  const previousPet = pet
+  const scale = readScale()
+  const refreshEpoch = petStateEpoch
+  try { await readPetCatalog() } catch (err) { console.error('[allpet] 刷新宠物目录失败:', err && err.message || err) }
+  if (!options.fromMutation && refreshEpoch !== petStateEpoch) {
+    return { ok: false, stale: true, error: '宠物状态已由更新的事务刷新。' }
+  }
+  pet = readCurrentPet()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    resizeWindowPreservingSprite(scale, scale, pet, previousPet)
+  }
   pushPet()
-  if (petManagerWindow && !petManagerWindow.isDestroyed()) {
+  updateTrayMenu()
+  if (options.notifyManager !== false && petManagerWindow && !petManagerWindow.isDestroyed()) {
     petManagerWindow.webContents.send('pets-changed')
   }
 }
 
 // ---- 窗口 ----
 
-function createWindow() {
+function createWindow(options = {}) {
   const { width, height } = windowSizeForScale(readScale())
   mainWindow = new BrowserWindow({
     width,
     height,
+    show: options.show !== false,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -422,46 +496,52 @@ function createWindow() {
       mainWindow.webContents.send('collapse-bubble')
     }
   })
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => { mainWindow = null; updateTrayMenu() })
 }
 
 function pushPet() {
-  pet = readCurrentPet()
   const scale = readScale()
-  const payload = pet
-    ? {
-        ok: true,
-        id: pet.manifestId,
-        name: pet.displayName,
-        spritesheet: spritesheetDataUrl(pet.spritesheetPath),
-        scale
-      }
-    : { ok: false, scale }
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('pet', payload)
+  let payload
+  try {
+    payload = pet
+      ? {
+          ok: true,
+          id: pet.manifestId,
+          name: pet.displayName,
+          spritesheet: spritesheetDataUrl(pet.spritesheetPath),
+          columns: pet.columns,
+          rows: pet.rows,
+          cellWidth: pet.cellWidth,
+          cellHeight: pet.cellHeight,
+          scale
+        }
+      : { ok: false, scale }
+  } catch (err) {
+    console.error('[allpet] 读取宠物素材失败:', err && err.message || err)
+    payload = { ok: false, scale }
   }
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet', payload)
 }
 
-// 相对调整宠物大小，写回 config.json 并同步主窗口与渲染层。
+// 相对调整宠物大小，写回 config.json，并保持拖动后的宠物左下角不跳动。
 function applyScale(delta) {
   const current = readScale()
   const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, current + delta))
   if (Math.abs(next - current) < 0.0001) return next
   try {
     const cfgPath = configPath()
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
-    cfg.pet = cfg.pet || {}
+    fs.mkdirSync(path.dirname(cfgPath), { recursive: true })
+    const cfg = fs.existsSync(cfgPath) ? JSON.parse(fs.readFileSync(cfgPath, 'utf8')) : {}
+    cfg.pet = cfg.pet || { enabled: true, anchor: 'bottom-right' }
     cfg.pet.scale = next
     fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2) + '\n')
   } catch (err) {
     console.error('[allpet] 保存 scale 失败:', err && err.message || err)
   }
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    const size = windowSizeForScale(next)
-    mainWindow.setSize(size.width, size.height)
-    positionWindow()
-  }
-  pushPet()
+  resizeWindowPreservingSprite(next, current, pet, pet)
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-scale', next)
+  if (petManagerWindow && !petManagerWindow.isDestroyed()) petManagerWindow.webContents.send('pet-scale', next)
+  updateTrayMenu()
   return next
 }
 
@@ -474,9 +554,12 @@ function sendSnapshot(snap) {
 // ---- 监控子进程 ----
 
 function startWatch() {
+  if (app.isQuitting || watchProc) return
+  if (watchRestartTimer) { clearTimeout(watchRestartTimer); watchRestartTimer = null }
   const bin = allpetBinary()
   console.log('[allpet] 启动监控:', bin, 'watch --json')
   watchProc = spawn(bin, ['watch', '--json'], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const thisWatch = watchProc
   let buf = ''
   watchProc.stdout.on('data', (chunk) => {
     buf += chunk.toString('utf8')
@@ -491,15 +574,16 @@ function startWatch() {
     }
   })
   watchProc.stderr.on('data', () => {})
-  watchProc.on('error', (err) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('watch-error', String(err && err.message || err))
-    }
-  })
-  watchProc.on('exit', (code) => {
-    watchProc = null
-    // 简单自动重启（延迟 2s），保持监控不中断。
-    if (!app.isQuitting) setTimeout(startWatch, 2000)
+  attachRestartOnClose(thisWatch, {
+    onError(err) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('watch-error', String(err && err.message || err))
+      }
+    },
+    isCurrent: () => watchProc === thisWatch,
+    clearCurrent: () => { watchProc = null },
+    shouldRestart: () => !app.isQuitting && !watchRestartTimer,
+    scheduleRestart: () => { watchRestartTimer = setTimeout(startWatch, 2000) }
   })
 }
 
@@ -645,79 +729,125 @@ function createPetManagerWindow() {
       nodeIntegration: false
     }
   })
+  petManagerWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== PET_MANAGER_URL) {
+      event.preventDefault()
+      console.error('[allpet] blocked unexpected pet-manager navigation:', url)
+    }
+  })
+  petManagerWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  petManagerWindow.webContents.on('did-finish-load', () => {
+    if (petManagerWindow && petManagerWindow.webContents.getURL() === PET_MANAGER_URL) {
+      petManagerWindow.webContents.send('pet-operation', petOperationState)
+    }
+  })
   petManagerWindow.loadFile(path.join(__dirname, 'src', 'pets.html'))
   petManagerWindow.on('closed', () => { petManagerWindow = null })
 }
 
-function registerPetIpc() {
-  ipcMain.handle('pets:list', async () => {
-    const { code, out } = await runAllpet(['pet', 'list', '--json'])
-    if (code !== 0) return { ok: false, error: out || 'list failed' }
-    try {
-      const data = JSON.parse(out)
-      const pets = (data.pets || []).map(p => {
-        let spritesheet = null
-        try { spritesheet = spritesheetDataUrl(p.spritesheetPath) } catch { /* 忽略 */ }
-        return {
-          id: p.id,
-          displayName: p.displayName,
-          description: p.description,
-          current: !!p.current,
-          builtin: !!p.builtin,
-          cellWidth: p.cellWidth,
-          cellHeight: p.cellHeight,
-          spritesheet
-        }
-      })
-      return { ok: true, pets, defaults: data.defaults || [] }
-    } catch (e) {
-      return { ok: false, error: String(e && e.message || e) }
+function requireMainFrame(event) {
+  if (!isTrustedMainFrame(event, mainWindow, MAIN_RENDERER_URL)) throw new Error('untrusted main-window IPC source')
+}
+
+function requirePetManagerFrame(event) {
+  if (!isTrustedMainFrame(event, petManagerWindow, PET_MANAGER_URL)) throw new Error('untrusted pet-manager IPC source')
+}
+
+async function executePetCommand(label, args) {
+  return petOperationGate.run(label, async () => {
+    const result = await runAllpet(args)
+    if (result.code !== 0) {
+      return { ok: false, error: result.err.trim() || result.out.trim() || `${args.join(' ')} exited ${result.code}` }
+    }
+    await refreshDesktopState({ fromMutation: true, notifyManager: false })
+    return { ok: true, message: result.out.trim() || `${label}完成` }
+  })
+}
+
+function managerPetPayload(catalog) {
+  const pets = (catalog.pets || []).map(item => {
+    let spritesheet = null
+    try { spritesheet = spritesheetDataUrl(item.spritesheetPath) } catch { /* 单个缩略图失败不影响列表 */ }
+    return {
+      id: item.id,
+      displayName: item.displayName,
+      description: item.description,
+      current: !!item.current,
+      builtin: !!item.builtin,
+      columns: item.columns,
+      rows: item.rows,
+      cellWidth: item.cellWidth,
+      cellHeight: item.cellHeight,
+      target: petMutationTarget(item),
+      spritesheet
     }
   })
+  return {
+    ok: true, pets, defaults: catalog.defaults || [],
+    capabilities: petCapabilities(process.platform),
+    operation: petOperationState
+  }
+}
 
-  ipcMain.handle('pets:set', async (_e, id) => {
-    const { code, out } = await runAllpet(['pet', 'set', id])
-    if (code !== 0) return { ok: false, error: out || 'set failed' }
-    refreshPet()
-    return { ok: true }
+function registerPetIpc() {
+  ipcMain.handle('pets:list', async (event) => {
+    requirePetManagerFrame(event)
+    if (petOperationGate.active) {
+      return managerPetPayload({ pets: petCatalog, defaults: petCatalogDefaults })
+    }
+    try { return managerPetPayload(await readPetCatalog()) }
+    catch (err) { return { ok: false, error: String(err && err.message || err) } }
   })
 
-  ipcMain.handle('pets:delete', async (_e, id) => {
-    const { code, out } = await runAllpet(['pet', 'delete', id])
-    if (code !== 0) return { ok: false, error: out || 'delete failed' }
-    refreshPet()
-    return { ok: true }
+  ipcMain.handle('pets:set', async (event, id) => {
+    requirePetManagerFrame(event)
+    return executePetCommand('切换宠物', ['pet', 'set', String(id || '')])
   })
 
-  ipcMain.handle('pets:import', async () => {
-    const result = await dialog.showOpenDialog(petManagerWindow || undefined, {
-      title: '导入本地宠物',
-      properties: ['openFile', 'openDirectory']
+  ipcMain.handle('pets:delete', async (event, id) => {
+    requirePetManagerFrame(event)
+    return executePetCommand('删除宠物', ['pet', 'delete', String(id || '')])
+  })
+
+  ipcMain.handle('pets:import', async (event) => {
+    requirePetManagerFrame(event)
+    const capabilities = petCapabilities(process.platform)
+    if (!capabilities.importLocal) {
+      return { ok: false, unsupported: true, error: capabilities.importLocalReason }
+    }
+    return petOperationGate.run('导入宠物', async () => {
+      const dialogOptions = { title: '导入本地宠物', properties: ['openFile', 'openDirectory'] }
+      const selected = petManagerWindow && !petManagerWindow.isDestroyed()
+        ? await dialog.showOpenDialog(petManagerWindow, dialogOptions)
+        : await dialog.showOpenDialog(dialogOptions)
+      if (selected.canceled || !selected.filePaths.length) return { ok: false, canceled: true }
+      const result = await runAllpet(['pet', 'import', selected.filePaths[0]])
+      if (result.code !== 0) return { ok: false, error: result.err.trim() || result.out.trim() || '导入失败' }
+      await refreshDesktopState({ fromMutation: true, notifyManager: false })
+      return { ok: true, message: result.out.trim() || '导入完成' }
     })
-    if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true }
-    const { code, out } = await runAllpet(['pet', 'import', result.filePaths[0]])
-    if (code !== 0) return { ok: false, error: out || 'import failed' }
-    refreshPet()
-    return { ok: true }
   })
 
-  ipcMain.handle('pets:install', async (_e, source) => {
-    const source2 = String(source || '').trim()
-    if (!source2) return { ok: false, error: '请输入安装来源' }
-    const { code, out } = await runAllpet(['pet', 'install', source2])
-    if (code !== 0) return { ok: false, error: out || 'install failed' }
-    refreshPet()
-    return { ok: true }
+  ipcMain.handle('pets:install', async (event, source) => {
+    requirePetManagerFrame(event)
+    const value = String(source || '').trim()
+    if (!value) return { ok: false, error: '请输入安装来源' }
+    return executePetCommand('安装宠物', ['pet', 'install', value])
   })
 
-  ipcMain.handle('pets:getScale', async () => ({ ok: true, scale: readScale() }))
+  ipcMain.handle('pets:getScale', async (event) => {
+    requirePetManagerFrame(event)
+    return { ok: true, scale: readScale() }
+  })
 
-  ipcMain.handle('pets:setScale', async (_e, delta) => {
+  ipcMain.handle('pets:setScale', async (event, delta) => {
+    requirePetManagerFrame(event)
     const scale = applyScale(Number(delta) || 0)
     return { ok: true, scale }
   })
 
-  ipcMain.handle('pets:resizeBubble', async (_e, width, height) => {
+  ipcMain.handle('pets:resizeBubble', async (event, width, height) => {
+    requireMainFrame(event)
     const w = Math.max(0, Math.round(Number(width) || 0))
     const h = Math.max(0, Math.round(Number(height) || 0))
     if (w === bubbleWidth && h === bubbleHeight) return { ok: true }
@@ -728,7 +858,7 @@ function registerPetIpc() {
   })
 
   ipcMain.handle('pets:launchPlatform', async (event, platform) => {
-    if (!isTrustedMainFrame(event, mainWindow, MAIN_RENDERER_URL)) throw new Error('untrusted launchPlatform IPC source')
+    requireMainFrame(event)
     const name = String(platform || '')
     const result = await launchPlatform(name)
     if (!result.succeeded) await showLaunchFailure(name, result)
@@ -736,11 +866,12 @@ function registerPetIpc() {
   })
 
   ipcMain.handle('pets:wakeTask', async (event, id) => {
-    if (!isTrustedMainFrame(event, mainWindow, MAIN_RENDERER_URL)) throw new Error('untrusted wakeTask IPC source')
+    requireMainFrame(event)
     return wakeTask(String(id || ''))
   })
 
-  ipcMain.handle('pets:dismissTask', async (_e, id) => {
+  ipcMain.handle('pets:dismissTask', async (event, id) => {
+    requireMainFrame(event)
     const taskId = String(id || '')
     const platform = taskId.split('|')[0]
     const task = (taskHistory[platform] || []).find(item => item.id === taskId)
@@ -758,7 +889,8 @@ function registerPetIpc() {
     return { ok: true }
   })
 
-  ipcMain.handle('pets:dismissPlatform', async (_e, platform) => {
+  ipcMain.handle('pets:dismissPlatform', async (event, platform) => {
+    requireMainFrame(event)
     const key = String(platform || '')
     const rememberHidden = (id, title, phase) => {
       if (!id) return
@@ -785,7 +917,8 @@ function registerPetIpc() {
     return { ok: true }
   })
 
-  ipcMain.handle('pets:dragStart', async (_e, x, y) => {
+  ipcMain.handle('pets:dragStart', async (event, x, y) => {
+    requireMainFrame(event)
     if (mainWindow && !mainWindow.isDestroyed()) {
       dragStartScreen = { x: Number(x), y: Number(y) }
       dragStartPosition = mainWindow.getPosition()
@@ -793,7 +926,8 @@ function registerPetIpc() {
     return { ok: true }
   })
 
-  ipcMain.handle('pets:dragMove', async (_e, x, y) => {
+  ipcMain.handle('pets:dragMove', async (event, x, y) => {
+    requireMainFrame(event)
     if (mainWindow && !mainWindow.isDestroyed() && dragStartScreen && dragStartPosition) {
       const dx = Number(x) - dragStartScreen.x
       const dy = Number(y) - dragStartScreen.y
@@ -802,7 +936,8 @@ function registerPetIpc() {
     return { ok: true }
   })
 
-  ipcMain.handle('pets:dragEnd', async () => {
+  ipcMain.handle('pets:dragEnd', async (event) => {
+    requireMainFrame(event)
     dragStartScreen = null
     dragStartPosition = null
     return { ok: true }
@@ -822,13 +957,49 @@ function createTray() {
   }
   tray = new Tray(icon)
   tray.setToolTip('AllPet')
+  tray.on('click', togglePetVisibility)
   updateTrayMenu()
+}
+
+function showPet() {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
+  updateTrayMenu()
+}
+
+function hidePet() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide()
+  updateTrayMenu()
+}
+
+function togglePetVisibility() {
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) hidePet()
+  else showPet()
+}
+
+async function openConfig() {
+  try {
+    if (!fs.existsSync(configPath())) {
+      const initialized = await runAllpet(['init'])
+      if (initialized.code !== 0) throw new Error(initialized.err.trim() || initialized.out.trim() || '初始化配置失败')
+    }
+    const error = await shell.openPath(configPath())
+    if (error) throw new Error(error)
+  } catch (err) {
+    await dialog.showMessageBox({
+      type: 'warning', title: '无法打开配置', message: '打开 config.json 失败',
+      detail: String(err && err.message || err), buttons: ['知道了']
+    })
+  }
 }
 
 function updateTrayMenu() {
   if (!tray) return
   const s = currentSnapshot
-  const template = []
+  const visible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
+  const template = [
+    { label: visible ? '隐藏宠物' : '显示宠物', click: togglePetVisibility }
+  ]
   if (s) {
     template.push({ label: `🐾 ${s.summary}`, enabled: false })
     template.push({ type: 'separator' })
@@ -845,19 +1016,33 @@ function updateTrayMenu() {
     }
     template.push({ type: 'separator' })
   }
-  if (pet) template.push({ label: `当前宠物：${pet.displayName}`, enabled: false })
-  template.push({ label: '增大宠物 5%', click: () => applyScale(0.05) })
-  template.push({ label: '减小宠物 5%', click: () => applyScale(-0.05) })
+  if (petOperationState.busy) template.push({ label: `正在${petOperationState.label}…`, enabled: false })
+  template.push({ label: pet ? `当前宠物：${pet.displayName}` : '当前无可用宠物', enabled: false })
+  template.push({ label: '增大宠物 5%', enabled: Boolean(pet) && !petOperationState.busy, click: () => applyScale(0.05) })
+  template.push({ label: '减小宠物 5%', enabled: Boolean(pet) && !petOperationState.busy, click: () => applyScale(-0.05) })
   template.push({ label: '宠物管理…', click: () => createPetManagerWindow() })
-  template.push({ label: '刷新宠物', click: () => pushPet() })
+  template.push({ label: '刷新宠物', enabled: !petOperationState.busy, click: () => refreshDesktopState() })
+  template.push({ label: '打开配置', click: () => openConfig() })
   template.push({ type: 'separator' })
   template.push({ label: '退出 AllPet', click: () => quit() })
+  tray.setToolTip(petOperationState.busy ? `AllPet · 正在${petOperationState.label}` : `AllPet · ${pet ? pet.displayName : '无宠物'}`)
   tray.setContextMenu(Menu.buildFromTemplate(template))
 }
 
-function quit() {
+function cleanupLifecycle() {
+  if (lifecycleCleaned) return
+  lifecycleCleaned = true
   app.isQuitting = true
-  if (watchProc) { try { watchProc.kill() } catch {} }
+  if (watchRestartTimer) { clearTimeout(watchRestartTimer); watchRestartTimer = null }
+  if (watchProc) {
+    const child = watchProc
+    watchProc = null
+    try { child.kill() } catch {}
+  }
+}
+
+function quit() {
+  cleanupLifecycle()
   app.quit()
 }
 
@@ -916,11 +1101,15 @@ function debugBubbleSnapshot() {
 
 // ---- 应用生命周期 ----
 
-app.whenReady().then(() => {
+if (hasSingleInstanceLock) app.whenReady().then(async () => {
   app.isQuitting = false
+  lifecycleCleaned = false
   loadHistory()
   registerPetIpc()
-  createWindow()
+  try { await ensureCurrentPetSelection() }
+  catch (err) { console.error('[allpet] 首选宠物初始化失败:', err && err.message || err) }
+  pet = readCurrentPet()
+  createWindow({ show: readPetEnabled() })
   createTray()
   // 三阶段截图使用确定性 fixture，避免真实 watcher 快照覆盖测试数据。
   if (!process.env.ALLPET_SCREENSHOT_STAGE) startWatch()
@@ -984,7 +1173,11 @@ app.whenReady().then(() => {
               && windowBounds.y >= workArea.y - epsilon
               && windowBounds.x + windowBounds.width <= workArea.x + workArea.width + epsilon
               && windowBounds.y + windowBounds.height <= workArea.y + workArea.height + epsilon
-            if (Math.abs(metrics.bubble.width - expected.width) > epsilon || Math.abs(metrics.bubble.height - expected.height) > epsilon || metrics.bubble.right > metrics.viewport.width + epsilon || metrics.bubble.bottom > metrics.viewport.height + epsilon || metrics.pet.bottom > metrics.viewport.height + epsilon || metrics.cardCount !== expected.cards || !cardsFit || !windowFits) {
+            const expectedSprite = spriteSizeForScale(readScale(), pet)
+            const spriteFits = Math.abs((metrics.pet.right - metrics.pet.left) - expectedSprite.width) <= epsilon
+              && Math.abs((metrics.pet.bottom - metrics.pet.top) - expectedSprite.height) <= epsilon
+              && Math.abs(metrics.pet.top - metrics.bubble.bottom - 6) <= epsilon
+            if (Math.abs(metrics.bubble.width - expected.width) > epsilon || Math.abs(metrics.bubble.height - expected.height) > epsilon || metrics.bubble.right > metrics.viewport.width + epsilon || metrics.bubble.bottom > metrics.viewport.height + epsilon || metrics.pet.bottom > metrics.viewport.height + epsilon || metrics.cardCount !== expected.cards || !cardsFit || !spriteFits || !windowFits) {
               throw new Error(`bubble geometry mismatch: ${JSON.stringify(metrics)}`)
             }
             console.log('[allpet] 气泡几何校验通过:', JSON.stringify(metrics))
@@ -1007,6 +1200,52 @@ app.whenReady().then(() => {
     }, 5000)
   }
 
+  // CI：验证托盘 show/hide 与缩放后拖动位置保持，不依赖人工点击。
+  if (process.env.ALLPET_LIFECYCLE_SMOKE) {
+    const target = process.env.ALLPET_LIFECYCLE_SMOKE
+    setTimeout(() => {
+      try {
+        const initiallyVisible = mainWindow.isVisible()
+        hidePet()
+        const hidden = !mainWindow.isVisible()
+        showPet()
+        const shown = mainWindow.isVisible()
+        mainWindow.setPosition(180, 180)
+        const previousScale = readScale()
+        const delta = previousScale >= MAX_SCALE - 0.01 ? -0.05 : 0.05
+        const oldBounds = mainWindow.getBounds()
+        const oldSprite = spriteSizeForScale(previousScale, pet)
+        const oldAnchor = {
+          x: oldBounds.x + Math.round((oldBounds.width - oldSprite.width) / 2),
+          bottom: oldBounds.y + oldBounds.height
+        }
+        const nextScale = applyScale(delta)
+        const nextBounds = mainWindow.getBounds()
+        const nextSprite = spriteSizeForScale(nextScale, pet)
+        const nextAnchor = {
+          x: nextBounds.x + Math.round((nextBounds.width - nextSprite.width) / 2),
+          bottom: nextBounds.y + nextBounds.height
+        }
+        applyScale(-delta)
+        const result = {
+          initiallyVisible, hidden, shown, petID: pet && pet.manifestId || null, oldAnchor, nextAnchor,
+          preserved: oldAnchor.x === nextAnchor.x && oldAnchor.bottom === nextAnchor.bottom
+        }
+        fs.writeFileSync(target, JSON.stringify(result, null, 2))
+        const expectedHiddenStart = process.env.ALLPET_EXPECT_HIDDEN_START === '1'
+        if ((expectedHiddenStart && initiallyVisible) || !hidden || !shown || !result.petID || !result.preserved) {
+          throw new Error(`lifecycle smoke mismatch: ${JSON.stringify(result)}`)
+        }
+        console.log('[allpet] 生命周期校验通过:', JSON.stringify(result))
+        quit()
+      } catch (err) {
+        console.error('[allpet] 生命周期校验失败:', err)
+        cleanupLifecycle()
+        app.exit(1)
+      }
+    }, 1500)
+  }
+
   // 调试：ALLPET_PET_MANAGER_SCREENSHOT=/path.png 时，打开宠物管理窗口并截图退出。
   if (process.env.ALLPET_PET_MANAGER_SCREENSHOT) {
     const target = process.env.ALLPET_PET_MANAGER_SCREENSHOT
@@ -1026,7 +1265,14 @@ app.whenReady().then(() => {
   }
 })
 
+if (hasSingleInstanceLock) {
+  app.on('second-instance', () => showPet())
+  app.on('activate', () => showPet())
+}
+
+app.on('before-quit', () => cleanupLifecycle())
+
 app.on('window-all-closed', () => {
-  // 桌宠应常驻：关窗即退出（托盘仍可保留，但 MVP 简化）。
-  quit()
+  // 与 AppKit accessory app 一致：窗口关闭后仍由托盘常驻，用户可再次“显示宠物”。
+  if (!app.isQuitting) updateTrayMenu()
 })
