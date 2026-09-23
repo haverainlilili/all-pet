@@ -10,6 +10,24 @@ const {
 const { validatedAtlas } = require('../src/atlas')
 const { createLatestGate } = require('../src/latest')
 const { dragMove, dragRelease } = require('../src/interaction')
+const { createBoundedThumbnailDataURL, thumbnailDimensions } = require('../src/pet-thumbnail')
+
+test('manager thumbnails crop one frame and enforce dimension and payload bounds', () => {
+  assert.deepEqual(thumbnailDimensions(192, 208), { width: 66, height: 72 })
+  let cropBounds = null
+  let resizeBounds = null
+  const finalImage = { isEmpty: () => false, toDataURL: () => 'data:image/png;base64,small' }
+  const frame = { isEmpty: () => false, resize: bounds => { resizeBounds = bounds; return finalImage } }
+  const atlas = {
+    isEmpty: () => false, getSize: () => ({ width: 1536, height: 2288 }),
+    crop: bounds => { cropBounds = bounds; return frame }
+  }
+  assert.equal(createBoundedThumbnailDataURL(atlas, 192, 208), 'data:image/png;base64,small')
+  assert.deepEqual(cropBounds, { x: 0, y: 0, width: 192, height: 208 })
+  assert.deepEqual(resizeBounds, { width: 66, height: 72, quality: 'good' })
+  finalImage.toDataURL = () => 'x'.repeat(100)
+  assert.equal(createBoundedThumbnailDataURL(atlas, 192, 208, { maximumBytes: 32 }), null)
+})
 
 test('watch spawn error restarts exactly once from close and never during quit', () => {
   const { EventEmitter } = require('node:events')

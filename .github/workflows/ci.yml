@@ -72,7 +72,7 @@ jobs:
       - name: JS 语法检查
         shell: bash
         run: |
-          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/motion.js && node -c src/pets.js && node -c src/wake.js && node -c src/pet-state.js && node -c src/task-history.js && node -c src/tray-menu.js && node -c src/interaction.js && node -c src/atlas.js && node -c src/latest.js && node -c scripts/prepare-sidecar.js && node -c scripts/verify-sidecar.js && node -c scripts/verify-appkit-lifecycle.js && echo "syntax OK"
+          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/motion.js && node -c src/pets.js && node -c src/pet-thumbnail.js && node -c src/wake.js && node -c src/pet-state.js && node -c src/task-history.js && node -c src/tray-menu.js && node -c src/interaction.js && node -c src/atlas.js && node -c src/latest.js && node -c scripts/prepare-sidecar.js && node -c scripts/verify-sidecar.js && node -c scripts/verify-appkit-lifecycle.js && node -c scripts/zstdcat.js && echo "syntax OK"
         working-directory: desktop
       - name: Electron 行为测试
         run: npm test
@@ -188,6 +188,20 @@ jobs:
             "$PACKAGED" --no-sandbox
           node -e "const fs=require('fs'),path=require('path'),h='/tmp/allpet-electron-override',j=require('/tmp/lifecycle-override.json'),c=require(path.join(h,'.config/all-pet/config.json')),x=require(path.join(h,'.config/all-pet/task-history.json')),t=x.platforms.dsh&&x.platforms.dsh[0];if(!j.initiallyVisible||!j.preserved||!String(c.pet.bundlePath||'').startsWith(h+path.sep)||!t||t.id!=='dsh|session-123e4567-e89b-12d3-a456-426614174000'||('unsafe' in t)||x.dismissedTaskIDs[0]!=='dsh|session-223e4567-e89b-12d3-a456-426614174000')process.exit(1);console.log({bundlePath:c.pet.bundlePath,task:t.id})"
           test "$(stat -c '%a' /tmp/allpet-electron-override/.config/all-pet/task-history.json)" = 600
+          rm -rf /tmp/allpet-electron-zstd-home
+          mkdir -p /tmp/allpet-electron-zstd-home/.dsh/sessions/session-bridge
+          printf '%s\n' \
+            '{"type":"session","id":"bridge","cwd":"/tmp/bridge"}' \
+            '{"type":"session/title","data":{"title":"Decoder Bridge"}}' \
+            '{"type":"user/message","data":{"source":{"kind":"user"},"content":[{"type":"text","text":"内置 decoder 验收"}]}}' \
+            '{"type":"todo/write","data":{"todos":[{"content":"验证 decoder","status":"in_progress"}]}}' > /tmp/allpet-electron-zstd-home/fixture.jsonl
+          ELECTRON_RUN_AS_NODE=1 "$PACKAGED" -e "const fs=require('fs'),z=require('node:zlib');fs.writeFileSync(process.argv[1],z.zstdCompressSync(fs.readFileSync(process.argv[2])))" /tmp/allpet-electron-zstd-home/.dsh/sessions/session-bridge/session.jsonl.zstd /tmp/allpet-electron-zstd-home/fixture.jsonl
+          xvfb-run -a --server-args="-screen 0 1024x768x24" \
+            env CFFIXED_USER_HOME=/tmp/allpet-electron-zstd-home HOME=/tmp/allpet-electron-zstd-home ALLPET_HOME=/tmp/allpet-electron-zstd-home PATH=/usr/bin:/bin \
+                ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT_STAGE=collapsed ALLPET_EXPECT_DSH_TASK_TITLE='内置 decoder 验收' \
+                ALLPET_LIFECYCLE_SMOKE=/tmp/lifecycle-zstd.json ELECTRON_ENABLE_LOGGING=1 \
+            "$PACKAGED" --no-sandbox
+          node -e "const j=require('/tmp/lifecycle-zstd.json');if(j.dshTaskTitle!=='内置 decoder 验收')process.exit(1);console.log({dshTaskTitle:j.dshTaskTitle})"
       - name: 校验宠物管理截图
         run: test -s /tmp/pets.png && echo "宠物管理窗口截图已生成"
       - name: 上传气泡截图

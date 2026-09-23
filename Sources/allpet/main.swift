@@ -590,6 +590,10 @@ func cmdSelectionSelfTest() {
         DSHDecoderCommandDiscovery.commandNames(windows: true).contains("zstd.exe"),
         "Windows zstd 发现应包含 .exe 候选"
     )
+    expect(
+        DSHDecoderCommandDiscovery.prefixArguments(json: #"["decoder.js"]"#) == ["decoder.js"],
+        "内置 zstd decoder 参数应从 JSON 无损解析"
+    )
     print("✅ Pet parity contract self-test 通过（\(passed) 项）")
 }
 

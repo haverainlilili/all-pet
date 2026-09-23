@@ -23,6 +23,8 @@ let importLocalSupported = true
 let importLocalReason = ''
 
 const DEFAULT_SCALE = 112 / 192
+let thumbnailEpoch = 0
+
 
 function percentText(scale) {
   return Math.round((scale / DEFAULT_SCALE) * 100) + '%'
@@ -94,15 +96,18 @@ function openModal(type, text, placeholder) {
 function confirmModal(text) { return openModal('confirm', text) }
 function promptModal(text, placeholder) { return openModal('prompt', text, placeholder) }
 
-// 用 Chromium 解码精灵图（原生支持 webp），裁出 idle 首帧并缩放为缩略图。
-function makeThumbnail(spritesheetDataUrl, cellWidth, cellHeight) {
+// 仅在 nativeImage 不支持某种图集格式时，浏览器从受限本地协议逐张裁剪；
+// 不经 IPC 传送原始 atlas，且队列一次只解码一张。
+function makeThumbnail(spritesheetURL, cellWidth, cellHeight) {
   return new Promise((resolve) => {
-    if (!spritesheetDataUrl) { resolve(null); return }
+    if (!spritesheetURL) { resolve(null); return }
     const img = new Image()
+    img.crossOrigin = 'anonymous'
     img.onload = () => {
       try {
         const cw = cellWidth || Math.floor(img.naturalWidth / 8)
         const ch = cellHeight || Math.floor(img.naturalHeight / 9)
+        if (!(cw > 0) || !(ch > 0) || img.naturalWidth < cw || img.naturalHeight < ch) { resolve(null); return }
         const src = document.createElement('canvas')
         src.width = cw
         src.height = ch
@@ -113,13 +118,12 @@ function makeThumbnail(spritesheetDataUrl, cellWidth, cellHeight) {
         out.width = Math.max(1, Math.round(cw * scale))
         out.height = Math.max(1, Math.round(ch * scale))
         out.getContext('2d').drawImage(src, 0, 0, out.width, out.height)
+        img.src = ''
         resolve(out.toDataURL('image/png'))
-      } catch {
-        resolve(null)
-      }
+      } catch { resolve(null) }
     }
     img.onerror = () => resolve(null)
-    img.src = spritesheetDataUrl
+    img.src = spritesheetURL
   })
 }
 
@@ -143,6 +147,8 @@ async function load(options = {}) {
 }
 
 function renderPets(pets) {
+  const epoch = ++thumbnailEpoch
+  const fallbackTasks = []
   petsEl.innerHTML = ''
   if (!pets.length) {
     const empty = document.createElement('div')
@@ -162,12 +168,9 @@ function renderPets(pets) {
     }
     const img = document.createElement('img')
     img.alt = p.displayName
-    img.style.opacity = '0.4'
+    if (p.thumbnail) img.src = p.thumbnail
+    else if (p.thumbnailURL) fallbackTasks.push({ img, source: p.thumbnailURL, cellWidth: p.cellWidth, cellHeight: p.cellHeight })
     card.appendChild(img)
-    makeThumbnail(p.spritesheet, p.cellWidth, p.cellHeight).then((url) => {
-      img.src = url || ''
-      img.style.opacity = ''
-    })
     const name = document.createElement('div')
     name.className = 'name'
     name.textContent = p.displayName
@@ -192,6 +195,13 @@ function renderPets(pets) {
     }
     petsEl.appendChild(card)
   }
+  void (async () => {
+    for (const task of fallbackTasks) {
+      const url = await makeThumbnail(task.source, task.cellWidth, task.cellHeight)
+      if (epoch !== thumbnailEpoch) return
+      task.img.src = url || ''
+    }
+  })()
 }
 
 function renderDefaults(defaults) {

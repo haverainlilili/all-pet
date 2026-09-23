@@ -1,6 +1,10 @@
 // AllPet 跨平台桌宠（Electron 主进程）
 // 复用 Swift AllPetCore：以子进程跑 `allpet watch --json`，把 NDJSON 快照转发给渲染层。
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog, screen } = require('electron')
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog, screen, protocol } = require('electron')
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'allpet-thumbnail',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
+}])
 const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
@@ -18,6 +22,7 @@ const {
   APPLE_REF_MS, accumulateTaskHistory, canonicalID, dismissPlatformHistory, dismissTaskHistory, expireTaskHistory, normalizeTaskHistory, sessionDisplayName
 } = require('./src/task-history')
 const { platformMenuTitles, scalePercentText, petTrayActionTitles, petTrayRows } = require('./src/tray-menu')
+const { createBoundedThumbnailDataURL } = require('./src/pet-thumbnail')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).href
@@ -48,6 +53,7 @@ let pet = null // { bundlePath, spritesheetPath, manifestId, displayName, atlas 
 let petSurfaceAvailable = false // 对齐 AppKit：无宠物首启不创建可见桌面窗；曾有宠物后保留透明任务托盘。
 let petCatalog = []
 let petCatalogDefaults = []
+const managerThumbnailPaths = new Map()
 let petStateEpoch = 0
 let petOperationState = { busy: false, label: null }
 const petOperationGate = createOperationGate((state) => {
@@ -309,22 +315,44 @@ function phaseLabelOf(phase) {
   return labels[phase] || phase
 }
 
-function spritesheetDataUrl(filePath) {
-  const buf = fs.readFileSync(filePath)
+function imageMimeType(filePath) {
   const ext = path.extname(filePath).toLowerCase()
-  const mime = ext === '.webp' ? 'image/webp'
+  return ext === '.webp' ? 'image/webp'
     : ext === '.png' ? 'image/png'
     : ext === '.gif' ? 'image/gif'
     : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg'
     : 'application/octet-stream'
-  return `data:${mime};base64,${buf.toString('base64')}`
+}
+
+function managerThumbnailURL(filePath) {
+  const token = Buffer.from(path.resolve(filePath)).toString('base64url')
+  managerThumbnailPaths.set(token, path.resolve(filePath))
+  return `allpet-thumbnail://pet/${token}`
+}
+
+function spritesheetDataUrl(filePath) {
+  const buf = fs.readFileSync(filePath)
+  return `data:${imageMimeType(filePath)};base64,${buf.toString('base64')}`
 }
 
 // 同步跑一次 allpet CLI 子命令，返回 { code, out, err }。
+function sidecarEnvironment() {
+  const environment = { ...process.env }
+  const decoder = app.isPackaged
+    ? path.join(process.resourcesPath, 'zstd', 'zstdcat.js')
+    : path.join(__dirname, 'scripts', 'zstdcat.js')
+  if (fs.existsSync(process.execPath) && fs.existsSync(decoder)) {
+    environment.ALLPET_ZSTD_EXECUTABLE = process.execPath
+    environment.ALLPET_ZSTD_PREFIX_JSON = JSON.stringify([decoder])
+    environment.ELECTRON_RUN_AS_NODE = '1'
+  }
+  return environment
+}
+
 function runAllpet(args) {
   return new Promise((resolve, reject) => {
     const bin = allpetBinary()
-    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: sidecarEnvironment() })
     let out = ''
     let err = ''
     child.stdout.on('data', c => { out += c.toString('utf8') })
@@ -517,7 +545,7 @@ function startWatch() {
   if (watchRestartTimer) { clearTimeout(watchRestartTimer); watchRestartTimer = null }
   const bin = allpetBinary()
   console.log('[allpet] 启动监控:', bin, 'watch --json')
-  watchProc = spawn(bin, ['watch', '--json'], { stdio: ['ignore', 'pipe', 'pipe'] })
+  watchProc = spawn(bin, ['watch', '--json'], { stdio: ['ignore', 'pipe', 'pipe'], env: sidecarEnvironment() })
   const thisWatch = watchProc
   let buf = ''
   watchProc.stdout.on('data', (chunk) => {
@@ -732,8 +760,11 @@ async function executePetCommand(label, args) {
 
 function managerPetPayload(catalog) {
   const pets = (catalog.pets || []).map(item => {
-    let spritesheet = null
-    try { spritesheet = spritesheetDataUrl(item.spritesheetPath) } catch { /* 单个缩略图失败不影响列表 */ }
+    let thumbnail = null
+    try {
+      const image = nativeImage.createFromPath(item.spritesheetPath)
+      thumbnail = createBoundedThumbnailDataURL(image, item.cellWidth, item.cellHeight)
+    } catch { /* 单个缩略图失败不影响列表 */ }
     return {
       id: item.id,
       displayName: item.displayName,
@@ -745,7 +776,8 @@ function managerPetPayload(catalog) {
       cellWidth: item.cellWidth,
       cellHeight: item.cellHeight,
       target: petMutationTarget(item),
-      spritesheet
+      thumbnail,
+      thumbnailURL: !thumbnail && item.spritesheetPath ? managerThumbnailURL(item.spritesheetPath) : null
     }
   })
   return {
@@ -1121,6 +1153,18 @@ function debugBubbleSnapshot() {
 // ---- 应用生命周期 ----
 
 if (hasSingleInstanceLock) app.whenReady().then(async () => {
+  protocol.handle('allpet-thumbnail', (request) => {
+    try {
+      const token = new URL(request.url).pathname.replace(/^\//, '')
+      const filePath = managerThumbnailPaths.get(token)
+      if (!filePath || !fs.statSync(filePath).isFile()) return new Response(null, { status: 404 })
+      return new Response(fs.readFileSync(filePath), {
+        headers: { 'content-type': imageMimeType(filePath), 'access-control-allow-origin': '*' }
+      })
+    } catch {
+      return new Response(null, { status: 404 })
+    }
+  })
   app.isQuitting = false
   lifecycleCleaned = false
   loadHistory()
@@ -1256,13 +1300,18 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
           bottom: nextBounds.y + nextBounds.height
         }
         applyScale(-delta)
+        const dshStatus = currentSnapshot && Array.isArray(currentSnapshot.platforms)
+          ? currentSnapshot.platforms.find(item => item && item.platform === 'dsh') : null
         const result = {
           initiallyVisible, hidden, shown, petID: pet && pet.manifestId || null, oldAnchor, nextAnchor,
-          preserved: oldAnchor.x === nextAnchor.x && oldAnchor.bottom === nextAnchor.bottom
+          preserved: oldAnchor.x === nextAnchor.x && oldAnchor.bottom === nextAnchor.bottom,
+          dshTaskTitle: dshStatus && dshStatus.task && dshStatus.task.title || null
         }
         fs.writeFileSync(target, JSON.stringify(result, null, 2))
         const expectedHiddenStart = process.env.ALLPET_EXPECT_HIDDEN_START === '1'
-        if ((expectedHiddenStart && initiallyVisible) || !hidden || !shown || !result.petID || !result.preserved) {
+        const expectedDSHTitle = process.env.ALLPET_EXPECT_DSH_TASK_TITLE
+        if ((expectedHiddenStart && initiallyVisible) || !hidden || !shown || !result.petID || !result.preserved
+            || (expectedDSHTitle && result.dshTaskTitle !== expectedDSHTitle)) {
           throw new Error(`lifecycle smoke mismatch: ${JSON.stringify(result)}`)
         }
         console.log('[allpet] 生命周期校验通过:', JSON.stringify(result))
@@ -1282,10 +1331,16 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
       createPetManagerWindow()
       setTimeout(() => {
         if (petManagerWindow && !petManagerWindow.isDestroyed()) {
-          petManagerWindow.webContents.capturePage().then((img) => {
+          petManagerWindow.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.pet-card img')).map(img => ({ width: img.naturalWidth, height: img.naturalHeight, bytes: img.src.length }))`).then((thumbnails) => {
+            if (!thumbnails.length || thumbnails.some(item => item.width < 1 || item.height < 1 || item.width > 72 || item.height > 72 || item.bytes > 96 * 1024)) {
+              throw new Error(`pet thumbnail bounds mismatch: ${JSON.stringify(thumbnails)}`)
+            }
+            console.log('[allpet] 宠物缩略图边界校验通过:', JSON.stringify(thumbnails))
+            return petManagerWindow.webContents.capturePage()
+          }).then((img) => {
             fs.writeFileSync(target, img.toPNG())
             console.log('[allpet] 宠物管理截图已保存:', target)
-          }).catch((e) => console.error('[allpet] 宠物管理截图失败:', e)).finally(() => quit())
+          }).catch((e) => { console.error('[allpet] 宠物管理截图失败:', e); process.exitCode = 1 }).finally(() => quit())
         } else {
           quit()
         }

@@ -381,7 +381,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 14 | 菜单大小控件 | 点按钮不关菜单连续点击；禁用平台显示“已禁用” | ⚠️ 托盘顺序、百分比、±5%、切换/安装/导入/删除/刷新和禁用状态文案已对齐；原生 Electron 菜单无法承载不关闭的自定义控件 |
 | 15 | 任务历史持久化 | canonical migration + 去重/过滤 + 12/100 上限 + 终态 24h TTL | ✅ 已对齐（共享字段；加载时迁移旧 DSH UUID/清理损坏 shape；Electron 独立 wall-clock timer） |
 | 16 | 托盘生命周期 | 显示/隐藏、打开配置、常驻、退出清理 | ✅ 已对齐（单实例；关闭窗口不退出；托盘点击切换） |
-| 17 | 宠物选择与删除 | 按 bundle URL 精确操作，删除/外部失效后回退 | ✅ 已对齐（规范路径；refresh 同闸门；只消费 sidecar 验证后的 spritesheet/atlas catalog） |
+| 17 | 宠物选择与删除 | 按 bundle URL 精确操作，删除/外部失效后回退 | ✅ 已对齐（规范路径；refresh 同闸门；只消费 sidecar 验证后的 spritesheet/atlas catalog；管理器 IPC 只传有界缩略图或受限 token） |
 | 18 | 首启与图集 | 首只发现宠物；按实际 atlas cell 排版 | ✅ 已对齐（失效配置回退；动态 8×9/11 图集；元数据/图片不一致则占位） |
 | 19 | 本地导入能力 | AppKit/ImageIO 多格式导入 | ⚠️ macOS 可用；Windows/Linux 明示禁用，标准包安装可用 |
 
@@ -393,4 +393,5 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 > - 任务生命周期：Electron 与 AppKit 都会在典型 idle/no-task 快照清空活跃记录、会话切换时清空非当前活跃记录，只保留 done/failed 与当前/并发任务；隐藏最后一条活跃任务后，两端都从可见状态重算宠物动画。Electron 合并时保留 sourcePath/terminalBinding，并用独立 wall-clock timer 执行 24 小时 TTL；三平台 Node 测试覆盖 canonical ID、12/100 上限、时间戳保持、隐藏复活和定位字段继承。
 
 > - **共享 HOME**：Electron config/history、宠物发现与继承环境的 sidecar 统一使用 `ALLPET_HOME`；加载历史后以原子 `0600` 文件（适用平台）重写规范化结果。
-> - **DSH zstd**：Windows 已按 `;` 拆分 PATH 并查找 `.exe`；安装包尚未内置 decoder，外部命令缺失仍是公开限制。
+> - **DSH zstd**：Windows 外部命令发现按 `;` 拆分 PATH 并查找 `.exe`；Electron 安装包还会把自身 Node zlib decoder 注入 sidecar，已用 clean PATH 的实际 `.zstd` transcript 验收，不要求用户安装 zstd。独立 AppKit/CLI 启动仍采用外部命令。
+> - **宠物缩略图**：Electron 不再同步读取并 base64 传输每张完整 atlas；优先用 nativeImage 生成最大 72×72、96 KiB 的 PNG，不支持的格式经 CSP 限定的只读协议逐张解码裁剪，所有管理器截图验收都检查尺寸与传输上限。

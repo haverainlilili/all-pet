@@ -20,6 +20,12 @@ public enum DSHDecoderCommandDiscovery {
     public static func commandNames(windows: Bool) -> [String] {
         windows ? ["zstdcat.exe", "zstdcat", "zstd.exe", "zstd"] : ["zstdcat", "zstd"]
     }
+
+    public static func prefixArguments(json: String?) -> [String] {
+        guard let json, let data = json.data(using: .utf8),
+              let values = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return values
+    }
 }
 
 /// 按路径缓存 DSH zstd 会话，并以有界内存、限频和硬超时流式提取任务上下文。
@@ -335,6 +341,21 @@ final class DSHTranscriptDecoder: @unchecked Sendable {
 
     private static func resolveCommand() -> Command? {
         let fm = FileManager.default
+        let environment = ProcessInfo.processInfo.environment
+        if let override = environment["ALLPET_ZSTD_EXECUTABLE"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            #if os(Windows)
+            let overrideIsRunnable = fm.fileExists(atPath: override)
+            #else
+            let overrideIsRunnable = fm.isExecutableFile(atPath: override)
+            #endif
+            if overrideIsRunnable {
+                return Command(
+                    executable: override,
+                    prefix: DSHDecoderCommandDiscovery.prefixArguments(json: environment["ALLPET_ZSTD_PREFIX_JSON"])
+                )
+            }
+        }
         #if os(Windows)
         let isWindows = true
         let extraDirectories: [String] = []

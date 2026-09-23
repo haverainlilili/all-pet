@@ -263,7 +263,7 @@ failed > running/thinking > waiting > done > idle
 | 项目 | 当前实现 |
 | --- | --- |
 | 数据源 | `~/.dsh/sessions/**/session.jsonl.zstd` |
-| 解析依赖 | `zstdcat`/`zstd` 可执行文件；缺失时无法解析详细任务文本 |
+| 解析依赖 | Core 支持外部 `zstdcat`/`zstd`；Electron 安装包通过自身 Node zlib 注入内置 decoder，无需系统另装 zstd |
 | 识别内容 | 标题、用户任务、工具、Todo、turn 状态、错误、cwd |
 | 会话名称 | `storages/session_projcache/sessions/<id>.json` 优先 |
 | 过滤 | 只监控父目录名以 `session-` 开头的顶层会话，排除子代理日志 |
@@ -439,7 +439,7 @@ macOS 精确唤起可能需要：
 
 #### 7.6.2 管理操作
 
-- 查看已安装宠物及缩略图；
+- 查看已安装宠物及缩略图；Electron 优先在主进程裁剪为最大 72×72、96 KiB 的 PNG，nativeImage 不支持的格式通过仅映射已验证 catalog 路径的只读协议逐张裁剪，不再把完整 atlas base64 送过 IPC；
 - 点击立即切换；
 - 调整大小并即时保存；
 - 删除宠物；
@@ -619,7 +619,7 @@ macOS 精确唤起可能需要：
 
 - 默认 1 秒轮询；同一轮询未完成时不并发发起下一轮；
 - 日志只读取有界尾部并使用解析缓存；
-- DSH zstd 流式解码只保留有限尾部/上下文，设置硬超时与 LRU 缓存；
+- DSH zstd 流式解码只保留有限尾部/上下文，设置硬超时与 LRU 缓存；Electron 使用随包脚本和自身 Node zlib 解码，AppKit/CLI 仍可发现外部 `zstdcat`/`zstd`；
 - 多会话默认最多解析/展示 5 个，避免无限扫描；
 - Electron 监控子进程退出后 2 秒自动重启。
 
@@ -629,7 +629,7 @@ macOS 精确唤起可能需要：
 - 日志缺失时平台进入 idle，不应导致全局崩溃；
 - 单个平台失败不影响其它平台快照；
 - 任务定位失败时保留气泡；
-- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 16 项宠物选择、操作闸门、持久化、窗口夹紧、降低动态效果和 Windows zstd 命令发现契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、idle/no-task 僵尸清理、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 50 项 Node 测试（含旧历史 canonical migration/防御过滤、`ALLPET_HOME`、可信 pet catalog、wall-clock 24 小时 TTL、可见任务动画、动态降低动态效果、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、真实 reduced-motion、管理器、独立 HOME/history migration 和生命周期截图。
+- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 17 项宠物选择、操作闸门、持久化、窗口夹紧、降低动态效果、Windows zstd 命令发现及 decoder 参数契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、idle/no-task 僵尸清理、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 52 项 Node 测试（含旧历史 canonical migration/防御过滤、`ALLPET_HOME`、可信 pet catalog、wall-clock 24 小时 TTL、可见任务动画、动态降低动态效果、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、真实 reduced-motion、管理器缩略图边界、独立 HOME/history migration、clean-PATH 实际 DSH zstd transcript 和生命周期截图。
 
 ### 9.3 隐私与安全
 
@@ -639,7 +639,7 @@ macOS 精确唤起可能需要：
 - 网络只用于用户主动下载宠物、GitHub clone/LFS、默认宠物缩略图预取或下载 Release；
 - ⚠️ `config.json` 和 `task-history.json` 是明文，历史包含标题、动作、会话 ID、源路径、cwd、PID/TTY 与来源信息；Electron 新写/迁移文件使用原子替换并收紧为 `0600`（适用平台），但当前仍未加密；
 - 宠物导入限制文件大小、像素预算、路径深度、文件数并拒绝符号链接逃逸；
-- Electron 启用 `contextIsolation`、关闭 `nodeIntegration`，通过 preload IPC 暴露有限能力；
+- Electron 启用 `contextIsolation`、关闭 `nodeIntegration`，通过 preload IPC 暴露有限能力；宠物缩略图 fallback 仅由主进程为 sidecar 验证过的 catalog 文件颁发临时 token，并受 CSP 限制；
 - macOS 自动化权限由操作系统授权控制。
 
 ### 9.4 可访问性
@@ -681,7 +681,7 @@ macOS 精确唤起可能需要：
 3. **Claude Desktop 无公开现有会话深链**：不能保证自动切到目标会话；禁止使用会 fork 副本的 resume 路径。
 4. **Grok 详细多会话不足**：只输出一个选中任务，`activeSessions` 与气泡任务数可能不同。
 5. **Windows/Linux 本地宠物转换尚未实现**：Electron 已禁用并解释该入口；标准宠物包远程安装仍可用。
-6. **DSH 依赖外部 zstd**：Windows 已使用分号 PATH 并探测 `zstdcat.exe`/`zstd.exe`；但安装包仍未内置 decoder，不可用时会显示“未能解析 DSH 会话”，而非可靠的任务文本降级。
+6. **独立 AppKit/CLI 仍依赖外部 zstd**：Electron 安装包已使用自身 Node zlib 和随包脚本完成三平台内置解码；脱离 Electron 启动的原生 AppKit/CLI 仍需 `zstdcat`/`zstd`。
 7. **v1.3.0 Release 资源遗漏**：已发布 ZIP 无法补救；main 的后续打包已复制平台对应 `.bundle/.resources`、采用自包含 sidecar 并增加空 HOME/实际 unpacked 应用校验。
 8. **未签名与无自动更新**：macOS 未公证/签名，Windows 也未配置代码签名；提高首次安装和升级成本。
 9. **上游日志格式风险**：四个平台升级后字段或目录变化可能使解析失效。
@@ -704,7 +704,7 @@ macOS 精确唤起可能需要：
 2. 发布后续版本，包含 DSH 多会话与本轮 Electron 对齐修复；
 3. ✅ Electron show/hide、单实例与托盘常驻生命周期已对齐；
 4. 补充 Grok 多会话详细任务输出；
-5. DSH 内置 zstd 解码或在安装时明确检查依赖；
+5. ✅ Electron 安装包已内置 DSH zstd 解码并以 clean PATH 实际 transcript 验收；独立 AppKit/CLI 依赖检测仍可继续增强；
 6. 修正 README 的内置宠物数量、全平台 `self-test`、会话级唤起和非 macOS 导入承诺；
 7. 增加“监控诊断”命令，显示路径、依赖、最近候选、过滤原因。
 

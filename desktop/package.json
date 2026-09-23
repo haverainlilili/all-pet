@@ -35,6 +35,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "scripts/zstdcat.js",
+        "to": "zstd/zstdcat.js"
       }
     ],
     "mac": {
