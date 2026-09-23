@@ -338,10 +338,11 @@ function spritesheetDataUrl(filePath) {
 // 同步跑一次 allpet CLI 子命令，返回 { code, out, err }。
 function sidecarEnvironment() {
   const environment = { ...process.env }
-  const decoder = app.isPackaged
-    ? path.join(process.resourcesPath, 'zstd', 'zstdcat.js')
-    : path.join(__dirname, 'scripts', 'zstdcat.js')
-  if (fs.existsSync(process.execPath) && fs.existsSync(decoder)) {
+  const decoder = [
+    path.join(process.resourcesPath, 'zstd', 'zstdcat.js'),
+    path.join(__dirname, 'scripts', 'zstdcat.js')
+  ].find(candidate => fs.existsSync(candidate))
+  if (fs.existsSync(process.execPath) && decoder) {
     environment.ALLPET_ZSTD_EXECUTABLE = process.execPath
     environment.ALLPET_ZSTD_PREFIX_JSON = JSON.stringify([decoder])
     environment.ELECTRON_RUN_AS_NODE = '1'
