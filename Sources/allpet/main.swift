@@ -100,12 +100,21 @@ private func taskSnapshotKey(_ task: TaskInfo) -> String {
     let binding = task.terminalBinding.map {
         "\($0.tty):\($0.anchorProcessID):\($0.anchorStartedAtMicroseconds)"
     } ?? ""
-    return [
-        task.sessionID ?? "", task.sessionName ?? "", task.title ?? "", task.action ?? "",
-        task.progressLabel ?? "", task.phase?.rawValue ?? "", task.launchOrigin ?? "",
-        task.sourcePath ?? "", task.workingDirectory ?? "", task.processID.map { String($0) } ?? "",
-        task.terminalTTY ?? "", binding, task.scheduledTaskName ?? ""
-    ].joined(separator: "~")
+    var fields: [String] = []
+    fields.append(task.sessionID ?? "")
+    fields.append(task.sessionName ?? "")
+    fields.append(task.title ?? "")
+    fields.append(task.action ?? "")
+    fields.append(task.progressLabel ?? "")
+    fields.append(task.phase?.rawValue ?? "")
+    fields.append(task.launchOrigin ?? "")
+    fields.append(task.sourcePath ?? "")
+    fields.append(task.workingDirectory ?? "")
+    fields.append(task.processID.map { String($0) } ?? "")
+    fields.append(task.terminalTTY ?? "")
+    fields.append(binding)
+    fields.append(task.scheduledTaskName ?? "")
+    return fields.joined(separator: "~")
 }
 
 func snapshotKey(_ s: PetSnapshot) -> String {

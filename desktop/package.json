@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "node --test test/*.test.js",
+    "test": "node --test",
     "dist": "electron-builder",
     "dist:dir": "electron-builder --dir"
   },
