@@ -21,4 +21,31 @@ const copiedExecutable = path.join(destination, executableName)
 fs.copyFileSync(executable, copiedExecutable)
 if (process.platform !== 'win32') fs.chmodSync(copiedExecutable, 0o755)
 fs.cpSync(resource, path.join(destination, path.basename(resource)), { recursive: true })
-console.log(JSON.stringify({ binPath, executable: copiedExecutable, resource: path.basename(resource) }))
+
+let runtimeDLLs = 0
+if (process.platform === 'win32') {
+  const where = spawnSync('where.exe', ['swift.exe'], { encoding: 'utf8' })
+  const swiftExecutable = where.status === 0 ? where.stdout.trim().split(/\r?\n/)[0] : null
+  const roots = [
+    swiftExecutable && path.dirname(swiftExecutable),
+    process.env.SDKROOT && path.join(process.env.SDKROOT, 'usr', 'bin'),
+    process.env.SDKROOT && path.join(process.env.SDKROOT, 'usr', 'lib', 'swift', 'windows')
+  ].filter(Boolean)
+  const copied = new Set()
+  function copyDLLs(directory) {
+    if (!fs.existsSync(directory)) return
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const source = path.join(directory, entry.name)
+      if (entry.isDirectory()) copyDLLs(source)
+      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.dll') && !copied.has(entry.name.toLowerCase())) {
+        fs.copyFileSync(source, path.join(destination, entry.name))
+        copied.add(entry.name.toLowerCase())
+      }
+    }
+  }
+  for (const root of roots) copyDLLs(root)
+  runtimeDLLs = copied.size
+  if (runtimeDLLs === 0) throw new Error(`no Windows Swift runtime DLLs found in: ${roots.join(', ')}`)
+}
+
+console.log(JSON.stringify({ binPath, executable: copiedExecutable, resource: path.basename(resource), runtimeDLLs }))

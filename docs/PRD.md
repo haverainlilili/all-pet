@@ -434,7 +434,7 @@ macOS 精确唤起可能需要：
 
 从源码运行时，首次发现宠物会物化到 `~/.config/all-pet/pets/`；写入标记后不再强制补回用户主动删除的内置宠物。
 
-> ❌ **v1.3.0 Release 历史缺陷：** `AllPet-1.3.0-arm64-mac.zip` 的 sidecar 只有 `allpet`，遗漏承载内置宠物的 SwiftPM 资源。✅ main 已修复后续打包：按平台保留 `AllPet_AllPetCore.bundle`（macOS）或 `.resources`（Windows/Linux）的原名，sidecar 使用静态 Swift stdlib 构建，并在空 HOME、无 Swift toolchain PATH 下验证资源发现；Linux CI 还会启动 electron-builder 的实际 unpacked 应用。该修复尚未回填已发布的 v1.3.0。
+> ❌ **v1.3.0 Release 历史缺陷：** `AllPet-1.3.0-arm64-mac.zip` 的 sidecar 只有 `allpet`，遗漏承载内置宠物的 SwiftPM 资源。✅ main 已修复后续打包：按平台保留 `AllPet_AllPetCore.bundle`（macOS）或 `.resources`（Windows/Linux）的原名，sidecar 使用静态 Swift stdlib 构建（Windows 同时复制相邻 Swift/Foundation runtime DLL 闭包），并在空 HOME、无 Swift toolchain PATH 下验证资源发现；Linux CI 还会启动 electron-builder 的实际 unpacked 应用。该修复尚未回填已发布的 v1.3.0。
 
 #### 7.6.2 管理操作
 
