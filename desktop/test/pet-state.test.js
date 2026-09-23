@@ -4,7 +4,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
   attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, finishMutationRefresh, petCapabilities, petMutationTarget,
-  preservedWindowBounds, spriteSizeForPet
+  preservedWindowBounds, runSerializedPetRefresh, spriteSizeForPet
 } = require('../src/pet-state')
 const { validatedAtlas } = require('../src/atlas')
 const { createLatestGate } = require('../src/latest')
@@ -83,6 +83,23 @@ test('pet mutations are serialized and publish busy transitions', async () => {
   assert.deepEqual(await first, { ok: true, message: 'installed' })
   assert.deepEqual(transitions, [
     { busy: true, label: '安装宠物' },
+    { busy: false, label: null }
+  ])
+})
+
+test('manual catalog refresh is serialized with every pet mutation', async () => {
+  const transitions = []
+  const gate = createOperationGate(state => transitions.push(state))
+  let release
+  const refreshing = runSerializedPetRefresh(gate, () => new Promise(resolve => { release = resolve }))
+  const rejected = await gate.run('切换宠物', async () => ({ ok: true }))
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.busy, true)
+  assert.match(rejected.error, /刷新宠物/)
+  release({ ok: true })
+  assert.deepEqual(await refreshing, { ok: true })
+  assert.deepEqual(transitions, [
+    { busy: true, label: '刷新宠物' },
     { busy: false, label: null }
   ])
 })

@@ -12,12 +12,12 @@ const {
 } = require('./src/wake')
 const {
   attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, finishMutationRefresh, petCapabilities, petMutationTarget,
-  preservedWindowBounds, spriteSizeForPet
+  preservedWindowBounds, runSerializedPetRefresh, spriteSizeForPet
 } = require('./src/pet-state')
 const {
-  APPLE_REF_MS, accumulateTaskHistory, canonicalID, dismissPlatformHistory, dismissTaskHistory, sessionDisplayName
+  APPLE_REF_MS, accumulateTaskHistory, canonicalID, dismissPlatformHistory, dismissTaskHistory, expireTaskHistory, sessionDisplayName
 } = require('./src/task-history')
-const { platformMenuTitles, scalePercentText, petTrayRows } = require('./src/tray-menu')
+const { platformMenuTitles, scalePercentText, petTrayActionTitles, petTrayRows } = require('./src/tray-menu')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).href
@@ -26,6 +26,9 @@ const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).
 if (process.env.ALLPET_NO_SANDBOX) {
   app.commandLine.appendSwitch('no-sandbox')
   app.commandLine.appendSwitch('disable-gpu')
+}
+if (process.env.ALLPET_REDUCE_MOTION_SMOKE) {
+  app.commandLine.appendSwitch('force-prefers-reduced-motion')
 }
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
@@ -37,9 +40,11 @@ let tray = null
 let watchProc = null
 let watchRestartTimer = null
 let petRefreshRetryTimer = null
+let historyExpiryTimer = null
 let lifecycleCleaned = false
 let currentSnapshot = null
 let pet = null // { bundlePath, spritesheetPath, manifestId, displayName, atlas geometry }
+let petSurfaceAvailable = false // 对齐 AppKit：无宠物首启不创建可见桌面窗；曾有宠物后保留透明任务托盘。
 let petCatalog = []
 let petCatalogDefaults = []
 let petStateEpoch = 0
@@ -246,6 +251,17 @@ function accumulateHistory(snap) {
   if (changed) persistHistory()
 }
 
+function startHistoryExpiryTimer() {
+  if (historyExpiryTimer) clearInterval(historyExpiryTimer)
+  historyExpiryTimer = setInterval(() => {
+    const state = mutableHistoryState()
+    if (!expireTaskHistory(state, Date.now())) return
+    adoptHistoryState(state)
+    persistHistory()
+    if (currentSnapshot) sendSnapshot(currentSnapshot)
+  }, 60_000)
+}
+
 function historyPayload() {
   // 只把展示所需的字段交给渲染层，附加 sessionDisplayName。
   const platforms = {}
@@ -330,13 +346,15 @@ async function refreshDesktopState(options = {}) {
   const previousPet = pet
   const scale = readScale()
   const refreshEpoch = petStateEpoch
-  await readPetCatalog()
+  await ensureCurrentPetSelection()
   if (!options.fromMutation && refreshEpoch !== petStateEpoch) {
     return { ok: false, stale: true, error: '宠物状态已由更新的事务刷新。' }
   }
   pet = readCurrentPet()
+  if (pet) petSurfaceAvailable = true
   if (mainWindow && !mainWindow.isDestroyed()) {
     resizeWindowPreservingSprite(scale, scale, pet, previousPet)
+    if (!previousPet && pet && readPetEnabled()) mainWindow.show()
   }
   pushPet()
   updateTrayMenu()
@@ -633,10 +651,17 @@ async function wakeTask(taskID) {
 
 // ---- 宠物管理 ----
 
-function createPetManagerWindow() {
+function createPetManagerWindow(action) {
+  const dispatchAction = () => {
+    if (action && petManagerWindow && !petManagerWindow.isDestroyed()) {
+      petManagerWindow.webContents.send('pet-manager-action', action)
+    }
+  }
   if (petManagerWindow && !petManagerWindow.isDestroyed()) {
     petManagerWindow.show()
     petManagerWindow.focus()
+    if (petManagerWindow.webContents.isLoadingMainFrame()) petManagerWindow.webContents.once('did-finish-load', dispatchAction)
+    else dispatchAction()
     return
   }
   petManagerWindow = new BrowserWindow({
@@ -660,6 +685,7 @@ function createPetManagerWindow() {
   petManagerWindow.webContents.on('did-finish-load', () => {
     if (petManagerWindow && petManagerWindow.webContents.getURL() === PET_MANAGER_URL) {
       petManagerWindow.webContents.send('pet-operation', petOperationState)
+      dispatchAction()
     }
   })
   petManagerWindow.loadFile(path.join(__dirname, 'src', 'pets.html'))
@@ -855,7 +881,14 @@ function createTray() {
   updateTrayMenu()
 }
 
-function showPet() {
+async function showPet() {
+  if (!petSurfaceAvailable) {
+    const result = await runSerializedPetRefresh(
+      petOperationGate,
+      () => refreshDesktopState({ fromMutation: true })
+    )
+    if (!result || !result.ok || !petSurfaceAvailable) return
+  }
   if (!mainWindow || mainWindow.isDestroyed()) createWindow()
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
   updateTrayMenu()
@@ -918,14 +951,40 @@ function petTraySubmenu() {
       })
     }
   }
+  const capabilities = petCapabilities(process.platform)
+  const actionTitles = petTrayActionTitles(capabilities.importLocal)
+  const deleteRows = rows.installed.map(row => ({
+    label: row.label, enabled: !busy && Boolean(row.target),
+    click: async () => {
+      const confirmation = await dialog.showMessageBox({
+        type: 'warning', title: actionTitles.deletePet,
+        message: `删除宠物「${row.label}」？`,
+        detail: `${row.target}\n此操作不可撤销。`,
+        buttons: ['取消', '删除'], defaultId: 0, cancelId: 0
+      })
+      if (confirmation.response === 1) await runTrayPetCommand('删除宠物', ['pet', 'delete', row.target])
+    }
+  }))
   submenu.push({ type: 'separator' })
   submenu.push({ label: '宠物管理…', click: () => createPetManagerWindow() })
+  submenu.push({ label: actionTitles.install, enabled: !busy, click: () => createPetManagerWindow('install') })
   submenu.push({
-    label: '刷新宠物', enabled: !busy,
+    label: actionTitles.importLocal, enabled: !busy && capabilities.importLocal,
+    click: () => createPetManagerWindow('import')
+  })
+  submenu.push({ label: actionTitles.deletePet, enabled: !busy && deleteRows.length > 0, submenu: deleteRows })
+  submenu.push({
+    label: actionTitles.refresh, enabled: !busy,
     click: async () => {
-      try { await refreshDesktopState() }
-      catch (err) {
-        await dialog.showMessageBox({ type: 'warning', title: '刷新失败', message: '无法刷新宠物状态', detail: String(err && err.message || err), buttons: ['知道了'] })
+      const result = await runSerializedPetRefresh(
+        petOperationGate,
+        () => refreshDesktopState({ fromMutation: true })
+      )
+      if (!result || !result.ok) {
+        await dialog.showMessageBox({
+          type: 'warning', title: '刷新失败', message: '无法刷新宠物状态',
+          detail: String(result && result.error || '未知错误'), buttons: ['知道了']
+        })
       }
     }
   })
@@ -939,7 +998,7 @@ function updateTrayMenu() {
   const visible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
   const busy = petOperationState.busy
   const template = [
-    { label: visible ? '隐藏宠物' : '显示宠物', click: togglePetVisibility },
+    { label: '显示/隐藏宠物', click: togglePetVisibility },
     { label: `宠物大小：${scalePercentText(readScale())}`, enabled: false },
     { label: '减小宠物 5%', enabled: Boolean(pet) && !busy, click: () => applyScale(-0.05) },
     { label: '增大宠物 5%', enabled: Boolean(pet) && !busy, click: () => applyScale(0.05) },
@@ -963,6 +1022,7 @@ function cleanupLifecycle() {
   app.isQuitting = true
   if (watchRestartTimer) { clearTimeout(watchRestartTimer); watchRestartTimer = null }
   if (petRefreshRetryTimer) { clearTimeout(petRefreshRetryTimer); petRefreshRetryTimer = null }
+  if (historyExpiryTimer) { clearInterval(historyExpiryTimer); historyExpiryTimer = null }
   if (watchProc) {
     const child = watchProc
     watchProc = null
@@ -1034,11 +1094,13 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   app.isQuitting = false
   lifecycleCleaned = false
   loadHistory()
+  startHistoryExpiryTimer()
   registerPetIpc()
   try { await ensureCurrentPetSelection() }
   catch (err) { console.error('[allpet] 首选宠物初始化失败:', err && err.message || err) }
   pet = readCurrentPet()
-  createWindow({ show: readPetEnabled() })
+  petSurfaceAvailable = Boolean(pet)
+  createWindow({ show: readPetEnabled() && petSurfaceAvailable })
   createTray()
   // 三阶段截图使用确定性 fixture，避免真实 watcher 快照覆盖测试数据。
   if (!process.env.ALLPET_SCREENSHOT_STAGE) startWatch()
@@ -1081,6 +1143,8 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
                 bubble: { left: bubble.left, top: bubble.top, right: bubble.right, bottom: bubble.bottom, width: bubble.width, height: bubble.height },
                 pet: { left: pet.left, top: pet.top, right: pet.right, bottom: pet.bottom },
                 cardCount: cards.length,
+                reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+                rotationIndex: Number(document.getElementById('bubble').dataset.rotationIndex || -1),
                 cards
               }
             })()`)
@@ -1098,6 +1162,8 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
             const workArea = screen.getDisplayMatching(windowBounds).workArea
             metrics.window = windowBounds
             metrics.workArea = workArea
+            metrics.windowVisible = mainWindow.isVisible()
+            metrics.hasPet = Boolean(pet)
             const windowFits = windowBounds.x >= workArea.x - epsilon
               && windowBounds.y >= workArea.y - epsilon
               && windowBounds.x + windowBounds.width <= workArea.x + workArea.width + epsilon
@@ -1106,7 +1172,11 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
             const spriteFits = Math.abs((metrics.pet.right - metrics.pet.left) - expectedSprite.width) <= epsilon
               && Math.abs((metrics.pet.bottom - metrics.pet.top) - expectedSprite.height) <= epsilon
               && Math.abs(metrics.pet.top - metrics.bubble.bottom - 6) <= epsilon
-            if (Math.abs(metrics.bubble.width - expected.width) > epsilon || Math.abs(metrics.bubble.height - expected.height) > epsilon || metrics.bubble.right > metrics.viewport.width + epsilon || metrics.bubble.bottom > metrics.viewport.height + epsilon || metrics.pet.bottom > metrics.viewport.height + epsilon || metrics.cardCount !== expected.cards || !cardsFit || !spriteFits || !windowFits) {
+            const reduceMotionValid = !process.env.ALLPET_REDUCE_MOTION_SMOKE
+              || (metrics.reducedMotion && metrics.rotationIndex === 0)
+            const noPetStartValid = !process.env.ALLPET_EXPECT_NO_PET_START
+              || (!metrics.hasPet && !metrics.windowVisible && !petSurfaceAvailable)
+            if (Math.abs(metrics.bubble.width - expected.width) > epsilon || Math.abs(metrics.bubble.height - expected.height) > epsilon || metrics.bubble.right > metrics.viewport.width + epsilon || metrics.bubble.bottom > metrics.viewport.height + epsilon || metrics.pet.bottom > metrics.viewport.height + epsilon || metrics.cardCount !== expected.cards || !cardsFit || !spriteFits || !windowFits || !reduceMotionValid || !noPetStartValid) {
               throw new Error(`bubble geometry mismatch: ${JSON.stringify(metrics)}`)
             }
             console.log('[allpet] 气泡几何校验通过:', JSON.stringify(metrics))

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('petAPI', {
   installPet: (source) => ipcRenderer.invoke('pets:install', source),
   onPetsChanged: (cb) => ipcRenderer.on('pets-changed', () => cb()),
   onPetOperation: (cb) => ipcRenderer.on('pet-operation', (_e, state) => cb(state)),
+  onPetManagerAction: (cb) => ipcRenderer.on('pet-manager-action', (_e, action) => cb(action)),
 
   // 宠物大小
   getScale: () => ipcRenderer.invoke('pets:getScale'),

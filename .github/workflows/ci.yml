@@ -127,6 +127,18 @@ jobs:
                   ELECTRON_ENABLE_LOGGING=1 \
               ./node_modules/.bin/electron . --no-sandbox
           done
+          xvfb-run -a --server-args="-screen 0 1024x768x24" \
+            env ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_REDUCE_MOTION_SMOKE=1 \
+                ALLPET_SCREENSHOT=/tmp/bubble-reduced-motion.png ALLPET_SCREENSHOT_STAGE=collapsed ELECTRON_ENABLE_LOGGING=1 \
+            ./node_modules/.bin/electron . --no-sandbox
+          rm -rf /tmp/allpet-electron-no-pet-home
+          mkdir -p /tmp/allpet-electron-no-pet-home/.config/all-pet
+          touch /tmp/allpet-electron-no-pet-home/.config/all-pet/.bundled-pets.v1
+          xvfb-run -a --server-args="-screen 0 1024x768x24" \
+            env CFFIXED_USER_HOME=/tmp/allpet-electron-no-pet-home HOME=/tmp/allpet-electron-no-pet-home ALLPET_HOME=/tmp/allpet-electron-no-pet-home \
+                ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_EXPECT_NO_PET_START=1 \
+                ALLPET_SCREENSHOT=/tmp/bubble-no-pet.png ALLPET_SCREENSHOT_STAGE=collapsed ELECTRON_ENABLE_LOGGING=1 \
+            ./node_modules/.bin/electron . --no-sandbox
       - name: 无头启动宠物管理窗口 + 截图
         working-directory: desktop
         run: |
@@ -138,6 +150,8 @@ jobs:
           test -s /tmp/bubble-collapsed.png
           test -s /tmp/bubble-platforms.png
           test -s /tmp/bubble-tasks.png
+          test -s /tmp/bubble-reduced-motion.png
+          test -s /tmp/bubble-no-pet.png
           test -s /tmp/anchor-top-left.png
           test -s /tmp/anchor-top-right.png
           test -s /tmp/anchor-bottom-left.png
@@ -175,6 +189,8 @@ jobs:
             /tmp/bubble-collapsed.png
             /tmp/bubble-platforms.png
             /tmp/bubble-tasks.png
+            /tmp/bubble-reduced-motion.png
+            /tmp/bubble-no-pet.png
             /tmp/anchor-top-left.png
             /tmp/anchor-top-right.png
             /tmp/anchor-bottom-left.png

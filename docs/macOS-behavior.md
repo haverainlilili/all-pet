@@ -378,10 +378,10 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 11 | 交互动画 | 悬停 jumping / 拖动 running | ✅ 已对齐（悬停/拖动动画） |
 | 12 | 点击宠物展开 | 点击精灵 → Stage 2 | ✅ 已对齐 |
 | 13 | 窗口属性 | transparent / alwaysOnTop / 全空间 | ⚠️ 已 alwaysOnTop；全空间仅 darwin/linux（Windows 无此概念） |
-| 14 | 菜单大小控件 | 点按钮不关菜单连续点击 | ⚠️ 托盘顺序、百分比、±5%、宠物子菜单和平台状态文案已对齐；原生 Electron 菜单无法承载不关闭的自定义控件 |
-| 15 | 任务历史持久化 | task-history.json + 去重 + 12 条上限 | ✅ 已对齐（共享 task-history.json，字段兼容） |
+| 14 | 菜单大小控件 | 点按钮不关菜单连续点击 | ⚠️ 托盘顺序、百分比、±5%、切换/安装/导入/删除/刷新和平台文案已对齐；原生 Electron 菜单无法承载不关闭的自定义控件 |
+| 15 | 任务历史持久化 | task-history.json + 去重 + 12 条上限 + 终态 24h TTL | ✅ 已对齐（共享字段；Electron 独立 wall-clock timer，不依赖新快照） |
 | 16 | 托盘生命周期 | 显示/隐藏、打开配置、常驻、退出清理 | ✅ 已对齐（单实例；关闭窗口不退出；托盘点击切换） |
-| 17 | 宠物选择与删除 | 按 bundle URL 精确操作，删除当前后回退 | ✅ 已对齐（规范 bundle 路径；事务锁；一次刷新） |
+| 17 | 宠物选择与删除 | 按 bundle URL 精确操作，删除/外部失效后回退 | ✅ 已对齐（规范路径；refresh 同闸门；外部删除/安装后重新发现并持久化） |
 | 18 | 首启与图集 | 首只发现宠物；按实际 atlas cell 排版 | ✅ 已对齐（失效配置回退；动态 8×9/11 图集；元数据/图片不一致则占位） |
 | 19 | 本地导入能力 | AppKit/ImageIO 多格式导入 | ⚠️ macOS 可用；Windows/Linux 明示禁用，标准包安装可用 |
 
@@ -390,4 +390,4 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 > - **#13 全空间**：Windows 无「所有 Space 可见」概念。
 > - **#14 大小控件位置**：Electron 托盘显示 AppKit 同口径百分比和 ±5%，管理窗口也可调节；但原生托盘菜单不支持 AppKit 那种不关菜单的自定义视图。
 > - 等待态时钟、运行/思考 spinner、完成勾、失败叹号与深浅色卡片已按 AppKit 绘制逻辑对齐。
-> - 任务生命周期：Electron 与 AppKit 都会持久化清理僵尸任务——平台 idle 时清空活跃记录、会话切换时清空非当前活跃记录，只保留 done/failed 与当前/并发任务；合并时保留 sourcePath/terminalBinding 等定位字段。Electron 的纯 reducer 通过三平台 Node 测试覆盖 canonical ID、12/100 上限、24 小时 TTL、隐藏复活和定位字段继承。
+> - 任务生命周期：Electron 与 AppKit 都会在典型 idle/no-task 快照清空活跃记录、会话切换时清空非当前活跃记录，只保留 done/failed 与当前/并发任务；隐藏最后一条活跃任务后，两端都从可见状态重算宠物动画。Electron 合并时保留 sourcePath/terminalBinding，并用独立 wall-clock timer 执行 24 小时 TTL；三平台 Node 测试覆盖 canonical ID、12/100 上限、时间戳保持、隐藏复活和定位字段继承。

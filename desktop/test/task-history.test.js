@@ -4,9 +4,9 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const {
   APPLE_REF_MS, DONE_TTL_SECONDS, accumulateTaskHistory, canonicalID, dismissPlatformHistory,
-  dismissTaskHistory, sessionDisplayName
+  dismissTaskHistory, expireTaskHistory, sessionDisplayName
 } = require('../src/task-history')
-const { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayRows } = require('../src/tray-menu')
+const { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows } = require('../src/tray-menu')
 
 function state(platforms = {}, dismissed = [], hidden = {}) { return { platforms, dismissed, hidden } }
 function task(sessionID, phase, title = sessionID, extra = {}) {
@@ -67,6 +67,19 @@ test('terminal cards expire after 24 hours and dismissed IDs cap at 100', () => 
   assert.deepEqual(value.dismissed.slice(-2), ['codex|done', 'codex|failed'])
 })
 
+test('unchanged terminal snapshots preserve completion time and wall-clock expiry works without a new snapshot', () => {
+  const started = APPLE_REF_MS + 300000 * 1000
+  const value = state()
+  const done = snapshot('codex', 'done', [task('same', 'done')])
+  accumulateTaskHistory(value, done, started)
+  const completedAt = value.platforms.codex[0].updatedAt
+  accumulateTaskHistory(value, done, started + (DONE_TTL_SECONDS - 60) * 1000)
+  assert.equal(value.platforms.codex[0].updatedAt, completedAt)
+  assert.equal(expireTaskHistory(value, started + (DONE_TTL_SECONDS + 1) * 1000), true)
+  assert.deepEqual(value.platforms.codex, [])
+  assert.ok(value.dismissed.includes('codex|same'))
+})
+
 test('manual hidden tasks stay hidden until their title changes', () => {
   const value = state({}, [], { 'codex|same': 'same title' })
   accumulateTaskHistory(value, snapshot('codex', 'running', [task('same', 'running', 'same title')]))
@@ -108,6 +121,10 @@ test('tray menu text matches AppKit action, grapheme, scale, and pet rows', () =
   ])
   assert.equal(scalePercentText(112 / 192), '100%')
   assert.equal(scalePercentText((112 / 192) + 0.05), '109%')
+  assert.deepEqual(petTrayActionTitles(true), {
+    install: '从 GitHub 安装宠物…', importLocal: '导入本地宠物…', deletePet: '删除宠物…', refresh: '刷新宠物目录'
+  })
+  assert.equal(petTrayActionTitles(false).importLocal, '导入本地宠物（仅 macOS）')
   assert.deepEqual(petTrayRows([{ displayName: 'Boba', directoryPath: '/pets/boba', current: true }], [{ displayName: '奶龙', slug: 'nai-long-2' }]), {
     installed: [{ kind: 'installed', label: 'Boba', current: true, target: '/pets/boba' }],
     pending: [{ kind: 'default', label: '奶龙', source: 'nai-long-2' }]

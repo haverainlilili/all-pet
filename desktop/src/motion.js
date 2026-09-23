@@ -13,5 +13,14 @@
       rotatesPlatforms: !reduceMotion && stageIsCollapsed && unfinishedPlatformCount > 1
     }
   }
-  return { plan }
+  function animationForStatuses(statuses) {
+    const phases = (Array.isArray(statuses) ? statuses : []).map(item => String(item && item.phase || 'idle'))
+    if (phases.includes('failed')) return 'failed'
+    if (phases.some(phase => phase === 'running' || phase === 'thinking')) return 'running'
+    if (phases.includes('waiting')) return 'waiting'
+    if (phases.includes('done')) return 'review'
+    return 'idle'
+  }
+
+  return { animationForStatuses, plan }
 })

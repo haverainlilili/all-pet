@@ -65,6 +65,10 @@ function createOperationGate(onChange) {
   }
 }
 
+async function runSerializedPetRefresh(gate, refresh) {
+  return gate.run('刷新宠物', refresh)
+}
+
 async function finishMutationRefresh(options) {
   try {
     await options.refresh()
@@ -110,5 +114,6 @@ module.exports = {
   petCapabilities,
   petMutationTarget,
   preservedWindowBounds,
+  runSerializedPetRefresh,
   spriteSizeForPet
 }

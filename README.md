@@ -25,10 +25,10 @@ The pattern is consistent: **each model is strongest inside its own harness.** S
 - **One pet, four platforms** — natively reads Codex, Claude Code / Desktop, DSH, and Grok task state from your local session logs (no accounts, no API keys).
 - **Live state animation** — the pet switches between idle / running / waiting / done / failed as tasks progress.
 - **Task bubbles** — three levels (summary → platform → session); each platform uses its own brand colors.
-- **Wake & strong-wake** — click a bubble to focus the original task; if the app was closed, confirm and it reopens to the same task.
-- **Cross-platform CLI** — `status` / `watch` / `self-test` build on macOS, Linux, and Windows.
-- **Cross-platform desktop shell** — an Electron shell (`desktop/`) shows the pet and a graphical pet manager (switch / install / import / delete pets) on Windows, Linux, and macOS.
-- **Bring your own pet** — one-command install from GitHub, or import local Codex / OpenPets / cc-haha / clawd-on-desk / LingChat / single-image pets.
+- **Safe task wake** — verified Codex Desktop sessions use a deep-link handoff; unsupported CLI/Claude/Grok targets fail closed instead of duplicating work, and DSH can explicitly open its base page.
+- **Cross-platform CLI** — `status` / `watch` build on macOS, Linux, and Windows; the AppKit-dependent full `self-test` currently runs on macOS.
+- **Cross-platform desktop shell** — an Electron shell (`desktop/`) shows the pet and a graphical pet manager on Windows, Linux, and macOS; local multi-format conversion is currently macOS-only, while standard package install/switch/delete works across platforms.
+- **Bring your own pet** — install standard packages from GitHub on every supported OS; macOS can additionally import and normalize local Codex / OpenPets / cc-haha / clawd-on-desk / LingChat / single-image pets.
 - **Pet Authoring Kit** — a guided kit ([`宠物生成标准包/`](./宠物生成标准包/README.md)) to make a pet from scratch: a character design guide, per-state text-to-image prompt templates, and Python scripts that assemble / validate / package a standard 8×11 spritesheet into an importable `pet.json` + `spritesheet.webp`.
 
 ## Quick start
@@ -41,7 +41,7 @@ Grab the latest from [GitHub Releases](https://github.com/haverainlilili/all-pet
 - **Windows** — `AllPet-Setup-<version>.exe`
 - **Linux** — `AllPet-<version>.AppImage` or `allpet-desktop_<version>_amd64.deb`
 
-Installers bundle the Swift core and 4 built-in pets, so no Node.js, Swift, or extra pet downloads are needed. (macOS builds are currently unsigned — right-click → Open on first launch.)
+Current-source packaging bundles the Swift core, runtime closure, and built-in pet resources, so no Node.js or Swift installation is needed. The published v1.3.0 macOS ZIP has a known missing-resource defect that is fixed on `main` but not retroactively; macOS builds are currently unsigned, so use right-click → Open on first launch.
 
 ### Choose the correct installer — humans and AI agents
 
@@ -80,13 +80,14 @@ For the cross-platform Electron shell, rebuild the Swift sidecar and run/package
 
 ### 平台说明（Windows / Linux）
 
-Electron 壳在三个平台的功能一致（气泡、托盘、拖拽、缩放、宠物管理），差异仅在平台能力：
+Electron 壳在三个平台共享气泡、拖拽、缩放和标准宠物包管理代码，但仍受操作系统、桌面环境和底层导入能力限制：
 
 - **透明窗口**：Windows / macOS 原生支持；Linux 需要桌面合成器（compositor，Wayland 或带合成器的 X11），无合成器时宠物背景会显示为黑色。
 - **托盘图标**：Windows / macOS 原生支持；Linux 的 GNOME 默认无系统托盘，需安装 AppIndicator 扩展（KDE / XFCE 等桌面自带）。
 - **全空间置顶**：仅 macOS / Linux 支持「所有工作区可见」，Windows 无此概念（自动跳过）。
-- **唤醒平台**：macOS 用 `open -a`；Windows / Linux 直接调用 `codex` / `claude` / `grok` 命令，需这些 CLI 在 `PATH` 中。DSH 三平台都打开 `http://127.0.0.1:3080`。
-- **原生 GUI**：仅 macOS 提供（AppKit）；Windows / Linux 使用 Electron 壳 + Swift core sidecar，功能等价，仅「唤醒终端会话」是 macOS 独有（见 `docs/macOS-behavior.md` #10）。Claude Desktop 会话无法被任何平台精确唤醒（上游无此深链），三端都只能打开应用、手动选择会话。
+- **任务唤醒**：仅来源明确的 Codex Desktop 会话尝试 `codex://` 深链；CLI、Claude 和 Grok 在没有安全精确定位能力时 fail-closed，DSH 只提供明确选择的基页打开，不宣称已聚焦原会话。
+- **本地导入**：AppKit/ImageIO 多格式转换目前仅 macOS 可用；Windows/Linux 入口会明确禁用，但仍可安装标准宠物包。
+- **原生 GUI**：仅 macOS 提供 AppKit GUI；Windows/Linux 使用 Electron 壳 + Swift core sidecar。两者的可移植行为对齐，原生托盘自定义视图、Spaces 和精确终端会话聚焦仍按平台降级（见 `docs/macOS-behavior.md`）。
 
 ### Build from source
 

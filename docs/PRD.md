@@ -446,7 +446,7 @@ macOS 精确唤起可能需要：
 - 从 Petdex / Awesome Codex Pet 远程安装；
 - 输入预设 ID 或 GitHub URL 安装；
 - 从本地文件/目录导入兼容宠物；
-- Electron 的 set/delete/install/import 进入同一事务锁：操作中禁用冲突控件，完成后一次性刷新精灵、管理器和托盘；
+- Electron 的 set/delete/install/import/refresh 进入同一事务锁：操作中禁用冲突控件，完成后一次性刷新精灵、管理器和托盘；显式刷新会修复外部删除或失效的当前选择；
 - AppKit 在菜单创建前校验并持久化当前宠物：fresh/stale `bundlePath` 回退第一只有效宠物；disabled 时持有隐藏窗口，无宠物后首次安装/选择可立即挂载而无需重启；
 - AppKit 的 install/import/select/delete/refresh 进入同一操作闸门：忙碌期间禁用冲突操作和大小调整，结束后统一恢复、重新发现目录和更新菜单；
 - 切换/删除使用规范化 bundle 路径，避免重复 ID 或子串 ID 误操作另一只宠物；
@@ -495,7 +495,7 @@ macOS 精确唤起可能需要：
 - 显示/隐藏宠物；点击托盘图标同样切换可见性；
 - 打开宠物管理窗口、打开配置；
 - 按 AppKit 顺序显示大小百分比、宠物子菜单、四个平台状态、配置与退出；平台状态包含最多 28 个字符的当前动作；
-- 宠物子菜单可直接切换已安装宠物、安装未安装默认宠物，并进入完整管理器或刷新目录；
+- 宠物子菜单可直接切换/删除已安装宠物、安装未安装默认宠物、进入 GitHub 安装或本地导入入口，并进入完整管理器或刷新目录；删除确认显示规范化 bundle 路径；
 - 托盘提供 ±5%，管理窗口也提供大小调整；原生托盘菜单无法承载 macOS 同类自定义连续控件；
 - Electron 使用单实例、托盘常驻生命周期；关闭窗口不会退出，退出时只清理一次 watcher 和重启计时器。
 
@@ -628,7 +628,7 @@ macOS 精确唤起可能需要：
 - 日志缺失时平台进入 idle，不应导致全局崩溃；
 - 单个平台失败不影响其它平台快照；
 - 任务定位失败时保留气泡；
-- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 14 项宠物选择、操作闸门、持久化、窗口夹紧和降低动态效果契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 42 项 Node 测试（含动态降低动态效果、任务历史、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、管理器和生命周期截图。
+- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 14 项宠物选择、操作闸门、持久化、窗口夹紧和降低动态效果契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、idle/no-task 僵尸清理、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 45 项 Node 测试（含 wall-clock 24 小时 TTL、可见任务动画、动态降低动态效果、任务历史、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、真实 reduced-motion、管理器和生命周期截图。
 
 ### 9.3 隐私与安全
 

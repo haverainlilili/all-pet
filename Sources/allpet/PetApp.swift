@@ -187,6 +187,18 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 object: NSWorkspace.shared
             )
             let observesMotionChanges = self.accessibilityChangeCount == motionChangeCount + 1
+            let runningStatus = PlatformStatus(
+                platform: .codex, phase: .running, detail: "running", lastActivityAt: Date(),
+                activeSessions: 1, enabled: true,
+                task: TaskInfo(title: "smoke", action: "running", sessionID: "idle-prune-smoke", phase: .running)
+            )
+            self.taskHistory[.codex] = [TrayTaskItem(status: runningStatus)]
+            let idleStatus = PlatformStatus(
+                platform: .codex, phase: .idle, detail: "idle", lastActivityAt: nil,
+                activeSessions: 0, enabled: true
+            )
+            _ = self.updateTaskTray([idleStatus])
+            let idlePrunesActiveHistory = self.taskHistory[.codex]?.isEmpty != false
             self.window?.orderOut(nil)
             let hidden = self.window?.isVisible == false
             if !ownsWindow,
@@ -222,6 +234,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 "operationUnlocked": !self.petOperationInProgress,
                 "windowWithinWorkArea": windowWithinWorkArea,
                 "observesMotionChanges": observesMotionChanges,
+                "idlePrunesActiveHistory": idlePrunesActiveHistory,
                 "bundlePath": self.config.pet.bundlePath ?? "",
                 "petID": self.bundle?.manifest.id ?? ""
             ]
@@ -728,16 +741,6 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         for status in statuses where status.enabled {
             var display = inferredTerminalStatus(from: status) ?? status
 
-            guard display.task?.isEmpty == false else {
-                displayStatuses.append(display)
-                continue
-            }
-            let item = TrayTaskItem(status: display)
-            guard item.sessionID?.isEmpty == false else {
-                display.task = nil
-                displayStatuses.append(display)
-                continue
-            }
             // 空闲（idle）：平台已无活动，历史里的活跃任务（running/thinking/waiting）随之清空，
             // 只保留终态 done/failed 完成卡片；否则任务结束后气泡仍残留「等待中/思考中」卡片。
             // 空闲任务的 sourcePath 不再需要（任务已结束、不可再唤醒），done/failed 仍保留供查看后 dismiss。
@@ -749,6 +752,17 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                         shouldPersistHistory = true
                     }
                 }
+                displayStatuses.append(display)
+                continue
+            }
+
+            guard display.task?.isEmpty == false else {
+                displayStatuses.append(display)
+                continue
+            }
+            let item = TrayTaskItem(status: display)
+            guard item.sessionID?.isEmpty == false else {
+                display.task = nil
                 displayStatuses.append(display)
                 continue
             }

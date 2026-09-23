@@ -71,11 +71,8 @@
   }
 
   function drawPlaceholder() {
+    // AppKit 在无可用宠物时不绘制替代精灵；若窗口此前存在，只保留透明任务托盘。
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.font = '72px sans-serif'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText('🐾', canvas.width / 2, canvas.height / 2)
   }
 
   function tick(now) {
@@ -521,8 +518,8 @@
     }
   }
 
-  function renderBubble() {
-    const data = buildData()
+  function renderBubble(providedData) {
+    const data = providedData || buildData()
     if (!data.hasNotification) {
       bubble.replaceChildren()
       bubble.className = 'hidden'
@@ -542,6 +539,8 @@
     else if (bubbleStage === 'platforms') renderPlatforms(data)
     else renderTasks(data)
     syncRotationTimer(data)
+    bubble.dataset.reduceMotion = String(reduceMotion)
+    bubble.dataset.rotationIndex = String(rotationIndex)
     reportBubbleSize()
   }
 
@@ -619,11 +618,6 @@
     else if (kind === 'task') wakeTask(target.dataset.id, target.dataset.platform)
   })
 
-  function updateBubble(snap) {
-    currentSnapshot = snap
-    renderBubble()
-  }
-
   function onPet(payload) {
     const isLatest = petLoadGate.begin()
     if (!payload || !payload.ok) {
@@ -676,8 +670,10 @@
 
   function onSnapshot(snap) {
     currentSnapshot = snap
-    setStatusAnimation(snap.animation || 'idle')
-    updateBubble(snap)
+    const data = buildData()
+    const visibleAnimation = window.petMotion.animationForStatuses(data.groups.map(group => group.status))
+    setStatusAnimation(visibleAnimation)
+    renderBubble(data)
   }
 
   // ---- 精灵交互（对齐 macOS SpriteView：悬停 jumping、拖动 running、点击展开）----

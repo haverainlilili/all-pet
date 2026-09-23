@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { plan } = require('../src/motion')
+const { animationForStatuses, plan } = require('../src/motion')
 
 test('reduced motion freezes status spinner and collapsed platform rotation', () => {
   assert.deepEqual(plan({ reduceMotion: true, stageIsCollapsed: true, hasActiveTask: true, unfinishedPlatformCount: 3 }), {
@@ -18,4 +18,11 @@ test('normal motion rotates only the collapsed multi-platform stack', () => {
     spinsStatus: true,
     rotatesPlatforms: false
   })
+})
+
+
+test('visible statuses alone drive pet animation after task dismissal', () => {
+  assert.equal(animationForStatuses([{ phase: 'idle' }]), 'idle')
+  assert.equal(animationForStatuses([{ phase: 'done' }, { phase: 'waiting' }]), 'waiting')
+  assert.equal(animationForStatuses([{ phase: 'running' }, { phase: 'failed' }]), 'failed')
 })

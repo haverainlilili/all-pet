@@ -36,8 +36,7 @@ function trimDismissed(state) {
   if (state.dismissed.length > 100) state.dismissed = state.dismissed.slice(-100)
 }
 
-function accumulateTaskHistory(state, snap, nowMilliseconds = Date.now()) {
-  let changed = false
+function expireTaskHistory(state, nowMilliseconds = Date.now()) {
   const nowAppleSeconds = (nowMilliseconds - APPLE_REF_MS) / 1000
   const expired = new Set()
   for (const list of Object.values(state.platforms)) {
@@ -49,12 +48,17 @@ function accumulateTaskHistory(state, snap, nowMilliseconds = Date.now()) {
       }
     }
   }
-  if (expired.size) {
-    for (const [platform, list] of Object.entries(state.platforms)) {
-      state.platforms[platform] = (list || []).filter(item => !expired.has(item.id))
-    }
-    changed = true
+  if (!expired.size) return false
+  for (const [platform, list] of Object.entries(state.platforms)) {
+    state.platforms[platform] = (list || []).filter(item => !expired.has(item.id))
   }
+  trimDismissed(state)
+  return true
+}
+
+function accumulateTaskHistory(state, snap, nowMilliseconds = Date.now()) {
+  let changed = expireTaskHistory(state, nowMilliseconds)
+  const nowAppleSeconds = (nowMilliseconds - APPLE_REF_MS) / 1000
 
   for (const platformStatus of snap && snap.platforms || []) {
     const platform = platformStatus.platform
@@ -112,8 +116,11 @@ function accumulateTaskHistory(state, snap, nowMilliseconds = Date.now()) {
       }
       const existingIndex = list.findIndex(existing => existing.id === item.id)
       if (existingIndex >= 0) {
-        if (!(list[existingIndex].phase === 'done' && item.phase === 'idle')) {
-          list[existingIndex] = mergeDefined(list[existingIndex], item)
+        const previous = list[existingIndex]
+        const sameTerminalPhase = (item.phase === 'done' || item.phase === 'failed') && previous.phase === item.phase
+        if (sameTerminalPhase && previous.updatedAt) item.updatedAt = previous.updatedAt
+        if (!(previous.phase === 'done' && item.phase === 'idle')) {
+          list[existingIndex] = mergeDefined(previous, item)
           changed = true
         }
       } else {
@@ -168,5 +175,5 @@ function dismissPlatformHistory(state, platform, liveStatus) {
 
 module.exports = {
   APPLE_REF_MS, DONE_TTL_SECONDS, accumulateTaskHistory, canonicalID, dismissPlatformHistory,
-  dismissTaskHistory, sessionDisplayName
+  dismissTaskHistory, expireTaskHistory, sessionDisplayName
 }

@@ -15,6 +15,9 @@ const importBtn = document.getElementById('importBtn')
 const installBtn = document.getElementById('installBtn')
 
 let busy = false
+let localSubmitting = false
+let operationBusy = false
+let operationLabel = ''
 const loadGate = window.latestCommit.createLatestGate()
 let importLocalSupported = true
 let importLocalReason = ''
@@ -30,30 +33,40 @@ function setStatus(msg, isError) {
   statusEl.style.color = isError ? '#ff3b30' : '#888'
 }
 
-function setBusy(nextBusy, label) {
-  busy = Boolean(nextBusy)
+function syncBusy(label) {
+  busy = localSubmitting || operationBusy
   document.body.classList.toggle('operation-busy', busy)
   for (const button of document.querySelectorAll('button')) button.disabled = busy
   importBtn.disabled = busy || !importLocalSupported
   importBtn.title = importLocalSupported ? '' : importLocalReason
-  if (busy && label) setStatus(`正在${label}…`)
+  const currentLabel = label || operationLabel
+  if (busy && currentLabel) setStatus(`正在${currentLabel}…`)
+}
+
+function setOperationBusy(nextBusy, label) {
+  operationBusy = Boolean(nextBusy)
+  operationLabel = operationBusy ? String(label || operationLabel || '') : ''
+  syncBusy()
 }
 
 async function mutate(label, operation) {
   if (busy) return
-  setBusy(true, label)
+  localSubmitting = true
+  syncBusy(label)
   try {
     const result = await operation()
     if (result && result.ok) setStatus(result.message || `${label}完成`)
     else if (result && result.canceled) setStatus('')
     else if (result && result.changed) setStatus(result.error || `${label}已执行，但状态刷新失败。`, true)
     else setStatus(`${label}失败：${result && result.error || '未知错误'}`, true)
+    if (result && result.busy) await load({ preserveStatus: true })
     return result
   } catch (err) {
     setStatus(`${label}失败：${String(err && err.message || err)}`, true)
     return { ok: false }
   } finally {
-    setBusy(false)
+    localSubmitting = false
+    syncBusy()
   }
 }
 
@@ -123,7 +136,7 @@ async function load(options = {}) {
   importLocalSupported = capabilities.importLocal !== false
   importLocalReason = capabilities.importLocalReason || ''
   importBtn.textContent = importLocalSupported ? '导入本地宠物…' : '导入本地宠物（仅 macOS）'
-  setBusy(Boolean(result.operation && result.operation.busy), result.operation && result.operation.label)
+  setOperationBusy(Boolean(result.operation && result.operation.busy), result.operation && result.operation.label)
   if (!options.preserveStatus && !busy) setStatus('')
   renderPets(result.pets || [])
   renderDefaults(result.defaults || [])
@@ -167,7 +180,7 @@ function renderPets(pets) {
     del.onclick = async (e) => {
       e.stopPropagation()
       if (busy) return
-      const yes = await confirmModal(`删除宠物「${p.displayName}」？此操作不可撤销。`)
+      const yes = await confirmModal(`删除宠物「${p.displayName}」？\n${p.target || p.id}\n此操作不可撤销。`)
       if (!yes) return
       await mutate('删除宠物', () => window.petAPI.deletePet(p.target || p.id))
     }
@@ -240,7 +253,11 @@ sizeIncEl.onclick = async () => {
 window.petAPI.onPetsChanged(() => load({ preserveStatus: true }))
 window.petAPI.onPetOperation((state) => {
   if (state && state.busy) loadGate.invalidate()
-  setBusy(state && state.busy, state && state.label)
+  setOperationBusy(state && state.busy, state && state.label)
+})
+window.petAPI.onPetManagerAction((action) => {
+  if (action === 'install') installBtn.click()
+  else if (action === 'import' && importLocalSupported) importBtn.click()
 })
 refreshScale()
 load()

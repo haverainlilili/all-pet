@@ -25,8 +25,8 @@ npm start
 
 ## 说明
 
-- 精灵动画的行号与帧时长与 `Sources/AllPetCore/PetAnimation.swift` 保持一致（8 列图集，cell 192×208）。
-- 唤起（打开 Codex/Claude/Grok/DSH）目前是各平台尽力实现（macOS `open`、Windows `start`/CLI、Linux `xdg-open`/CLI），后续可细化。
+- 精灵动画的行号与帧时长与 `Sources/AllPetCore/PetAnimation.swift` 保持一致；图集列数、行数和 cell 尺寸从已验证的宠物元数据动态读取。
+- 精确任务唤起采用 fail-closed：仅来源明确的 Codex Desktop 会话尝试深链；Claude/Grok/CLI 不复制任务，DSH 只在用户明确选择时打开基页。
 - 调试截图：`ALLPET_SCREENSHOT=/tmp/shot.png npm start`，启动 5s 后截图退出。
 
 ## 打包安装包
@@ -34,15 +34,17 @@ npm start
 打包会先把 Swift 核心（`allpet`）放进 `sidecar/`，再用 electron-builder 出对应平台安装包：
 
 ```bash
-# 1. 构建 Swift 核心
-cd .. && swift build -c release --disable-sandbox
+# 1. 构建自包含 Swift sidecar
+swift build -c release --static-swift-stdlib
 
-# 2. 复制 sidecar 二进制
-mkdir -p desktop/sidecar
-cp .build/release/allpet desktop/sidecar/allpet   # Windows 复制 allpet.exe
+# 2. 按当前平台复制二进制、SwiftPM 资源和 Windows runtime DLL，并验证闭包
+node desktop/scripts/prepare-sidecar.js
+node desktop/scripts/verify-sidecar.js
 
 # 3. 打包（macOS 出 dmg+zip / Linux 出 AppImage+deb / Windows 出 nsis exe）
-cd desktop && npm ci && npx electron-builder --publish never
+cd desktop
+npm ci
+npx electron-builder --publish never
 ```
 
 产物在 `desktop/dist/`。应用图标来自 `desktop/build/icon.png`（1024×1024，打包时自动转 icns/ico）。

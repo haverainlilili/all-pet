@@ -41,6 +41,15 @@ function scalePercentText(scale) {
   return `${Math.round(value / defaultScale * 100)}%`
 }
 
+function petTrayActionTitles(importLocalSupported) {
+  return {
+    install: '从 GitHub 安装宠物…',
+    importLocal: importLocalSupported ? '导入本地宠物…' : '导入本地宠物（仅 macOS）',
+    deletePet: '删除宠物…',
+    refresh: '刷新宠物目录'
+  }
+}
+
 function petTrayRows(pets, defaults) {
   const installed = (Array.isArray(pets) ? pets : []).map(item => ({
     kind: 'installed',
@@ -56,4 +65,4 @@ function petTrayRows(pets, defaults) {
   return { installed, pending }
 }
 
-module.exports = { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayRows }
+module.exports = { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows }
