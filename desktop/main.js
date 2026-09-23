@@ -1276,7 +1276,15 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   // CI：验证托盘 show/hide 与缩放后拖动位置保持，不依赖人工点击。
   if (process.env.ALLPET_LIFECYCLE_SMOKE) {
     const target = process.env.ALLPET_LIFECYCLE_SMOKE
-    setTimeout(() => {
+    const runLifecycleSmoke = (attempt = 0) => {
+      const expectedDSHTitle = process.env.ALLPET_EXPECT_DSH_TASK_TITLE
+      const pendingDSH = currentSnapshot && Array.isArray(currentSnapshot.platforms)
+        ? currentSnapshot.platforms.find(item => item && item.platform === 'dsh') : null
+      const pendingDSHTitle = pendingDSH && pendingDSH.task && pendingDSH.task.title || null
+      if (expectedDSHTitle && pendingDSHTitle !== expectedDSHTitle && attempt < 20) {
+        setTimeout(() => runLifecycleSmoke(attempt + 1), 500)
+        return
+      }
       try {
         const initiallyVisible = mainWindow.isVisible()
         hidePet()
@@ -1309,7 +1317,6 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
         }
         fs.writeFileSync(target, JSON.stringify(result, null, 2))
         const expectedHiddenStart = process.env.ALLPET_EXPECT_HIDDEN_START === '1'
-        const expectedDSHTitle = process.env.ALLPET_EXPECT_DSH_TASK_TITLE
         if ((expectedHiddenStart && initiallyVisible) || !hidden || !shown || !result.petID || !result.preserved
             || (expectedDSHTitle && result.dshTaskTitle !== expectedDSHTitle)) {
           throw new Error(`lifecycle smoke mismatch: ${JSON.stringify(result)}`)
@@ -1321,7 +1328,8 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
         cleanupLifecycle()
         app.exit(1)
       }
-    }, 1500)
+    }
+    setTimeout(runLifecycleSmoke, 1500)
   }
 
   // 调试：ALLPET_PET_MANAGER_SCREENSHOT=/path.png 时，打开宠物管理窗口并截图退出。
