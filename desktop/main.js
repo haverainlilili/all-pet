@@ -7,13 +7,17 @@ const fs = require('fs')
 const os = require('os')
 const { pathToFileURL } = require('url')
 const {
-  failedExternalWakePlan, isTrustedMainFrame, mergeDefined, pickLaunchCandidate, platformLabel,
+  failedExternalWakePlan, isTrustedMainFrame, pickLaunchCandidate, platformLabel,
   platformLaunchSpec, rendererSnapshot, runCommandLauncher, wakePlanForTask
 } = require('./src/wake')
 const {
   attachRestartOnClose, chooseCurrentPet, createOperationGate, expandHomePath, finishMutationRefresh, petCapabilities, petMutationTarget,
   preservedWindowBounds, spriteSizeForPet
 } = require('./src/pet-state')
+const {
+  APPLE_REF_MS, accumulateTaskHistory, canonicalID, dismissPlatformHistory, dismissTaskHistory, sessionDisplayName
+} = require('./src/task-history')
+const { platformMenuTitles, scalePercentText, petTrayRows } = require('./src/tray-menu')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).href
@@ -199,33 +203,8 @@ let manuallyHiddenTaskTitles = {} // 非终态手动隐藏：同一标题保持�
 let dragStartScreen = null  // 精灵拖动起点（屏幕坐标）
 let dragStartPosition = null // 拖动开始时窗口位置
 
-const APPLE_REF_MS = Date.UTC(2001, 0, 1) // macOS Codable Date 基准：2001-01-01
-
 function historyURL() {
   return path.join(os.homedir(), '.config', 'all-pet', 'task-history.json')
-}
-
-function isUUID(s) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s || '')
-}
-
-// 与 macOS TrayTaskItem.canonicalID 对齐：定时任务按名归并，其余按 sessionID（空则 title）。
-function canonicalID(platform, task) {
-  if (task.scheduledTaskName) return `${platform}|scheduled:${task.scheduledTaskName}`
-  let identity = (task.sessionID || '').length ? task.sessionID : (task.title || '').trim()
-  if (platform === 'dsh' && isUUID(identity)) identity = 'session-' + identity
-  return `${platform}|${identity || 'current'}`
-}
-
-// 与 macOS TrayTaskItem.sessionDisplayName 对齐。
-function sessionDisplayName(item) {
-  if (item.scheduledTaskName) return `定时任务 · ${item.scheduledTaskName}`
-  if (item.sessionName && item.sessionName.trim()) return item.sessionName.trim()
-  if (item.sessionID) {
-    const v = item.sessionID.indexOf('session-') === 0 ? item.sessionID.slice(8) : item.sessionID
-    return `会话 ${String(v).slice(0, 8)}`
-  }
-  return '未命名会话'
 }
 
 function loadHistory() {
@@ -249,105 +228,21 @@ function persistHistory() {
   }
 }
 
-// 从快照累积任务历史（对齐 macOS：idle 清理活跃任务、会话切换清理旧会话，done/failed 终态保留）。
-function accumulateHistory(snap) {
-  let changed = false
-  // 完成/失败卡片超时自动消失（对齐 macOS doneBubbleTTL = 86400 秒 = 24 小时）。
-  const DONE_TTL_S = 86400
-  const nowAppleS = (Date.now() - APPLE_REF_MS) / 1000
-  for (const list of Object.values(taskHistory)) {
-    for (const item of list) {
-      if ((item.phase === 'done' || item.phase === 'failed')
-          && !dismissedTaskIDs.includes(item.id)
-          && (nowAppleS - (item.updatedAt || 0)) > DONE_TTL_S) {
-        dismissedTaskIDs.push(item.id)
-        changed = true
-      }
-    }
-  }
-  for (const p of snap.platforms || []) {
-    if (p.phase === 'idle') {
-      // 对齐 macOS：平台空闲时清空活跃任务（running/thinking/waiting），只保留 done/failed 完成卡片。
-      const list = taskHistory[p.platform] || []
-      const kept = list.filter(x => x.phase === 'done' || x.phase === 'failed')
-      if (kept.length !== list.length) {
-        taskHistory[p.platform] = kept
-        changed = true
-      }
-      continue
-    }
+// 从快照累积任务历史。纯 reducer 由三平台 Node 测试覆盖，主进程只负责持久化。
+function mutableHistoryState() {
+  return { platforms: taskHistory, dismissed: dismissedTaskIDs, hidden: manuallyHiddenTaskTitles }
+}
 
-    // 多会话并存：逐个累积（仅主任务执行「会话切换」清理，其余任务在清理后重新加回）。
-    const tasks = (p.tasks && p.tasks.length) ? p.tasks : (p.task ? [p.task] : [])
-    for (let i = 0; i < tasks.length; i++) {
-      const t = tasks[i]
-      if (!t || !(t.sessionID || t.scheduledTaskName)) continue
-      const currentID = canonicalID(p.platform, t)
-      const item = {
-        id: currentID,
-        platform: p.platform,
-        title: (t.title || '').trim() || (t.action || p.detail || ''),
-        sessionName: t.sessionName,
-        action: t.action || p.detail || '',
-        phase: t.phase || p.phase,
-        progress: t.progressLabel,
-        updatedAt: (Date.now() - APPLE_REF_MS) / 1000,
-        sessionID: t.sessionID,
-        sourcePath: t.sourcePath,
-        workingDirectory: t.workingDirectory,
-        processID: t.processID,
-        terminalTTY: t.terminalTTY,
-        terminalBinding: t.terminalBinding,
-        launchOrigin: t.launchOrigin,
-        scheduledTaskName: t.scheduledTaskName
-      }
-      const hiddenTitle = manuallyHiddenTaskTitles[item.id]
-      if (hiddenTitle !== undefined) {
-        if (hiddenTitle === item.title) {
-          const before = taskHistory[p.platform] || []
-          const kept = before.filter(existing => existing.id !== item.id)
-          if (kept.length !== before.length) { taskHistory[p.platform] = kept; changed = true }
-          continue
-        }
-        delete manuallyHiddenTaskTitles[item.id]
-      }
-      // 复活：非终态任务出现新活动时移除旧的终态 dismiss 标记（对齐 macOS）。
-      if (item.phase !== 'done' && item.phase !== 'failed') {
-        const di = dismissedTaskIDs.indexOf(item.id)
-        if (di >= 0) { dismissedTaskIDs.splice(di, 1); changed = true }
-      }
-      // done/failed 且已 dismiss：不再显示、不再入历史。
-      if ((item.phase === 'done' || item.phase === 'failed') && dismissedTaskIDs.includes(item.id)) {
-        continue
-      }
-      // 对齐 macOS：仅主任务清理「非当前活跃记录」，只保留 done/failed 完成卡片与当前任务。
-      // 当前任务的 sourcePath/launchOrigin/terminal 等扩展字段从保留的现有记录继承。
-      let list = taskHistory[p.platform] || []
-      if (i === 0) {
-        const kept = list.filter(x => x.phase === 'done' || x.phase === 'failed' || x.id === item.id)
-        if (kept.length !== list.length) {
-          list = kept
-          changed = true
-        }
-      }
-      const idx = list.findIndex(x => x.id === item.id)
-      if (idx >= 0) {
-        if (!(list[idx].phase === 'done' && item.phase === 'idle')) {
-          // 只覆盖本次快照实际提供的字段；部分监控器省略 locator 时不得擦除旧值。
-          list[idx] = mergeDefined(list[idx], item)
-          changed = true
-        }
-      } else {
-        list.push(item)
-        changed = true
-      }
-      const seen = new Set()
-      list = list.filter(x => (seen.has(x.id) ? false : (seen.add(x.id), true)))
-      list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-      if (list.length > 12) list = list.slice(0, 12)
-      taskHistory[p.platform] = list
-    }
-  }
+function adoptHistoryState(state) {
+  taskHistory = state.platforms
+  dismissedTaskIDs = state.dismissed
+  manuallyHiddenTaskTitles = state.hidden
+}
+
+function accumulateHistory(snap) {
+  const state = mutableHistoryState()
+  const changed = accumulateTaskHistory(state, snap, Date.now())
+  adoptHistoryState(state)
   if (changed) persistHistory()
 }
 
@@ -896,18 +791,9 @@ function registerPetIpc() {
 
   ipcMain.handle('pets:dismissTask', async (event, id) => {
     requireMainFrame(event)
-    const taskId = String(id || '')
-    const platform = taskId.split('|')[0]
-    const task = (taskHistory[platform] || []).find(item => item.id === taskId)
-    if (task) {
-      if (task.phase === 'done') {
-        if (!dismissedTaskIDs.includes(taskId)) dismissedTaskIDs.push(taskId)
-      } else {
-        manuallyHiddenTaskTitles[taskId] = task.title || task.action || ''
-      }
-      taskHistory[platform] = (taskHistory[platform] || []).filter(item => item.id !== taskId)
-    }
-    if (dismissedTaskIDs.length > 100) dismissedTaskIDs = dismissedTaskIDs.slice(-100)
+    const state = mutableHistoryState()
+    dismissTaskHistory(state, String(id || ''))
+    adoptHistoryState(state)
     persistHistory()
     if (currentSnapshot) sendSnapshot(currentSnapshot)
     return { ok: true }
@@ -916,26 +802,10 @@ function registerPetIpc() {
   ipcMain.handle('pets:dismissPlatform', async (event, platform) => {
     requireMainFrame(event)
     const key = String(platform || '')
-    const rememberHidden = (id, title, phase) => {
-      if (!id) return
-      if (phase === 'done') {
-        if (!dismissedTaskIDs.includes(id)) dismissedTaskIDs.push(id)
-      } else {
-        manuallyHiddenTaskTitles[id] = title || ''
-      }
-    }
-    for (const task of taskHistory[key] || []) {
-      rememberHidden(task.id, task.title || task.action, task.phase)
-    }
     const live = currentSnapshot && (currentSnapshot.platforms || []).find(item => item.platform === key)
-    const liveTasks = live ? ((live.tasks && live.tasks.length) ? live.tasks : (live.task ? [live.task] : [])) : []
-    for (const task of liveTasks) {
-      const id = canonicalID(key, task)
-      const title = (task.title || '').trim() || task.action || (live && live.detail) || ''
-      rememberHidden(id, title, task.phase || (live && live.phase))
-    }
-    if (key) taskHistory[key] = []
-    if (dismissedTaskIDs.length > 100) dismissedTaskIDs = dismissedTaskIDs.slice(-100)
+    const state = mutableHistoryState()
+    dismissPlatformHistory(state, key, live)
+    adoptHistoryState(state)
     persistHistory()
     if (currentSnapshot) sendSnapshot(currentSnapshot)
     return { ok: true }
@@ -1017,36 +887,41 @@ async function openConfig() {
   }
 }
 
-function updateTrayMenu() {
-  if (!tray) return
-  const s = currentSnapshot
-  const visible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
-  const template = [
-    { label: visible ? '隐藏宠物' : '显示宠物', click: togglePetVisibility }
-  ]
-  if (s) {
-    template.push({ label: `🐾 ${s.summary}`, enabled: false })
-    template.push({ type: 'separator' })
-    for (const p of s.platforms) {
-      template.push({
-        label: `${p.phaseLabel === '空闲' ? '·' : '●'} ${p.label} — ${p.phaseLabel}`,
-        submenu: [
-          { label: p.bubbleHeader, enabled: false },
-          ...(p.bubbleDetails || []).map(d => ({ label: d, enabled: false })),
-          { type: 'separator' },
-          { label: '打开平台', click: () => launchPlatform(p.platform) }
-        ]
+async function runTrayPetCommand(label, args) {
+  const result = await executePetCommand(label, args)
+  if (result && result.ok) return
+  await dialog.showMessageBox({
+    type: result && result.changed ? 'warning' : 'error',
+    title: result && result.changed ? `${label}已执行` : `${label}失败`,
+    message: result && result.changed ? '宠物目录刷新失败，AllPet 将自动重试。' : `无法${label}`,
+    detail: String(result && result.error || '未知错误'),
+    buttons: ['知道了']
+  })
+}
+
+function petTraySubmenu() {
+  const busy = petOperationState.busy
+  const rows = petTrayRows(petCatalog, petCatalogDefaults)
+  const submenu = rows.installed.map(row => ({
+    label: row.label, type: 'checkbox', checked: row.current,
+    enabled: !busy && !row.current && Boolean(row.target),
+    click: () => runTrayPetCommand('切换宠物', ['pet', 'set', row.target])
+  }))
+  if (!submenu.length) submenu.push({ label: '暂无已安装宠物', enabled: false })
+  if (rows.pending.length) {
+    submenu.push({ type: 'separator' })
+    submenu.push({ label: '未安装的默认宠物', enabled: false })
+    for (const row of rows.pending) {
+      submenu.push({
+        label: row.label, enabled: !busy,
+        click: () => runTrayPetCommand('安装宠物', ['pet', 'install', row.source])
       })
     }
-    template.push({ type: 'separator' })
   }
-  if (petOperationState.busy) template.push({ label: `正在${petOperationState.label}…`, enabled: false })
-  template.push({ label: pet ? `当前宠物：${pet.displayName}` : '当前无可用宠物', enabled: false })
-  template.push({ label: '增大宠物 5%', enabled: Boolean(pet) && !petOperationState.busy, click: () => applyScale(0.05) })
-  template.push({ label: '减小宠物 5%', enabled: Boolean(pet) && !petOperationState.busy, click: () => applyScale(-0.05) })
-  template.push({ label: '宠物管理…', click: () => createPetManagerWindow() })
-  template.push({
-    label: '刷新宠物', enabled: !petOperationState.busy,
+  submenu.push({ type: 'separator' })
+  submenu.push({ label: '宠物管理…', click: () => createPetManagerWindow() })
+  submenu.push({
+    label: '刷新宠物', enabled: !busy,
     click: async () => {
       try { await refreshDesktopState() }
       catch (err) {
@@ -1054,10 +929,31 @@ function updateTrayMenu() {
       }
     }
   })
-  template.push({ label: '打开配置', click: () => openConfig() })
+  submenu.push({ label: '格式：cc-haha · clawd-on-desk · LingChat', enabled: false })
+  return submenu
+}
+
+function updateTrayMenu() {
+  if (!tray) return
+  const snapshot = currentSnapshot
+  const visible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
+  const busy = petOperationState.busy
+  const template = [
+    { label: visible ? '隐藏宠物' : '显示宠物', click: togglePetVisibility },
+    { label: `宠物大小：${scalePercentText(readScale())}`, enabled: false },
+    { label: '减小宠物 5%', enabled: Boolean(pet) && !busy, click: () => applyScale(-0.05) },
+    { label: '增大宠物 5%', enabled: Boolean(pet) && !busy, click: () => applyScale(0.05) },
+    { label: '宠物', submenu: petTraySubmenu() },
+    { type: 'separator' }
+  ]
+  for (const label of platformMenuTitles(snapshot && snapshot.platforms)) {
+    template.push({ label, enabled: false })
+  }
   template.push({ type: 'separator' })
-  template.push({ label: '退出 AllPet', click: () => quit() })
-  tray.setToolTip(petOperationState.busy ? `AllPet · 正在${petOperationState.label}` : `AllPet · ${pet ? pet.displayName : '无宠物'}`)
+  if (busy) template.push({ label: `正在${petOperationState.label}…`, enabled: false })
+  template.push({ label: '打开配置', click: () => openConfig() })
+  template.push({ label: '退出', click: () => quit() })
+  tray.setToolTip(busy ? `AllPet · 正在${petOperationState.label}` : `AllPet · ${pet ? pet.displayName : '无宠物'}`)
   tray.setContextMenu(Menu.buildFromTemplate(template))
 }
 

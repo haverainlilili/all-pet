@@ -8,6 +8,7 @@ const {
 } = require('../src/pet-state')
 const { validatedAtlas } = require('../src/atlas')
 const { createLatestGate } = require('../src/latest')
+const { dragMove, dragRelease } = require('../src/interaction')
 
 test('watch spawn error restarts exactly once from close and never during quit', () => {
   const { EventEmitter } = require('node:events')
@@ -134,6 +135,17 @@ test('renderer accepts exact dynamic atlas geometry and rejects stale metadata',
     validatedAtlas({ columns: 8, rows: 9, cellWidth: 192, cellHeight: 208 }, 2048, 1408),
     { ok: false }
   )
+  assert.deepEqual(validatedAtlas({ columns: 1, rows: 1, cellWidth: 32, cellHeight: 32 }, 32, 32), { ok: false })
+  assert.deepEqual(validatedAtlas({ columns: 8, rows: 10, cellWidth: 192, cellHeight: 208 }, 1536, 2080), { ok: false })
+})
+
+test('sprite drag threshold, direction, click, and hovered release match AppKit', () => {
+  assert.deepEqual(dragMove(2, 3, false), { didDrag: false, animation: null })
+  assert.deepEqual(dragMove(4, 0, false), { didDrag: true, animation: 'running-right' })
+  assert.deepEqual(dragMove(-1, 0, true), { didDrag: true, animation: 'running-left' })
+  assert.deepEqual(dragRelease(true, true), { animation: 'jumping', openPlatforms: false })
+  assert.deepEqual(dragRelease(true, false), { animation: null, openPlatforms: false })
+  assert.deepEqual(dragRelease(false, true), { animation: 'jumping', openPlatforms: true })
 })
 
 test('sprite metrics use each atlas cell instead of fixed 192 by 208', () => {

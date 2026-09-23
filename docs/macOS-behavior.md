@@ -1,7 +1,7 @@
 # AllPet · macOS 平台行为基准文档
 
 > 本文档是 macOS 原生 GUI（`Sources/allpet`）的**权威行为记录**，作为其余平台（Electron 壳 / 后续客户端）对齐「展示 + 交互」的唯一基准。
-> 所有数值、顺序、文案、阈值均逐行核对源码（提交 `9614ac0` 时点）。后续若改 macOS 行为，**必须先改本文档**。
+> 所有数值、顺序、文案、阈值均与本文所在提交的源码逐行核对。后续若改 macOS 行为，**必须同步修改本文档**。
 
 ---
 
@@ -168,7 +168,7 @@ content.height = sprite.height + tray.height + 6
 | **done / failed** | **终态，无条件永久保留**（直到日志出现新活动覆盖） |
 | idle | idle |
 
-> 设计意图：done/failed 是终态，**不会因时间过期而从气泡消失**。
+> 设计意图：done/failed 在阶段分类中是终态，不会因活跃窗口过期而降回 idle；但任务托盘会在 **24 小时 TTL** 后自动移除对应完成/失败卡片。
 
 ### 4.4 多平台聚合（`Aggregator.snapshot`）
 
@@ -275,7 +275,9 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 - 每平台历史**去重**（按 `canonicalID`），最多保留 **12 条**。
 - `dismissedTaskIDs` 最多保留 **100 条**。
 - 过滤规则：合成/占位任务、DSH 子代理任务、DSH 背书的 Codex 任务不入历史。
-- **手动查看后复活**：`wakeTask` 后 15s 内（`manualViewGraceInterval=15`），非 done/failed 且曾被 dismiss 的任务会从隐藏名单移除；done/failed 仍保持 dismiss。
+- **手动隐藏后的复活**：非终态任务保持隐藏，直到同一 canonical ID 的标题发生变化；新的非终态活动也会移除历史 dismissed ID。
+- `manualViewGraceInterval=15` 只用于完成任务的“已手动查看”检测：刚唤起任务后的保护窗口避免误判其他完成任务，刚点中的 pending wake 仍可被识别。
+- 完成/失败卡片最长保留 24 小时，过期后从历史移除并写入 dismissed。
 
 ---
 
@@ -372,7 +374,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 11 | 交互动画 | 悬停 jumping / 拖动 running | ✅ 已对齐（悬停/拖动动画） |
 | 12 | 点击宠物展开 | 点击精灵 → Stage 2 | ✅ 已对齐 |
 | 13 | 窗口属性 | transparent / alwaysOnTop / 全空间 | ⚠️ 已 alwaysOnTop；全空间仅 darwin/linux（Windows 无此概念） |
-| 14 | 菜单大小控件 | 点按钮不关菜单连续点击 | ⚠️ 在独立管理窗口（Electron 托盘菜单无自定义视图） |
+| 14 | 菜单大小控件 | 点按钮不关菜单连续点击 | ⚠️ 托盘顺序、百分比、±5%、宠物子菜单和平台状态文案已对齐；原生 Electron 菜单无法承载不关闭的自定义控件 |
 | 15 | 任务历史持久化 | task-history.json + 去重 + 12 条上限 | ✅ 已对齐（共享 task-history.json，字段兼容） |
 | 16 | 托盘生命周期 | 显示/隐藏、打开配置、常驻、退出清理 | ✅ 已对齐（单实例；关闭窗口不退出；托盘点击切换） |
 | 17 | 宠物选择与删除 | 按 bundle URL 精确操作，删除当前后回退 | ✅ 已对齐（规范 bundle 路径；事务锁；一次刷新） |
@@ -382,6 +384,6 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 > 已知简化（平台限制 / 暂未实现）：
 > - **#10 唤醒**：Electron 已按 canonical task ID 规划唤醒；来源明确的 Codex Desktop 任务可发送 `codex://threads/<id>`，但系统接收深链无法证明目标会话已显示，因此仍保留卡片。CLI 终端 tab 与 DSH 浏览器 session 暂无可移植的精确聚焦 API，CLI/Claude fail-closed，DSH 仅允许用户明确选择打开基页。Claude Desktop 上游未提供「聚焦现有会话」的安全深链，`resume` 可能 fork 副本，因此继续采用手动侧栏选择。
 > - **#13 全空间**：Windows 无「所有 Space 可见」概念。
-> - **#14 大小控件位置**：Electron 大小调节在「宠物管理」窗口（原生托盘菜单不支持不关菜单的自定义视图）。
+> - **#14 大小控件位置**：Electron 托盘显示 AppKit 同口径百分比和 ±5%，管理窗口也可调节；但原生托盘菜单不支持 AppKit 那种不关菜单的自定义视图。
 > - 等待态时钟、运行/思考 spinner、完成勾、失败叹号与深浅色卡片已按 AppKit 绘制逻辑对齐。
-> - 任务完成后的僵尸任务：Electron 只在渲染层过滤（平台已 idle 但历史任务仍显示活跃态的僵尸不显示），不改写共享历史；macOS 在 `updateTaskTray` 里清理——平台 idle 时清空活跃任务、会话切换时清空「非当前任务」的活跃记录，只保留完成卡片 done/failed 与当前任务（sourcePath/terminalBinding 从保留记录继承）。注意：task-history.json 与 macOS 共享，其 sourcePath/sessionID 是 macOS 加载会话消息的依据，Electron 绝不删除/改写这些记录。
+> - 任务生命周期：Electron 与 AppKit 都会持久化清理僵尸任务——平台 idle 时清空活跃记录、会话切换时清空非当前活跃记录，只保留 done/failed 与当前/并发任务；合并时保留 sourcePath/terminalBinding 等定位字段。Electron 的纯 reducer 通过三平台 Node 测试覆盖 canonical ID、12/100 上限、24 小时 TTL、隐藏复活和定位字段继承。

@@ -664,9 +664,16 @@
   let dragging = false
   let dragStart = null
   let didDrag = false
+  let pointerInside = false
 
-  canvas.addEventListener('mouseenter', () => { if (!dragging) setInteractionAnimation('jumping') })
-  canvas.addEventListener('mouseleave', () => { if (!dragging) setInteractionAnimation(null) })
+  canvas.addEventListener('mouseenter', () => {
+    pointerInside = true
+    if (!dragging) setInteractionAnimation('jumping')
+  })
+  canvas.addEventListener('mouseleave', () => {
+    pointerInside = false
+    if (!dragging) setInteractionAnimation(null)
+  })
 
   canvas.addEventListener('mousedown', (e) => {
     dragging = true
@@ -679,19 +686,20 @@
     if (!dragging) return
     const dx = e.screenX - dragStart.x
     const dy = e.screenY - dragStart.y
-    if (!didDrag && Math.hypot(dx, dy) < 4) return
+    const next = window.petInteraction.dragMove(dx, dy, didDrag)
+    if (!next.didDrag) return
     didDrag = true
     if (window.petAPI && window.petAPI.dragMove) window.petAPI.dragMove(e.screenX, e.screenY)
-    setInteractionAnimation(dx >= 0 ? 'running-right' : 'running-left')
+    setInteractionAnimation(next.animation)
   })
 
   window.addEventListener('mouseup', () => {
     if (!dragging) return
     dragging = false
     if (window.petAPI && window.petAPI.dragEnd) window.petAPI.dragEnd()
-    if (didDrag) {
-      setInteractionAnimation(null)
-    } else {
+    const release = window.petInteraction.dragRelease(didDrag, pointerInside)
+    setInteractionAnimation(release.animation)
+    if (release.openPlatforms) {
       // 点击精灵：展开到 Stage 2（与 macOS showPlatformStage 一致）。
       setStage('platforms')
     }

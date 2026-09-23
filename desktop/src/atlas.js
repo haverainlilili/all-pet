@@ -6,8 +6,8 @@
     const rows = Number(payload && payload.rows)
     const cellWidth = Number(payload && payload.cellWidth)
     const cellHeight = Number(payload && payload.cellHeight)
-    const ok = Number.isInteger(columns) && columns > 0
-      && Number.isInteger(rows) && rows > 0
+    const ok = columns === 8
+      && (rows === 9 || rows === 11)
       && Number.isFinite(cellWidth) && cellWidth > 0
       && Number.isFinite(cellHeight) && cellHeight > 0
       && Math.round(columns * cellWidth) === naturalWidth

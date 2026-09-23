@@ -367,7 +367,7 @@ failed > running/thinking > waiting > done > idle
 - 每个平台最多 12 条；
 - 以平台 + session ID/定时任务名形成 canonical ID 去重；
 - `dismissedTaskIDs` 最多 100 条；
-- macOS 与 Electron 共用兼容的数据结构。
+- macOS 与 Electron 共用兼容的数据结构；Electron 使用纯 reducer 处理生命周期，并在 macOS/Windows/Linux Node 测试中验证 canonical ID、12/100 上限、TTL、隐藏和定位字段继承。
 
 #### 7.4.2 完成/失败卡片
 
@@ -491,7 +491,8 @@ macOS 精确唤起可能需要：
 
 - 显示/隐藏宠物；点击托盘图标同样切换可见性；
 - 打开宠物管理窗口、打开配置；
-- 查看平台状态、当前宠物、事务忙碌状态、刷新、退出；
+- 按 AppKit 顺序显示大小百分比、宠物子菜单、四个平台状态、配置与退出；平台状态包含最多 28 个字符的当前动作；
+- 宠物子菜单可直接切换已安装宠物、安装未安装默认宠物，并进入完整管理器或刷新目录；
 - 托盘提供 ±5%，管理窗口也提供大小调整；原生托盘菜单无法承载 macOS 同类自定义连续控件；
 - Electron 使用单实例、托盘常驻生命周期；关闭窗口不会退出，退出时只清理一次 watcher 和重启计时器。
 
@@ -624,7 +625,7 @@ macOS 精确唤起可能需要：
 - 日志缺失时平台进入 idle，不应导致全局崩溃；
 - 单个平台失败不影响其它平台快照；
 - 任务定位失败时保留气泡；
-- 内建 `self-test` 当前在 macOS 为 98 项；Windows/Linux 构建当前仅覆盖 `status --json` 冒烟，不支持 `self-test`。CI 还覆盖 Electron 三平台语法检查与 Linux xvfb 启动截图。
+- 内建 `self-test` 当前在 macOS 为 98 项；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 40 项 Node 测试（含任务历史、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、管理器和生命周期截图。
 
 ### 9.3 隐私与安全
 

@@ -1,0 +1,59 @@
+'use strict'
+
+function graphemePrefix(value, maximumLength) {
+  const text = String(value || '')
+  const limit = Math.max(0, Number(maximumLength) || 0)
+  if (!limit) return ''
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    const segments = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)
+    return Array.from(segments, item => item.segment).slice(0, limit).join('')
+  }
+  return Array.from(text).slice(0, limit).join('')
+}
+
+function platformStatusTitle(status) {
+  const label = String(status && status.label || status && status.platform || '')
+  const phase = String(status && status.phaseLabel || status && status.phase || '')
+  let title = `${label}：${phase}`
+  const action = String(status && status.task && status.task.action || '').trim()
+  if (action) title += ` · ${graphemePrefix(action, 28)}`
+  return title
+}
+
+const PLATFORM_ROWS = [
+  { platform: 'codex', label: 'Codex' },
+  { platform: 'claude', label: 'Claude Code' },
+  { platform: 'dsh', label: 'DSH' },
+  { platform: 'grok', label: 'Grok' }
+]
+
+function platformMenuTitles(statuses) {
+  const list = Array.isArray(statuses) ? statuses : []
+  return PLATFORM_ROWS.map(row => {
+    const status = list.find(item => item && item.platform === row.platform)
+    return status ? platformStatusTitle({ ...status, label: row.label }) : `${row.label}：加载中…`
+  })
+}
+
+function scalePercentText(scale) {
+  const defaultScale = 112 / 192
+  const value = Number.isFinite(Number(scale)) ? Number(scale) : defaultScale
+  return `${Math.round(value / defaultScale * 100)}%`
+}
+
+function petTrayRows(pets, defaults) {
+  const installed = (Array.isArray(pets) ? pets : []).map(item => ({
+    kind: 'installed',
+    label: String(item.displayName || item.id || '未命名宠物'),
+    current: Boolean(item.current),
+    target: String(item.directoryPath || item.target || item.id || '')
+  }))
+  const pending = (Array.isArray(defaults) ? defaults : []).map(item => ({
+    kind: 'default',
+    label: String(item.displayName || item.slug || '默认宠物'),
+    source: String(item.slug || '')
+  })).filter(item => item.source)
+  return { installed, pending }
+}
+
+module.exports = { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayRows }
