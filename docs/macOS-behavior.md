@@ -368,7 +368,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 7 | 气泡三阶段 | Stage1/2/3 + 点击展开收起 | ✅ 已对齐（含返回、收起、失焦收起） |
 | 8 | 完成卡片常驻 | done 终态卡片 + 轮播堆栈 + 「+N」 | ✅ 已对齐（3.2s 轮播、18/9pt 露边、最多 3 张完成卡） |
 | 9 | 任务删除/隐藏 | × 删除气泡 + dismissed 持久化 | ✅ 已对齐（× 删除 + dismissed 持久化） |
-| 10 | 唤醒任务 | 点击任务唤醒原平台 | ⚠️ 点击任务仍只打开平台（无终端/session 唤醒） |
+| 10 | 唤醒任务 | 点击任务唤醒原平台 | ⚠️ Codex Desktop 深链尝试但不宣称已验证；CLI/Claude fail-closed，DSH 可明确选择只打开基页 |
 | 11 | 交互动画 | 悬停 jumping / 拖动 running | ✅ 已对齐（悬停/拖动动画） |
 | 12 | 点击宠物展开 | 点击精灵 → Stage 2 | ✅ 已对齐 |
 | 13 | 窗口属性 | transparent / alwaysOnTop / 全空间 | ⚠️ 已 alwaysOnTop；全空间仅 darwin/linux（Windows 无此概念） |
@@ -376,7 +376,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 15 | 任务历史持久化 | task-history.json + 去重 + 12 条上限 | ✅ 已对齐（共享 task-history.json，字段兼容） |
 
 > 已知简化（平台限制 / 暂未实现）：
-> - **#10 唤醒**：Electron 无终端/session 唤起，点击任务仅「打开对应平台」。Claude Desktop 上游未提供「聚焦现有会话」的对外深链——`code/{id}` 与 `code/continue?session=` 被 feature gate 关闭，`resume?session=` 会 fork 副本，`epitaxy/` 是 silent no-op；因此 macOS 与 Electron 对 Claude Desktop 都只能打开应用本体、提示用户在侧栏手动选择会话。Codex 的 `codex://threads/<id>` 深链有效，可精确定位。
+> - **#10 唤醒**：Electron 已按 canonical task ID 规划唤醒；来源明确的 Codex Desktop 任务可发送 `codex://threads/<id>`，但系统接收深链无法证明目标会话已显示，因此仍保留卡片。CLI 终端 tab 与 DSH 浏览器 session 暂无可移植的精确聚焦 API，CLI/Claude fail-closed，DSH 仅允许用户明确选择打开基页。Claude Desktop 上游未提供「聚焦现有会话」的安全深链，`resume` 可能 fork 副本，因此继续采用手动侧栏选择。
 > - **#13 全空间**：Windows 无「所有 Space 可见」概念。
 > - **#14 大小控件位置**：Electron 大小调节在「宠物管理」窗口（原生托盘菜单不支持不关菜单的自定义视图）。
 > - 等待态时钟、运行/思考 spinner、完成勾、失败叹号与深浅色卡片已按 AppKit 绘制逻辑对齐。

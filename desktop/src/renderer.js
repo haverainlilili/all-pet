@@ -548,12 +548,21 @@
     setStage('collapsed')
   }
 
+  function wakeTask(id, platform) {
+    if (id && window.petAPI && window.petAPI.wakeTask) {
+      window.petAPI.wakeTask(id).catch(() => {})
+      setStage('collapsed')
+      return
+    }
+    launchPlatform(platform)
+  }
+
   function onPlatformClick(platform) {
     const group = buildData().groups.find(item => item.platform === platform)
     if (!group || group.tasks.length === 0) {
       launchPlatform(platform)
     } else if (group.tasks.length === 1) {
-      launchPlatform(platform)
+      wakeTask(group.tasks[0].id, platform)
     } else {
       setStage('tasks', platform)
     }
@@ -585,7 +594,7 @@
     const kind = target.dataset.kind
     if (kind === 'open-platforms') setStage('platforms')
     else if (kind === 'platform') onPlatformClick(target.dataset.platform)
-    else if (kind === 'task') launchPlatform(target.dataset.platform)
+    else if (kind === 'task') wakeTask(target.dataset.id, target.dataset.platform)
   })
 
   function updateBubble(snap) {

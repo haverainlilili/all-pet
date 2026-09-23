@@ -21,6 +21,9 @@ jobs:
           update-sdk-modules: true
       - name: 构建
         run: swift build
+      - name: Core 自检（当前仅 macOS）
+        if: runner.os == 'macOS'
+        run: swift run allpet self-test
       - name: status --json 冒烟测试
         shell: bash
         run: |
@@ -44,7 +47,10 @@ jobs:
       - name: JS 语法检查
         shell: bash
         run: |
-          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/pets.js && echo "syntax OK"
+          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/pets.js && node -c src/wake.js && echo "syntax OK"
+        working-directory: desktop
+      - name: 任务唤醒规划测试
+        run: npm test
         working-directory: desktop
 
   desktop-smoke:

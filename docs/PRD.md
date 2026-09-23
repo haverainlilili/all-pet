@@ -347,7 +347,7 @@ failed > running/thinking > waiting > done > idle
 - 三阶段尺寸、卡片高度、Stage 1 完成卡与轮播露边堆栈、Stage 2 最多 5 条任务、Stage 3 最多 6 条任务已按 AppKit 基准对齐；
 - 运行/思考 spinner、等待时钟、完成勾、失败叹号、深浅色卡片和平台品牌色已对齐；
 - 支持点击返回/收起、窗口失焦收起，窗口按 304/324/334px 动态缩放并保持宠物位置；
-- 剩余差异：点击任务仍只做平台级打开，尚未实现 macOS 的任务/session 级唤醒。
+- 剩余差异：Codex Desktop 可发送 session 深链但无法验证最终页面；CLI/Claude 任务 fail-closed，DSH 仅允许用户明确打开基页，尚未达到 AppKit 的终端 tab/浏览器 session 精确聚焦。
 
 #### 7.3.5 品牌与状态颜色
 
@@ -403,10 +403,12 @@ failed > running/thinking > waiting > done > idle
 
 #### 7.5.2 Electron 唤起
 
-- macOS：`open -a` 打开平台；
-- Windows/Linux：尝试执行 `codex` / `claude` / `grok` CLI；
-- DSH：打开 `http://127.0.0.1:3080`；
-- ⚠️ 当前 Electron 只做到平台级打开，没有 macOS 的终端 tab/具体 session 精确唤起；Windows 的 DSH 打开路径调用 `start`（cmd 内建命令），目前不可靠。
+- 任务卡片与单任务平台卡只向主进程传 canonical task ID；路径、PID、终端绑定等 locator 不进入渲染层；
+- 只有来源明确为 Codex Desktop 且带 session ID 的任务才发送 `codex://threads/<sessionID>`；系统接收深链不等于已验证目标会话显示，因此卡片继续保留；
+- Codex/Claude/Grok CLI 与 Claude Desktop 在无法验证精确目标时采取 fail-closed：保留卡片且不启动裸 CLI，避免创建重复会话；DSH 可由用户明确选择只打开本地基页；
+- DSH 平台打开统一使用 Electron `shell.openExternal`，不再调用 Windows 无法直接 spawn 的 `start`；
+- Windows/Linux 的显式 CLI 平台打开使用可见终端适配器；Linux 会依次探测多种终端，启动器非零退出/缺失时显示失败，成功也只标记 request accepted 而不宣称应用已显示；
+- sidecar JSON 传递完整 locator 元数据，`watch --json` 变更 key 纳入全部任务与 `activeSessions`，次级会话变化可及时送达。
 
 #### 7.5.3 权限
 
@@ -647,8 +649,8 @@ macOS 精确唤起可能需要：
 | --- | --- | --- | --- | --- |
 | 四平台监控 | ✅ | ✅ | ✅ | ✅ |
 | 动画与三层气泡 | ✅ 完整 | ✅ 展示与交互对齐 | ✅ 展示与交互对齐 | ✅ 展示与交互对齐 |
-| Codex/Claude/DSH 多会话展示 | ✅（DSH 修复在 main） | ⚠️ 依赖 JSON 事件推送；次级任务变更可能漏推 | ⚠️ 同左 | ⚠️ 同左 |
-| 精确任务唤起 | ✅ 尽力实现 | ⚠️ 平台级 | ⚠️ 平台级/CLI | ⚠️ 平台级/CLI |
+| Codex/Claude/DSH 多会话展示 | ✅（DSH 修复在 main） | ✅ 全任务变更 key | ✅ 全任务变更 key | ✅ 全任务变更 key |
+| 精确任务唤起 | ✅ 尽力实现 | ⚠️ Codex Desktop 深链尝试（未验证）；其余安全降级 | ⚠️ Codex 深链尝试；CLI/DSH 安全降级 | ⚠️ Codex 深链尝试；CLI/DSH 安全降级 |
 | 完成任务“已查看”自动消失 | ✅ | ⚠️ 无精确检测 | ⚠️ 无精确检测 | ⚠️ 无精确检测 |
 | 24h 完成卡 TTL | ✅ | ✅ | ✅ | ✅ |
 | 拖动/悬停动画 | ✅ | ✅ | ✅ | ✅ |
@@ -667,15 +669,14 @@ macOS 精确唤起可能需要：
 ### 11.1 P0/P1 已知差距
 
 1. **v1.3.0 不含 DSH 多会话修复**：需发布 v1.3.1 才能覆盖安装包用户。
-2. **Electron 次级会话变化可能不刷新**：`watch --json` 的 snapshot key 只包含主 `task`，不包含 `tasks`/`activeSessions`；主任务不变时次级任务变化可能无法送到 Electron。
-3. **Electron 精确唤起能力弱**：只能平台级打开，无法复用 macOS 终端/浏览器会话定位；Windows DSH 的 `start` 调用也不可靠。
-4. **Claude Desktop 无公开现有会话深链**：不能保证自动切到目标会话；禁止使用会 fork 副本的 resume 路径。
-5. **Grok 详细多会话不足**：只输出一个选中任务，`activeSessions` 与气泡任务数可能不同。
-6. **Windows/Linux 本地宠物导入入口与底层能力不一致**：UI 有入口，但转换实现仅 macOS。
-7. **DSH 依赖外部 zstd**：Windows 路径/可执行文件探测也不足；不可用时当前实现会退为“未能解析 DSH 会话”，而非可靠的任务文本降级。
-8. **Release 资源 bundle 确认遗漏**：v1.3.0 macOS ZIP 的 sidecar 仅含 `allpet`，缺少 `AllPet_AllPetCore.bundle`/内置宠物资源；新用户首次宠物发现不可靠。
-9. **未签名与无自动更新**：macOS 未公证/签名，Windows 也未配置代码签名；提高首次安装和升级成本。
-10. **上游日志格式风险**：四个平台升级后字段或目录变化可能使解析失效。
+2. **Electron 精确唤起仍受平台限制**：Codex Desktop 可发送会话深链但无法验证最终页面；CLI 终端 tab、DSH 浏览器 session 仍缺少可移植的精确聚焦 API，因此保留卡片并 fail-closed。
+3. **Claude Desktop 无公开现有会话深链**：不能保证自动切到目标会话；禁止使用会 fork 副本的 resume 路径。
+4. **Grok 详细多会话不足**：只输出一个选中任务，`activeSessions` 与气泡任务数可能不同。
+5. **Windows/Linux 本地宠物导入入口与底层能力不一致**：UI 有入口，但转换实现仅 macOS。
+6. **DSH 依赖外部 zstd**：Windows 路径/可执行文件探测也不足；不可用时当前实现会退为“未能解析 DSH 会话”，而非可靠的任务文本降级。
+7. **Release 资源 bundle 确认遗漏**：v1.3.0 macOS ZIP 的 sidecar 仅含 `allpet`，缺少 `AllPet_AllPetCore.bundle`/内置宠物资源；新用户首次宠物发现不可靠。
+8. **未签名与无自动更新**：macOS 未公证/签名，Windows 也未配置代码签名；提高首次安装和升级成本。
+9. **上游日志格式风险**：四个平台升级后字段或目录变化可能使解析失效。
 
 ### 11.2 数据准确性风险
 
@@ -693,12 +694,11 @@ macOS 精确唤起可能需要：
 
 1. 修复 Release：复制 `AllPet_AllPetCore.bundle` 到 sidecar（或将资源嵌入 sidecar）并以全新 HOME 验证首启、`pet list` 和宠物管理；明确 Release 使用 Electron 而非 AppKit GUI；
 2. 发布 v1.3.1，包含 DSH 多会话修复；
-3. 让 `watch --json` 的变更 key 纳入所有 `tasks`，保证 Electron 能及时收到次级会话变化；
-4. 修正 Windows DSH 打开和 show/hide 行为；
-5. 补充 Grok 多会话详细任务输出；
-6. DSH 内置 zstd 解码或在安装时明确检查依赖；
-7. 修正 README 的内置宠物数量、全平台 `self-test`、会话级唤起和非 macOS 导入承诺；
-8. 增加“监控诊断”命令，显示路径、依赖、最近候选、过滤原因。
+3. 修正 Electron show/hide 生命周期；
+4. 补充 Grok 多会话详细任务输出；
+5. DSH 内置 zstd 解码或在安装时明确检查依赖；
+6. 修正 README 的内置宠物数量、全平台 `self-test`、会话级唤起和非 macOS 导入承诺；
+7. 增加“监控诊断”命令，显示路径、依赖、最近候选、过滤原因。
 
 ### P1：跨平台体验
 

@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('petAPI', {
 
   // 气泡交互 + 精灵拖动
   launchPlatform: (platform) => ipcRenderer.invoke('pets:launchPlatform', platform),
+  wakeTask: (id) => ipcRenderer.invoke('pets:wakeTask', id),
   dismissTask: (id) => ipcRenderer.invoke('pets:dismissTask', id),
   dismissPlatform: (platform) => ipcRenderer.invoke('pets:dismissPlatform', platform),
   dragStart: (x, y) => ipcRenderer.invoke('pets:dragStart', x, y),

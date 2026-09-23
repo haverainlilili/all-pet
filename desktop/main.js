@@ -5,6 +5,13 @@ const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
 const os = require('os')
+const { pathToFileURL } = require('url')
+const {
+  failedExternalWakePlan, isTrustedMainFrame, mergeDefined, pickLaunchCandidate, platformLabel,
+  platformLaunchSpec, rendererSnapshot, runCommandLauncher, wakePlanForTask
+} = require('./src/wake')
+
+const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 
 // CI / 无头环境：禁用沙箱与 GPU，便于 xvfb 下冒烟测试。
 if (process.env.ALLPET_NO_SANDBOX) {
@@ -253,7 +260,12 @@ function accumulateHistory(snap) {
         progress: t.progressLabel,
         updatedAt: (Date.now() - APPLE_REF_MS) / 1000,
         sessionID: t.sessionID,
+        sourcePath: t.sourcePath,
         workingDirectory: t.workingDirectory,
+        processID: t.processID,
+        terminalTTY: t.terminalTTY,
+        terminalBinding: t.terminalBinding,
+        launchOrigin: t.launchOrigin,
         scheduledTaskName: t.scheduledTaskName
       }
       const hiddenTitle = manuallyHiddenTaskTitles[item.id]
@@ -288,9 +300,8 @@ function accumulateHistory(snap) {
       const idx = list.findIndex(x => x.id === item.id)
       if (idx >= 0) {
         if (!(list[idx].phase === 'done' && item.phase === 'idle')) {
-          // 保留原条目的扩展字段（macOS 写入的 sourcePath/launchOrigin/terminal 等），避免共享文件时丢失。
-          const merged = Object.assign({}, list[idx], item)
-          list[idx] = merged
+          // 只覆盖本次快照实际提供的字段；部分监控器省略 locator 时不得擦除旧值。
+          list[idx] = mergeDefined(list[idx], item)
           changed = true
         }
       } else {
@@ -388,11 +399,19 @@ function createWindow() {
   if (process.platform === 'darwin' || process.platform === 'linux') {
     mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   }
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== MAIN_RENDERER_URL) {
+      event.preventDefault()
+      console.error('[allpet] blocked unexpected main-window navigation:', url)
+    }
+  })
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   mainWindow.loadFile(path.join(__dirname, 'src', 'renderer.html'))
   positionWindow()
 
   // 首次就绪后，把宠物素材 + 当前快照推给渲染层。
   mainWindow.webContents.on('did-finish-load', () => {
+    if (mainWindow.webContents.getURL() !== MAIN_RENDERER_URL) return
     pushPet()
     if (currentSnapshot) sendSnapshot(currentSnapshot)
   })
@@ -448,7 +467,7 @@ function applyScale(delta) {
 
 function sendSnapshot(snap) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('snapshot', { ...snap, history: historyPayload() })
+    mainWindow.webContents.send('snapshot', { ...rendererSnapshot(snap), history: historyPayload() })
   }
 }
 
@@ -498,24 +517,112 @@ function onSnapshot(snap) {
 
 // ---- 唤起（跨平台尽力实现）----
 
-function launchPlatform(platform) {
-  const p = process.platform
-  const commands = {
-    codex: { darwin: ['open', ['-a', 'Codex']], win32: ['codex', []], linux: ['codex', []] },
-    claude: { darwin: ['open', ['-a', 'Claude']], win32: ['claude', []], linux: ['claude', []] },
-    grok: { darwin: ['open', ['-a', 'grok']], win32: ['grok', []], linux: ['grok', []] },
-    dsh: { darwin: ['open', ['http://127.0.0.1:3080']], win32: ['start', ['http://127.0.0.1:3080']], linux: ['xdg-open', ['http://127.0.0.1:3080']] }
+function executableOnPath(command) {
+  const entries = String(process.env.PATH || '').split(path.delimiter).filter(Boolean)
+  return entries.some(entry => {
+    try {
+      fs.accessSync(path.join(entry, command), fs.constants.X_OK)
+      return true
+    } catch (_) {
+      return false
+    }
+  })
+}
+
+async function launchPlatform(platform) {
+  let spec = platformLaunchSpec(platform, process.platform)
+  if (!spec) {
+    return { succeeded: false, requested: false, exact: false, openedApp: false, message: `不支持打开 ${platformLabel(platform)}` }
   }
-  const c = commands[platform]
-  if (!c) return
-  const key = p === 'darwin' ? 'darwin' : p === 'win32' ? 'win32' : 'linux'
-  const [cmd, args] = c[key] || []
-  if (!cmd) return
+  if (spec.kind === 'external') {
+    try {
+      await shell.openExternal(spec.url)
+      return {
+        succeeded: true, requested: true, exact: false, openedApp: false,
+        message: '系统已接受打开请求，但 Electron 无法验证目标页面是否已显示。'
+      }
+    } catch (err) {
+      const message = String(err && err.message || err)
+      console.error('[allpet] openExternal failed:', message)
+      return { succeeded: false, requested: false, exact: false, openedApp: false, message }
+    }
+  }
+  if (spec.kind === 'commandCandidates') {
+    spec = pickLaunchCandidate(spec.candidates, executableOnPath)
+    if (!spec) {
+      return {
+        succeeded: false, requested: false, exact: false, openedApp: false,
+        message: '未找到受支持的可见终端（x-terminal-emulator/gnome-terminal/konsole/xfce4-terminal/xterm）。'
+      }
+    }
+  }
+  const result = await runCommandLauncher(spawn, spec.command, spec.args)
+  if (!result.succeeded) console.error('[allpet] launchPlatform failed:', result.message)
+  return result
+}
+
+async function showLaunchFailure(platform, result) {
+  const options = {
+    type: 'warning',
+    title: `无法打开 ${platformLabel(platform)}`,
+    message: '启动请求失败',
+    detail: result.message || '没有找到可用的应用或终端启动器。',
+    buttons: ['知道了']
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) await dialog.showMessageBox(mainWindow, options)
+  else await dialog.showMessageBox(options)
+}
+
+function taskByID(taskID) {
+  for (const tasks of Object.values(taskHistory)) {
+    const task = (tasks || []).find(item => item.id === taskID)
+    if (task) return task
+  }
+  return null
+}
+
+async function presentWakeFallback(plan, task) {
+  const canOpen = plan.canOpenPlatform && task && task.platform
+  const options = {
+    type: 'warning',
+    title: `无法精确唤起${task ? platformLabel(task.platform) : '任务'}`,
+    message: task ? `未定位到「${sessionDisplayName(task)}」` : '任务记录已不存在',
+    detail: plan.message || '没有找到对应任务界面；任务卡片已保留。',
+    buttons: canOpen ? ['取消', '只打开平台'] : ['知道了'],
+    cancelId: 0,
+    defaultId: 0,
+    noLink: true
+  }
+  const result = mainWindow && !mainWindow.isDestroyed()
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options)
+  if (canOpen && result.response === 1) {
+    const opened = await launchPlatform(task.platform)
+    if (!opened.succeeded) await showLaunchFailure(task.platform, opened)
+    return { ...opened, exact: false, message: opened.succeeded ? plan.message : opened.message }
+  }
+  return { succeeded: false, exact: false, openedApp: false, message: plan.message }
+}
+
+async function wakeTask(taskID) {
+  const task = taskByID(taskID)
+  const plan = wakePlanForTask(task)
+  if (plan.kind !== 'external') return presentWakeFallback(plan, task)
+
   try {
-    const child = spawn(cmd, args, { detached: true, stdio: 'ignore' })
-    child.unref()
+    await shell.openExternal(plan.url)
+    return {
+      succeeded: true,
+      requested: true,
+      exact: false,
+      openedApp: false,
+      message: '已将原会话深链交给系统；Electron 无法验证目标会话是否已显示，因此任务卡片会继续保留。'
+    }
   } catch (err) {
-    console.error('launchPlatform failed', err)
+    return presentWakeFallback(
+      failedExternalWakePlan(task, String(err && err.message || err)),
+      task
+    )
   }
 }
 
@@ -620,9 +727,17 @@ function registerPetIpc() {
     return { ok: true }
   })
 
-  ipcMain.handle('pets:launchPlatform', async (_e, platform) => {
-    launchPlatform(String(platform || ''))
-    return { ok: true }
+  ipcMain.handle('pets:launchPlatform', async (event, platform) => {
+    if (!isTrustedMainFrame(event, mainWindow, MAIN_RENDERER_URL)) throw new Error('untrusted launchPlatform IPC source')
+    const name = String(platform || '')
+    const result = await launchPlatform(name)
+    if (!result.succeeded) await showLaunchFailure(name, result)
+    return result
+  })
+
+  ipcMain.handle('pets:wakeTask', async (event, id) => {
+    if (!isTrustedMainFrame(event, mainWindow, MAIN_RENDERER_URL)) throw new Error('untrusted wakeTask IPC source')
+    return wakeTask(String(id || ''))
   })
 
   ipcMain.handle('pets:dismissTask', async (_e, id) => {

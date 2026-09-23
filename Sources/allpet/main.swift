@@ -96,9 +96,23 @@ func cmdStatus() {
     printSnapshot(monitor.snapshot())
 }
 
+private func taskSnapshotKey(_ task: TaskInfo) -> String {
+    let binding = task.terminalBinding.map {
+        "\($0.tty):\($0.anchorProcessID):\($0.anchorStartedAtMicroseconds)"
+    } ?? ""
+    return [
+        task.sessionID ?? "", task.sessionName ?? "", task.title ?? "", task.action ?? "",
+        task.progressLabel ?? "", task.phase?.rawValue ?? "", task.launchOrigin ?? "",
+        task.sourcePath ?? "", task.workingDirectory ?? "", task.processID.map { String($0) } ?? "",
+        task.terminalTTY ?? "", binding, task.scheduledTaskName ?? ""
+    ].joined(separator: "~")
+}
+
 func snapshotKey(_ s: PetSnapshot) -> String {
-    s.summary + "|" + s.platforms.map {
-        "\($0.platform.rawValue)=\($0.phase.rawValue)|\($0.task?.action ?? "")|\($0.task?.sessionName ?? "")|\($0.task?.progressLabel ?? "")"
+    s.summary + "|" + s.platforms.map { platform in
+        let tasks = platform.tasks.isEmpty ? platform.task.map { [$0] } ?? [] : platform.tasks
+        let taskKey = tasks.map(taskSnapshotKey).joined(separator: "^")
+        return "\(platform.platform.rawValue)=\(platform.phase.rawValue)|\(platform.activeSessions)|\(taskKey)"
     }.joined(separator: "|")
 }
 
@@ -125,9 +139,16 @@ private struct TaskJSON: Codable {
     var sessionName: String?
     var action: String?
     var toolName: String?
+    var completedSteps: Int?
+    var totalSteps: Int?
     var progressLabel: String?
     var sessionID: String?
+    var sourcePath: String?
     var workingDirectory: String?
+    var processID: Int32?
+    var terminalTTY: String?
+    var terminalBinding: TerminalBinding?
+    var launchOrigin: String?
     var scheduledTaskName: String?
     var title: String?
     var phase: String?
@@ -160,9 +181,16 @@ private func taskJSON(_ t: TaskInfo) -> TaskJSON {
         sessionName: t.sessionName,
         action: t.action,
         toolName: t.toolName,
+        completedSteps: t.completedSteps,
+        totalSteps: t.totalSteps,
         progressLabel: t.progressLabel,
         sessionID: t.sessionID,
+        sourcePath: t.sourcePath,
         workingDirectory: t.workingDirectory,
+        processID: t.processID,
+        terminalTTY: t.terminalTTY,
+        terminalBinding: t.terminalBinding,
+        launchOrigin: t.launchOrigin,
         scheduledTaskName: t.scheduledTaskName,
         title: t.title,
         phase: t.phase?.rawValue
