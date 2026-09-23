@@ -196,6 +196,17 @@ jobs:
             '{"type":"user/message","data":{"source":{"kind":"user"},"content":[{"type":"text","text":"内置 decoder 验收"}]}}' \
             '{"type":"todo/write","data":{"todos":[{"content":"验证 decoder","status":"in_progress"}]}}' > /tmp/allpet-electron-zstd-home/fixture.jsonl
           ELECTRON_RUN_AS_NODE=1 "$PACKAGED" -e "const fs=require('fs'),z=require('node:zlib');fs.writeFileSync(process.argv[1],z.zstdCompressSync(fs.readFileSync(process.argv[2])))" /tmp/allpet-electron-zstd-home/.dsh/sessions/session-bridge/session.jsonl.zstd /tmp/allpet-electron-zstd-home/fixture.jsonl
+          PACKAGED_ABS="$(readlink -f "$PACKAGED")"
+          DECODER="$(pwd)/dist/linux-unpacked/resources/zstd/zstdcat.js"
+          SIDECAR="$(pwd)/dist/linux-unpacked/resources/sidecar/allpet"
+          test -f "$DECODER"
+          test -x "$SIDECAR"
+          ELECTRON_RUN_AS_NODE=1 "$PACKAGED_ABS" "$DECODER" /tmp/allpet-electron-zstd-home/.dsh/sessions/session-bridge/session.jsonl.zstd > /tmp/allpet-electron-zstd-home/decoded.jsonl
+          cmp /tmp/allpet-electron-zstd-home/fixture.jsonl /tmp/allpet-electron-zstd-home/decoded.jsonl
+          PREFIX_JSON="$(node -e 'console.log(JSON.stringify([process.argv[1]]))' "$DECODER")"
+          env ALLPET_HOME=/tmp/allpet-electron-zstd-home PATH=/usr/bin:/bin ELECTRON_RUN_AS_NODE=1 ALLPET_ZSTD_EXECUTABLE="$PACKAGED_ABS" ALLPET_ZSTD_PREFIX_JSON="$PREFIX_JSON" \
+            "$SIDECAR" status --json > /tmp/allpet-electron-zstd-home/status.json
+          node -e "const j=require('/tmp/allpet-electron-zstd-home/status.json'),d=j.platforms.find(x=>x.platform==='dsh');console.log(d);if(!d||!d.task||d.task.title!=='内置 decoder 验收')process.exit(1)"
           xvfb-run -a --server-args="-screen 0 1024x768x24" \
             env CFFIXED_USER_HOME=/tmp/allpet-electron-zstd-home HOME=/tmp/allpet-electron-zstd-home ALLPET_HOME=/tmp/allpet-electron-zstd-home PATH=/usr/bin:/bin \
                 ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 ALLPET_SCREENSHOT_STAGE=collapsed ALLPET_EXPECT_DSH_TASK_TITLE='内置 decoder 验收' \
