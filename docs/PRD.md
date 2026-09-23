@@ -447,6 +447,7 @@ macOS 精确唤起可能需要：
 - 输入预设 ID 或 GitHub URL 安装；
 - 从本地文件/目录导入兼容宠物；
 - Electron 的 set/delete/install/import 进入同一事务锁：操作中禁用冲突控件，完成后一次性刷新精灵、管理器和托盘；
+- AppKit 在菜单创建前校验并持久化当前宠物：fresh/stale `bundlePath` 回退第一只有效宠物；disabled 时持有隐藏窗口，无宠物后首次安装/选择可立即挂载而无需重启；
 - 切换/删除使用规范化 bundle 路径，避免重复 ID 或子串 ID 误操作另一只宠物。
 
 #### 7.6.3 支持格式
@@ -578,7 +579,7 @@ macOS 精确唤起可能需要：
 
 1. 从源码启动原生 AppKit GUI，或安装 Electron Release；
 2. AppKit 与 Electron 首次发现宠物时都会物化内置宠物；打包版必须携带对应平台原名的 SwiftPM 资源目录；
-3. Electron 在无配置或 `bundlePath` 失效时选择发现顺序中的第一只宠物并通过 CLI 原子写入配置；`~` 路径按 AppKit/CLI 语义展开；
+3. AppKit 与 Electron 在无配置或 `bundlePath` 失效时选择发现顺序中的第一只有效宠物并原子写入配置；`~` 路径按 AppKit/CLI 语义展开；
 4. 启动四平台监控；
 5. 有可用宠物时显示 idle 动画；平台产生活动后切换动画并显示气泡；
 6. macOS 原生用户按需授权辅助功能/自动化权限。
@@ -625,7 +626,7 @@ macOS 精确唤起可能需要：
 - 日志缺失时平台进入 idle，不应导致全局崩溃；
 - 单个平台失败不影响其它平台快照；
 - 任务定位失败时保留气泡；
-- 内建 `self-test` 当前在 macOS 为 98 项；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 40 项 Node 测试（含任务历史、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、管理器和生命周期截图。
+- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 4 项宠物选择/持久化契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期及无宠物后同进程安装恢复；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 40 项 Node 测试（含任务历史、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、管理器和生命周期截图。
 
 ### 9.3 隐私与安全
 

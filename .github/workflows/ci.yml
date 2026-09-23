@@ -29,6 +29,11 @@ jobs:
           sudo apt-get install -y libcurl4-openssl-dev
       - name: 构建
         run: swift build
+      - name: 宠物选择契约测试
+        run: swift run allpet selection-self-test
+      - name: AppKit 首启 / 失效路径 / 隐藏恢复
+        if: runner.os == 'macOS'
+        run: node desktop/scripts/verify-appkit-lifecycle.js
       - name: Core 自检（当前仅 macOS）
         if: runner.os == 'macOS'
         run: swift run allpet self-test
@@ -67,7 +72,7 @@ jobs:
       - name: JS 语法检查
         shell: bash
         run: |
-          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/pets.js && node -c src/wake.js && node -c src/pet-state.js && node -c src/task-history.js && node -c src/tray-menu.js && node -c src/interaction.js && node -c src/atlas.js && node -c src/latest.js && node -c scripts/prepare-sidecar.js && node -c scripts/verify-sidecar.js && echo "syntax OK"
+          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/pets.js && node -c src/wake.js && node -c src/pet-state.js && node -c src/task-history.js && node -c src/tray-menu.js && node -c src/interaction.js && node -c src/atlas.js && node -c src/latest.js && node -c scripts/prepare-sidecar.js && node -c scripts/verify-sidecar.js && node -c scripts/verify-appkit-lifecycle.js && echo "syntax OK"
         working-directory: desktop
       - name: Electron 行为测试
         run: npm test

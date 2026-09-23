@@ -507,6 +507,47 @@ func cmdPetListJSON() {
     }
 }
 
+func cmdSelectionSelfTest() {
+    var passed = 0
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+        guard condition() else {
+            fputs("❌ PetSelection self-test: \(message)\n", stderr)
+            exit(EXIT_FAILURE)
+        }
+        passed += 1
+    }
+
+    let configured = PetSelection.preferred(
+        configured: "configured", discovered: ["first", "second"], isValid: { $0 != "invalid" }
+    )
+    expect(configured == "configured", "有效配置应优先")
+    let fallback = PetSelection.preferred(
+        configured: "invalid", discovered: ["broken", "first", "second"],
+        isValid: { $0 != "invalid" && $0 != "broken" }
+    )
+    expect(fallback == "first", "失效配置应回退第一只有效宠物")
+    let missing = PetSelection.preferred(
+        configured: Optional<String>.none, discovered: ["broken"], isValid: { _ in false }
+    )
+    expect(missing == nil, "没有有效候选时应返回 nil")
+
+    let root = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("allpet-selection-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    do {
+        var config = AllPetConfiguration.makeDefault(home: root)
+        config.pet.bundlePath = root.appendingPathComponent("pets/boba").path
+        let url = AllPetConfiguration.configURL(home: root)
+        try config.save(to: url)
+        let loaded = AllPetConfiguration.load(from: url, home: root)
+        expect(loaded.pet.bundlePath == config.pet.bundlePath, "选择路径应原子保存并可重新读取")
+    } catch {
+        fputs("❌ PetSelection persistence self-test: \(error)\n", stderr)
+        exit(EXIT_FAILURE)
+    }
+    print("✅ PetSelection self-test 通过（\(passed) 项）")
+}
+
 let args = Array(CommandLine.arguments.dropFirst())
 let jsonRequested = args.contains("--json")
 switch args.first {
@@ -516,6 +557,7 @@ case "status":
 case "watch":
     if jsonRequested { cmdWatchJSON() } else { cmdWatch() }
 case "self-test": cmdSelfTest()
+case "selection-self-test": cmdSelectionSelfTest()
 case "pet":
     if args.count > 1 && args[1] == "list" {
         if jsonRequested { cmdPetListJSON() } else { cmdPetList() }

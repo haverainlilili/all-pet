@@ -141,19 +141,95 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     func run() {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
+        // 在菜单读取 current 勾选前先修复 fresh/stale bundlePath。
+        _ = resolveBundle()
         setupMenuBar()
         setupPet()
-        startPolling()
+        if !scheduleLifecycleSmokeIfRequested() { startPolling() }
         app.run()
+    }
+
+    /// CI-only deterministic lifecycle probe. It never runs without an explicit output path.
+    private func scheduleLifecycleSmokeIfRequested() -> Bool {
+        guard let target = ProcessInfo.processInfo.environment["ALLPET_APPKIT_LIFECYCLE_SMOKE"],
+              !target.isEmpty else { return false }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                NSApp.terminate(nil)
+                return
+            }
+            let ownsWindow = self.window != nil
+            let initiallyVisible = self.window?.isVisible ?? false
+            self.window?.orderOut(nil)
+            let hidden = self.window?.isVisible == false
+            if !ownsWindow,
+               let source = ProcessInfo.processInfo.environment["ALLPET_APPKIT_SMOKE_INSTALL_SOURCE"],
+               !source.isEmpty {
+                let destination = self.home.appendingPathComponent(
+                    ".config/all-pet/pets/recovered", isDirectory: true
+                )
+                do {
+                    try FileManager.default.createDirectory(
+                        at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
+                    )
+                    try FileManager.default.copyItem(atPath: source, toPath: destination.path)
+                } catch {
+                    fputs("[allpet] AppKit 无窗口恢复夹具安装失败：\(error)\n", stderr)
+                }
+            }
+            self.togglePet()
+            let shown = self.window?.isVisible ?? false
+            let payload: [String: Any] = [
+                "ownsWindow": ownsWindow,
+                "initiallyVisible": initiallyVisible,
+                "hidden": hidden,
+                "shown": shown,
+                "bundlePath": self.config.pet.bundlePath ?? "",
+                "petID": self.bundle?.manifest.id ?? ""
+            ]
+            do {
+                let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+                try data.write(to: URL(fileURLWithPath: target), options: .atomic)
+                print("[allpet] AppKit 生命周期校验通过：\(String(data: data, encoding: .utf8) ?? "")")
+            } catch {
+                fputs("[allpet] AppKit 生命周期校验写入失败：\(error)\n", stderr)
+            }
+            NSApp.terminate(nil)
+        }
+        return true
     }
 
     // MARK: - Pet
 
     private func resolveBundle() -> PetBundle? {
-        if let p = config.pet.bundlePath, !p.isEmpty {
-            return try? PetBundle.load(from: URL(fileURLWithPath: PathExpander.expand(p)))
+        let configured = config.pet.bundlePath
+            .flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: PathExpander.expand($0)) }
+            .flatMap { try? PetBundle.load(from: $0) }
+        let discovered = PetDiscovery.discover(home: home)
+        let selected = PetSelection.preferred(
+            configured: configured,
+            discovered: discovered,
+            isValid: { _ in true }
+        )
+        persistResolvedBundlePath(selected?.directoryURL.standardizedFileURL.path)
+        return selected
+    }
+
+    private func persistResolvedBundlePath(_ path: String?) {
+        let current = config.pet.bundlePath.map {
+            URL(fileURLWithPath: PathExpander.expand($0)).standardizedFileURL.path
         }
-        return PetDiscovery.discover(home: home).first
+        guard current != path else { return }
+        var next = config
+        next.pet.bundlePath = path
+        config = next
+        do {
+            try next.save(to: AllPetConfiguration.configURL(home: home))
+        } catch {
+            // 内存状态仍采用已验证选择；下次解析时会再次尝试落盘。
+            fputs("[allpet] 保存宠物选择失败：\(error)\n", stderr)
+        }
+        if statusItem?.menu != nil { petsMenuNeedsRebuild = true }
     }
 
     private func loadFrames(_ bundle: PetBundle) -> [CGImage]? {
@@ -309,8 +385,8 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         return (sprite, content, tray)
     }
 
-    private func setupPet() {
-        guard config.pet.enabled else { return }
+    private func setupPet(showOverride: Bool? = nil) {
+        guard window == nil else { return }
         guard let bundle = resolveBundle() else {
             statusItem?.button?.title = "🐾(无宠物)"
             return
@@ -377,8 +453,8 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
 
         window.contentView = content
         positionWindow(window, metrics: metrics)
-        window.orderFrontRegardless()
         self.window = window
+        if showOverride ?? config.pet.enabled { window.orderFrontRegardless() }
         installOutsideClickHandling()
         setAnimation(.idle)
     }
@@ -1411,6 +1487,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         config = nextConfig
         self.bundle = bundle
         self.frames = frames
+        statusItem?.button?.title = "🐾"
         // 菜单保持打开期间不重建子菜单（否则会打断 tracking）；等菜单关闭后再更新当前宠物勾选。
         petsMenuNeedsRebuild = true
 
@@ -1423,7 +1500,11 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
 
     /// 按当前 bundle + scale 重新布局宠物窗口；不重新加载精灵帧。
     private func relayoutPet(bundle: PetBundle) {
-        guard let window, let spriteView else { return }
+        guard let window, let spriteView else {
+            // disabled/no-pet 启动后首次安装或选择，无需重启即可创建窗口。
+            setupPet()
+            return
+        }
         let oldSpriteScreenOrigin = NSPoint(
             x: window.frame.minX + spriteView.frame.minX,
             y: window.frame.minY + spriteView.frame.minY
@@ -1479,8 +1560,12 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     }
 
     @objc private func togglePet() {
-        guard let window else { return }
-        window.setIsVisible(!window.isVisible)
+        if let window {
+            window.setIsVisible(!window.isVisible)
+        } else {
+            // 无窗口时重新解析目录；外部安装或首次选择的宠物可立即出现。
+            setupPet(showOverride: true)
+        }
     }
 
     @objc private func openConfig() {
@@ -1498,7 +1583,9 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
 
 /// GUI 入口（由 main.swift 在无参数 / `gui` / `run` 时调用）。
 func runGUI() {
-    let home = FileManager.default.homeDirectoryForCurrentUser
+    let override = ProcessInfo.processInfo.environment["ALLPET_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+    let home = override.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+        ?? FileManager.default.homeDirectoryForCurrentUser
     let config = AllPetConfiguration.load(from: AllPetConfiguration.configURL(home: home), home: home)
     let petApp = PetApp(config: config, home: home)
     petApp.run()

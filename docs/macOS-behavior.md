@@ -18,13 +18,15 @@ macOS 版是一个**菜单栏应用**（无 Dock 图标、无独立主窗口）�
 
 ```
 NSApplication.setActivationPolicy(.accessory)  // 菜单栏应用
-→ setupMenuBar()   // 建状态栏菜单
-→ setupPet()       // 建宠物窗口
+→ resolveBundle()  // 校验 fresh/stale bundlePath，回退并原子持久化
+→ setupMenuBar()   // 建状态栏菜单（current 勾选读取已修复配置）
+→ setupPet()       // 建宠物窗口；pet.enabled=false 时创建但保持隐藏
 → startPolling()   // 轮询多平台状态
 → app.run()
 ```
 
-- 配置读取失败回退默认值；宠物 bundle 缺失时状态栏标题变 `🐾(无宠物)`。
+- 配置读取失败回退默认值；`bundlePath` 为空或失效时选择发现顺序中的第一只有效宠物并原子写回配置；没有可用 bundle 时状态栏标题变 `🐾(无宠物)`。
+- `pet.enabled=false` 仍创建完整窗口但初始隐藏；用户“显示宠物”或之后安装/选择宠物均可在不重启的情况下恢复。若启动时完全没有宠物而 `window=nil`，后续发现/安装 bundle 后“显示宠物”会在同一进程创建并显示窗口。
 
 ---
 
@@ -326,7 +328,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 
 ## 10. 宠物管理
 
-- **切换宠物**（`switchPet`）：加载 bundle + 切帧 → 保存 `config.pet.bundlePath` → 重排窗口 → 重置动画（从 idle 开始）。
+- **切换宠物**（`switchPet`）：加载 bundle + 切帧 → 保存 `config.pet.bundlePath` → 重排窗口 → 重置动画（从 idle 开始）；若 disabled/无宠物启动时尚无窗口，会立即创建对应隐藏/可见窗口，无需重启。
 - **删除宠物**：弹确认框，删除后重排菜单。
 - **下载默认宠物**：后台安装，成功自动设为当前并弹完成框。
 - **从 GitHub / 导入**：支持预设 ID、远程源命令、GitHub URL、本地文件/目录。
