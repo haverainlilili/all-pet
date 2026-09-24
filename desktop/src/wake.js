@@ -34,7 +34,7 @@ function failedExternalWakePlan(task, errorMessage) {
   }
 }
 
-function wakePlanForTask(task) {
+function wakePlanForTask(task, runtimePlatform = process.platform) {
   if (!task || !task.platform) {
     return {
       kind: 'missing',
@@ -64,6 +64,19 @@ function wakePlanForTask(task) {
       platform,
       url: `codex://threads/${encodeURIComponent(sessionID)}`,
       message: null
+    }
+  }
+
+  if (platform === 'claude' && runtimePlatform === 'darwin' && sessionID && (
+    launchOrigin === 'claude-desktop-3p' || sessionID.startsWith('local_')
+  )) {
+    return {
+      kind: 'application',
+      platform,
+      command: '/usr/bin/open',
+      args: ['-b', 'com.anthropic.claudefordesktop'],
+      exact: false,
+      message: '已安全唤起 Claude Desktop；该应用没有公开的原会话深链，请在侧栏选择对应会话。任务卡片会继续保留。'
     }
   }
 

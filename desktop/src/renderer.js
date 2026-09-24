@@ -583,10 +583,12 @@
     setStage('collapsed')
   }
 
-  function wakeTask(id, platform) {
+  async function wakeTask(id, platform) {
     if (id && window.petAPI && window.petAPI.wakeTask) {
-      window.petAPI.wakeTask(id).catch(() => {})
-      setStage('collapsed')
+      try {
+        const result = await window.petAPI.wakeTask(id)
+        if (result && result.succeeded) setStage('collapsed')
+      } catch (_) {}
       return
     }
     launchPlatform(platform)

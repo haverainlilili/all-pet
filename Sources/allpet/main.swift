@@ -607,6 +607,13 @@ case "watch":
     if jsonRequested { cmdWatchJSON() } else { cmdWatch() }
 case "self-test": cmdSelfTest()
 case "selection-self-test": cmdSelectionSelfTest()
+case "menu-bridge":
+    #if os(macOS)
+    runElectronMenuBridge()
+    #else
+    fputs("menu-bridge 仅支持 macOS\n", stderr)
+    exit(EXIT_FAILURE)
+    #endif
 case "pet":
     if args.count > 1 && args[1] == "list" {
         if jsonRequested { cmdPetListJSON() } else { cmdPetList() }

@@ -45,6 +45,12 @@ function reopensAfterTrayAction(platform, action) {
   return String(platform || '') === 'darwin' && (action === 'scale-decrease' || action === 'scale-increase')
 }
 
+const TRAY_PET_ICON_CACHE_VERSION = 'menu-v3'
+
+function trayPetIconFrames() {
+  return [[0, 0]]
+}
+
 function scalePercentText(scale) {
   const defaultScale = 112 / 192
   const value = Number.isFinite(Number(scale)) ? Number(scale) : defaultScale
@@ -75,4 +81,4 @@ function petTrayRows(pets, defaults) {
   return { installed, pending }
 }
 
-module.exports = { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPrimaryAction }
+module.exports = { TRAY_PET_ICON_CACHE_VERSION, graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPetIconFrames, trayPrimaryAction }

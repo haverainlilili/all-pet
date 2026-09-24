@@ -39,6 +39,10 @@
       {
         "from": "scripts/zstdcat.js",
         "to": "zstd/zstdcat.js"
+      },
+      {
+        "from": "assets/icon.png",
+        "to": "tray/icon.png"
       }
     ],
     "mac": {

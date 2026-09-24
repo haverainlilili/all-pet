@@ -22,9 +22,10 @@ const {
 const {
   APPLE_REF_MS, accumulateTaskHistory, canonicalID, dismissPlatformHistory, dismissTaskHistory, expireTaskHistory, normalizeTaskHistory, sessionDisplayName
 } = require('./src/task-history')
-const { platformMenuTitles, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPrimaryAction } = require('./src/tray-menu')
+const { TRAY_PET_ICON_CACHE_VERSION, platformMenuTitles, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPetIconFrames, trayPrimaryAction } = require('./src/tray-menu')
 const { createBoundedThumbnailDataURL } = require('./src/pet-thumbnail')
 const { reuseExistingDshTab } = require('./src/dsh-browser')
+const { menuBridgeState } = require('./src/menu-bridge')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).href
@@ -46,6 +47,9 @@ let mainWindow = null
 let petManagerWindow = null
 let tray = null
 let trayMenu = null
+let nativeMenuBridgeProc = null
+let nativeMenuBridgeBuffer = ''
+let nativeMenuBridgeFailed = false
 let nativeTrayPopupCount = 0
 let trayFallbackIcon = null
 let trayPetIconRefreshPromise = null
@@ -706,12 +710,21 @@ async function presentWakeFallback(plan, task) {
 
 async function wakeTask(taskID) {
   const task = taskByID(taskID)
-  const plan = wakePlanForTask(task)
-  if (plan.kind !== 'external') return presentWakeFallback(plan, task)
+  const plan = wakePlanForTask(task, process.platform)
+  if (plan.kind !== 'external' && plan.kind !== 'application') return presentWakeFallback(plan, task)
   if (wakeInFlight.has(taskID)) return wakeInFlight.get(taskID)
 
   const request = (async () => {
     try {
+      if (plan.kind === 'application') {
+        const opened = await runCommandLauncher(spawn, plan.command, plan.args)
+        return {
+          ...opened,
+          exact: false,
+          openedApp: opened.succeeded,
+          message: opened.succeeded ? plan.message : opened.message
+        }
+      }
       let reused = false
       if (task && task.platform === 'dsh' && process.platform === 'darwin') {
         const result = await reuseExistingDshTab(spawn, plan.url, process.platform)
@@ -1016,7 +1029,7 @@ function trayPetIconDescriptor(item) {
     const rows = Math.max(1, Math.round(Number(item.rows) || 1))
     const columns = Math.max(1, Math.round(Number(item.columns) || 1))
     const signature = createHash('sha256')
-      .update(`menu-v2\0${source}\0${stat.size}\0${stat.mtimeMs}\0${cellWidth}\0${cellHeight}\0${rows}\0${columns}`)
+      .update(`${TRAY_PET_ICON_CACHE_VERSION}\0${source}\0${stat.size}\0${stat.mtimeMs}\0${cellWidth}\0${cellHeight}\0${rows}\0${columns}`)
       .digest('hex').slice(0, 24)
     const cacheDirectory = path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'thumbnails', 'menu')
     return { source, cellWidth, cellHeight, rows, columns, signature, cacheDirectory, cachePath: path.join(cacheDirectory, `${signature}.png`) }
@@ -1068,18 +1081,10 @@ async function generateTrayPetIcon(descriptor) {
       return outputPath
     }
     try {
-      let bestPath = await generateCandidate(0, 0)
-      if (fs.statSync(bestPath).size < 1024) {
-        for (const [row, column] of [[2, 6], [8, 1]]) {
-          if (row >= descriptor.rows || column >= descriptor.columns) continue
-          try {
-            const candidatePath = await generateCandidate(row, column)
-            if (fs.statSync(candidatePath).size > fs.statSync(bestPath).size) bestPath = candidatePath
-          } catch (err) {
-            if (!app.isQuitting) console.error('[allpet] 生成候选菜单缩略图失败:', err && err.message || err)
-          }
-        }
-      }
+      // 菜单缩略图必须与 AppKit/管理器一致，固定使用完整的 idle 首帧。
+      // 不得按压缩后文件大小挑选其它动画帧；那些帧可能正在平移或越过单元格边缘。
+      const [[row, column]] = trayPetIconFrames()
+      const bestPath = await generateCandidate(row, column)
       const bounded = boundedPNGSize(bestPath, 20)
       const icon = nativeImage.createFromPath(bestPath)
       if (!bounded || icon.isEmpty()) throw new Error('generated tray icon cannot be decoded')
@@ -1133,7 +1138,7 @@ async function refreshTrayPetIcons() {
         }
       }
     } while (!app.isQuitting && revision !== trayIconCatalogRevision(petCatalog))
-    if (!app.isQuitting && tray) updateTrayMenu()
+    if (!app.isQuitting && (tray || nativeMenuBridgeProc)) updateTrayMenu()
   })().finally(() => { trayPetIconRefreshPromise = null })
   return trayPetIconRefreshPromise
 }
@@ -1178,6 +1183,123 @@ function defaultTrayPetIcon(source) {
   return fallbackTrayPetIcon()
 }
 
+function nativeMenuIconPath(item) {
+  const descriptor = trayPetIconDescriptor(item)
+  return descriptor && boundedPNGSize(descriptor.cachePath, 20) ? descriptor.cachePath : null
+}
+
+function nativeMenuDefaultIconPath(source) {
+  const slug = String(source || '')
+  if (!/^[a-z0-9._-]+$/i.test(slug)) return null
+  const filePath = path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'thumbnails', `${slug}.png`)
+  return boundedPNGSize(filePath, 64) ? filePath : null
+}
+
+function nativeMenuState() {
+  const visible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
+  return menuBridgeState({
+    type: 'state',
+    visible,
+    hasPet: Boolean(pet),
+    busy: petOperationState.busy,
+    busyLabel: petOperationState.label || null,
+    scalePercent: scalePercentText(readScale()),
+    tooltip: petOperationState.busy ? `AllPet · 正在${petOperationState.label || '操作'}` : `AllPet · ${pet && pet.displayName || '无宠物'}`,
+    statusIconPath: app.isPackaged ? path.join(process.resourcesPath, 'tray', 'icon.png') : path.join(__dirname, 'assets', 'icon.png'),
+    platformTitles: platformMenuTitles(currentSnapshot && currentSnapshot.platforms, disabledPlatformKeys()),
+    installedPets: petCatalog.map(item => ({
+      label: String(item.displayName || item.id || '未命名宠物'),
+      target: petMutationTarget(item),
+      current: Boolean(item.current),
+      iconPath: nativeMenuIconPath(item)
+    })),
+    defaultPets: petCatalogDefaults.map(item => ({
+      label: String(item.displayName || item.slug || '默认宠物'),
+      source: String(item.slug || ''),
+      iconPath: nativeMenuDefaultIconPath(item.slug)
+    })).filter(item => item.source)
+  })
+}
+function sendNativeMenuState() {
+  if (!nativeMenuBridgeProc || !nativeMenuBridgeProc.stdin || nativeMenuBridgeProc.stdin.destroyed) return
+  try { nativeMenuBridgeProc.stdin.write(`${JSON.stringify(nativeMenuState())}\n`) } catch {}
+}
+
+async function handleNativeMenuAction(message) {
+  const action = String(message && message.action || '')
+  const value = message && message.value
+  if (action === 'toggle-visibility') togglePetVisibility()
+  else if (action === 'scale-decrease') applyScale(-0.05)
+  else if (action === 'scale-increase') applyScale(0.05)
+  else if (action === 'pet-select' && value) await runTrayPetCommand('切换宠物', ['pet', 'set', String(value)])
+  else if (action === 'pet-install' && value) await runTrayPetCommand('安装宠物', ['pet', 'install', String(value)])
+  else if (action === 'pet-delete' && value) {
+    const row = petCatalog.find(item => petMutationTarget(item) === String(value))
+    const confirmation = await dialog.showMessageBox({
+      type: 'warning', title: '删除宠物…', message: `删除宠物「${row && (row.displayName || row.id) || value}」？`,
+      detail: `${value}\n此操作不可撤销。`, buttons: ['取消', '删除'], defaultId: 0, cancelId: 0
+    })
+    if (confirmation.response === 1) await runTrayPetCommand('删除宠物', ['pet', 'delete', String(value)])
+  } else if (action === 'open-manager') createPetManagerWindow(value === 'install' || value === 'import' ? value : undefined)
+  else if (action === 'refresh-pets') {
+    const result = await runSerializedPetRefresh(petOperationGate, () => refreshDesktopState({ fromMutation: true }))
+    if (!result || !result.ok) await dialog.showMessageBox({ type: 'warning', title: '刷新失败', message: '无法刷新宠物状态', detail: String(result && result.error || '未知错误'), buttons: ['知道了'] })
+  } else if (action === 'open-config') await openConfig()
+  else if (action === 'quit') quit()
+}
+function consumeNativeMenuBridgeOutput(chunk, onReady) {
+  nativeMenuBridgeBuffer += chunk.toString('utf8')
+  const lines = nativeMenuBridgeBuffer.split('\n')
+  nativeMenuBridgeBuffer = lines.pop() || ''
+  for (const line of lines) {
+    if (!line.trim()) continue
+    try {
+      const message = JSON.parse(line)
+      if (message.type === 'ready') onReady()
+      else if (message.type === 'action') handleNativeMenuAction(message).catch(err => console.error('[allpet] 原生菜单动作失败:', err && err.message || err))
+    } catch {}
+  }
+}
+
+function shouldUseLegacyMacTray() {
+  return Boolean(process.env.ALLPET_TRAY_NATIVE_SMOKE || process.env.ALLPET_TRAY_NATIVE_HEADLESS_SMOKE || process.env.ALLPET_TRAY_NATIVE_PREVIEW || process.env.ALLPET_TRAY_PETS_PREVIEW)
+}
+
+function startNativeMenuBridge() {
+  if (process.platform !== 'darwin' || nativeMenuBridgeFailed || shouldUseLegacyMacTray()) return Promise.resolve(false)
+  return new Promise(resolve => {
+    let settled = false
+    let child
+    const finish = value => { if (!settled) { settled = true; clearTimeout(timer); resolve(value) } }
+    try {
+      child = spawn(allpetBinary(), ['menu-bridge'], { stdio: ['pipe', 'pipe', 'pipe'], env: sidecarEnvironment() })
+    } catch (err) {
+      console.error('[allpet] 启动原生菜单桥接失败:', err && err.message || err)
+      resolve(false)
+      return
+    }
+    const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {}; finish(false) }, 4000)
+    child.stdout.on('data', chunk => consumeNativeMenuBridgeOutput(chunk, () => {
+      if (settled) return
+      nativeMenuBridgeProc = child
+      sendNativeMenuState()
+      finish(true)
+    }))
+    child.stderr.on('data', chunk => { if (!app.isQuitting) console.error('[allpet] 原生菜单桥接:', chunk.toString('utf8').trim()) })
+    child.once('error', err => { console.error('[allpet] 原生菜单桥接错误:', err && err.message || err); finish(false) })
+    child.once('close', () => {
+      const wasActive = nativeMenuBridgeProc === child
+      if (wasActive) nativeMenuBridgeProc = null
+      if (!app.isQuitting && wasActive) {
+        nativeMenuBridgeFailed = true
+        console.error('[allpet] 原生菜单桥接已退出，回退 Electron 原生菜单')
+        setTimeout(() => createTray().catch(err => console.error('[allpet] 托盘回退失败:', err && err.message || err)), 250)
+      }
+      finish(false)
+    })
+  })
+}
+
 function popUpMacTrayMenu() {
   if (process.platform !== 'darwin' || !tray || !trayMenu) return
   if (!process.env.ALLPET_TRAY_NATIVE_HEADLESS_SMOKE) tray.popUpContextMenu(trayMenu)
@@ -1189,7 +1311,8 @@ function applyTrayScale(delta, action) {
   if (reopensAfterTrayAction(process.platform, action)) setTimeout(popUpMacTrayMenu, 30)
 }
 
-function createTray() {
+async function createTray() {
+  if (await startNativeMenuBridge()) return
   const iconPath = path.join(__dirname, 'assets', 'icon.png')
   let icon
   if (fs.existsSync(iconPath)) {
@@ -1335,6 +1458,10 @@ function disabledPlatformKeys() {
 }
 
 function updateTrayMenu() {
+  if (nativeMenuBridgeProc) {
+    sendNativeMenuState()
+    return
+  }
   if (!tray) return
   const snapshot = currentSnapshot
   const visible = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
@@ -1366,6 +1493,12 @@ function cleanupLifecycle() {
   if (watchRestartTimer) { clearTimeout(watchRestartTimer); watchRestartTimer = null }
   if (petRefreshRetryTimer) { clearTimeout(petRefreshRetryTimer); petRefreshRetryTimer = null }
   if (historyExpiryTimer) { clearInterval(historyExpiryTimer); historyExpiryTimer = null }
+  if (nativeMenuBridgeProc) {
+    const child = nativeMenuBridgeProc
+    nativeMenuBridgeProc = null
+    try { child.stdin.end() } catch {}
+    try { child.kill() } catch {}
+  }
   for (const [child, timer] of activeSipsProcesses) {
     clearTimeout(timer)
     try { child.kill('SIGKILL') } catch {}
@@ -1462,7 +1595,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   pet = readCurrentPet()
   petSurfaceAvailable = Boolean(pet)
   createWindow({ show: readPetEnabled() && petSurfaceAvailable })
-  createTray()
+  await createTray()
   if (process.platform === 'darwin') refreshTrayPetIcons().catch(() => {})
   // 三阶段截图使用确定性 fixture，避免真实 watcher 快照覆盖测试数据。
   if (!process.env.ALLPET_SCREENSHOT_STAGE) startWatch()

@@ -31,11 +31,27 @@ test('terminal binding also classifies unknown Codex origin as CLI', () => {
   assert.equal(plan.kind, 'fallback')
 })
 
-test('Claude and Grok fail closed without duplicate-task launch', () => {
-  for (const platform of ['claude', 'grok']) {
-    const plan = wakePlanForTask({ platform, sessionID: `${platform}-session` })
+test('verified macOS Claude Desktop tasks activate the app without importing a duplicate session', () => {
+  const plan = wakePlanForTask({
+    platform: 'claude', sessionID: 'claude-session', launchOrigin: 'claude-desktop-3p'
+  }, 'darwin')
+  assert.equal(plan.kind, 'application')
+  assert.equal(plan.command, '/usr/bin/open')
+  assert.deepEqual(plan.args, ['-b', 'com.anthropic.claudefordesktop'])
+  assert.equal(plan.exact, false)
+  assert.match(plan.message, /侧栏/)
+})
+
+test('Claude CLI, unverified Desktop origins, non-macOS Claude, and Grok fail closed', () => {
+  const tasks = [
+    [{ platform: 'claude', sessionID: 'cli', launchOrigin: 'claude-cli' }, 'darwin'],
+    [{ platform: 'claude', sessionID: 'unknown', launchOrigin: 'desktop' }, 'darwin'],
+    [{ platform: 'claude', sessionID: 'desktop', launchOrigin: 'claude-desktop-3p' }, 'win32'],
+    [{ platform: 'grok', sessionID: 'grok-session' }, 'darwin']
+  ]
+  for (const [task, runtimePlatform] of tasks) {
+    const plan = wakePlanForTask(task, runtimePlatform)
     assert.equal(plan.kind, 'fallback')
-    assert.equal(plan.platform, platform)
     assert.equal(plan.canOpenPlatform, false)
     assert.ok(plan.message.length > 10)
   }

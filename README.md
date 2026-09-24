@@ -193,7 +193,7 @@ The title shows the stable **session name**; the current action and progress app
 - **Wake** — the app is still running; just focus the already-open original task.
 - **Strong-wake** — the app was closed; after you confirm, it reopens the app and navigates to the original task.
 
-Claude strong-wake asks you to choose **Claude Desktop / Claude CLI / Cancel**. Desktop opens only an existing `/epitaxy/<local-id>` task (never a duplicated `claude://resume`); on failure it returns to the picker.
+Claude Desktop has no public deep link for selecting an arbitrary existing conversation. A verified Desktop-owned task safely activates the existing Claude app without importing or duplicating a session; when the target is not already focused, choose its title in the sidebar. Claude CLI resume remains an explicit, validated strong-wake operation rather than an automatic fallback.
 
 Terminal tasks prefer to reuse the original Terminal / iTerm tab; nothing new is opened or resumed without your confirmation.
 

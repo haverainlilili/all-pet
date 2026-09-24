@@ -6,7 +6,7 @@ const {
   APPLE_REF_MS, DONE_TTL_SECONDS, accumulateTaskHistory, canonicalID, dismissPlatformHistory,
   dismissTaskHistory, expireTaskHistory, normalizeTaskHistory, sessionDisplayName
 } = require('../src/task-history')
-const { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPrimaryAction } = require('../src/tray-menu')
+const { TRAY_PET_ICON_CACHE_VERSION, graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPetIconFrames, trayPrimaryAction } = require('../src/tray-menu')
 
 function state(platforms = {}, dismissed = [], hidden = {}) { return { platforms, dismissed, hidden } }
 function task(sessionID, phase, title = sessionID, extra = {}) {
@@ -166,7 +166,7 @@ test('platform dismiss includes live tasks and uses terminal versus hidden seman
   assert.equal(value.hidden['dsh|active'], 'active title')
 })
 
-test('macOS tray click opens the native menu and only scale actions reopen it', () => {
+test('legacy macOS Electron fallback reopens only for scale actions', () => {
   assert.equal(trayPrimaryAction('darwin'), 'open-menu')
   assert.equal(trayPrimaryAction('win32'), 'toggle-pet')
   assert.equal(trayPrimaryAction('linux'), 'toggle-pet')
@@ -174,6 +174,11 @@ test('macOS tray click opens the native menu and only scale actions reopen it', 
   assert.equal(reopensAfterTrayAction('darwin', 'scale-increase'), true)
   assert.equal(reopensAfterTrayAction('darwin', 'toggle-pet'), false)
   assert.equal(reopensAfterTrayAction('win32', 'scale-increase'), false)
+})
+
+test('native menu thumbnails always use the complete idle frame and a fresh cache generation', () => {
+  assert.equal(TRAY_PET_ICON_CACHE_VERSION, 'menu-v3')
+  assert.deepEqual(trayPetIconFrames(), [[0, 0]])
 })
 
 test('tray menu text matches AppKit action, grapheme, scale, and pet rows', () => {

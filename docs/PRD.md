@@ -406,7 +406,7 @@ failed > running/thinking > waiting > done > idle
 
 - 任务卡片与单任务平台卡只向主进程传 canonical task ID；路径、PID、终端绑定等 locator 不进入渲染层；
 - 只有来源明确为 Codex Desktop 且带 session ID 的任务才发送 `codex://threads/<sessionID>`；系统接收深链不等于已验证目标会话显示，因此卡片继续保留；
-- Codex/Claude/Grok CLI 与 Claude Desktop 在无法验证精确目标时采取 fail-closed：保留卡片且不启动裸 CLI，避免创建重复会话；DSH 任务卡使用 `#allpet-session=<encoded ID>` 交给已认证的系统浏览器；fragment 不发送到服务器，DSH 客户端只在目标存在于权威 session 列表时选择并清理该 fragment，浏览器认证 cookie 不会复制给 AllPet；
+- Codex/Claude/Grok CLI 与未知来源在无法验证精确目标时采取 fail-closed：保留卡片且不启动裸 CLI，避免创建重复会话；来源经 metadata 确认的 macOS Claude Desktop 任务只安全激活现有应用，不调用会导入/复制会话的 resume，目标未自动聚焦时保留卡片供用户在侧栏选择；DSH 任务卡使用 `#allpet-session=<encoded ID>` 交给已认证的系统浏览器；fragment 不发送到服务器，DSH 客户端只在目标存在于权威 session 列表时选择并清理该 fragment，浏览器认证 cookie 不会复制给 AllPet；
 - 无具体任务的 DSH 平台打开继续使用 Electron `shell.openExternal`；具体任务卡使用同一系统浏览器的精确 session fragment handoff，不再打开可能落在其它会话的基页；
 - Windows/Linux 的显式 CLI 平台打开使用可见终端适配器；Linux 会依次探测多种终端，启动器非零退出/缺失时显示失败，成功也只标记 request accepted 而不宣称应用已显示；
 - sidecar JSON 传递完整 locator 元数据，`watch --json` 变更 key 纳入全部任务与 `activeSessions`，次级会话变化可及时送达。
@@ -497,7 +497,7 @@ macOS 精确唤起可能需要：
 - 打开宠物管理窗口、打开配置；
 - 按 AppKit 顺序显示大小百分比、宠物子菜单、四个平台状态、配置与退出；平台状态包含最多 28 个字符的当前动作，禁用的平台明确显示“已禁用”而非永久“加载中…”；
 - 宠物子菜单可直接切换/删除已安装宠物、安装未安装默认宠物、进入 GitHub 安装或本地导入入口，并进入完整管理器或刷新目录；删除确认显示规范化 bundle 路径；
-- 保留此前的 macOS 原生菜单样式；点击 ±5% 后立即以更新后的百分比重新打开同一菜单，可连续调节，管理窗口也提供大小调整；
+- macOS 由 AppKit 原生菜单桥接承载状态栏菜单，使用 `NSMenuItem.view` 原位更新 − / 百分比 / ＋；点击 ±5% 时菜单保持打开、不再关闭重开，Windows/Linux 原生托盘不变，管理窗口也提供大小调整；
 - macOS 原生“宠物 ›”子菜单在每只宠物左侧显示小形象；图标由独立 `sips` 子进程优先裁 idle 首帧，若首帧过淡/近空则从 sidecar 验证过的图集几何中选取更清晰的候选帧，最终仅把 ≤20×20 的小 PNG 持久缓存并交给主进程，菜单打开时不读取或解码完整 atlas；
 - Electron 使用单实例、托盘常驻生命周期；关闭窗口不会退出，退出时只清理一次 watcher 和重启计时器。
 
