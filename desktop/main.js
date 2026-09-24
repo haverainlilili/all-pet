@@ -24,6 +24,7 @@ const {
 } = require('./src/task-history')
 const { platformMenuTitles, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPrimaryAction } = require('./src/tray-menu')
 const { createBoundedThumbnailDataURL } = require('./src/pet-thumbnail')
+const { reuseExistingDshTab } = require('./src/dsh-browser')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).href
@@ -711,7 +712,18 @@ async function wakeTask(taskID) {
 
   const request = (async () => {
     try {
-      await shell.openExternal(plan.url)
+      let reused = false
+      if (task && task.platform === 'dsh' && process.platform === 'darwin') {
+        const result = await reuseExistingDshTab(spawn, plan.url, process.platform)
+        if (result.status === 'reused') reused = true
+        else if (result.status === 'blocked' || result.status === 'error') {
+          return presentWakeFallback({
+            kind: 'fallback', platform: 'dsh', canOpenPlatform: false,
+            message: `${result.message || '无法控制已有 DSH 标签页'}。为避免重复窗口，未打开新页面。`
+          }, task)
+        }
+      }
+      if (!reused) await shell.openExternal(plan.url)
       if (task && (task.phase === 'done' || task.phase === 'failed')) {
         const state = mutableHistoryState()
         if (dismissTaskHistory(state, taskID)) {
@@ -723,9 +735,9 @@ async function wakeTask(taskID) {
       return {
         succeeded: true,
         requested: true,
-        exact: false,
-        openedApp: false,
-        message: '已将原会话深链交给系统；Electron 无法验证目标会话是否已显示。'
+        exact: reused,
+        openedApp: !reused,
+        message: reused ? '已复用现有 DSH 标签页并切换到原会话。' : '未发现已有 DSH 标签页，已打开原会话页面。'
       }
     } catch (err) {
       return presentWakeFallback(
