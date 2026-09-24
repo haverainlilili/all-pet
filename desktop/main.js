@@ -1495,9 +1495,13 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
         }
         fs.writeFileSync(target, JSON.stringify(diagnostics, null, 2))
         console.log('[allpet] macOS 原生菜单校验通过:', JSON.stringify(diagnostics))
-        quit()
+        try { tray.closeContextMenu() } catch {}
+        cleanupLifecycle()
+        app.exit(0)
       } catch (err) {
         console.error('[allpet] macOS 原生菜单校验失败:', err && err.stack || err)
+        try { tray.closeContextMenu() } catch {}
+        cleanupLifecycle()
         app.exit(1)
       }
     }, 800)
