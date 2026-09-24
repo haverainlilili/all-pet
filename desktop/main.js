@@ -51,6 +51,7 @@ let trayPetIconRefreshPromise = null
 const trayPetIcons = new Map()
 const trayDefaultPetIcons = new Map()
 const activeSipsProcesses = new Map()
+const wakeInFlight = new Map()
 let watchProc = null
 let watchRestartTimer = null
 let petRefreshRetryTimer = null
@@ -343,6 +344,14 @@ function spritesheetDataUrl(filePath) {
   return `data:${imageMimeType(filePath)};base64,${buf.toString('base64')}`
 }
 
+function systemZstdAvailable(environment) {
+  const names = process.platform === 'win32' ? ['zstdcat.exe', 'zstdcat', 'zstd.exe', 'zstd'] : ['zstdcat', 'zstd']
+  const entries = String(environment.PATH || '').split(path.delimiter).filter(Boolean)
+  return names.some(name => entries.some(entry => {
+    try { fs.accessSync(path.join(entry, name), fs.constants.X_OK); return true } catch { return false }
+  }))
+}
+
 // 同步跑一次 allpet CLI 子命令，返回 { code, out, err }。
 function sidecarEnvironment() {
   const environment = { ...process.env }
@@ -350,7 +359,7 @@ function sidecarEnvironment() {
     path.join(process.resourcesPath, 'zstd', 'zstdcat.js'),
     path.join(__dirname, 'scripts', 'zstdcat.js')
   ].find(candidate => fs.existsSync(candidate))
-  if (fs.existsSync(process.execPath) && decoder) {
+  if (fs.existsSync(process.execPath) && decoder && !systemZstdAvailable(environment)) {
     environment.ALLPET_ZSTD_EXECUTABLE = process.execPath
     environment.ALLPET_ZSTD_PREFIX_JSON = JSON.stringify([decoder])
     environment.ALLPET_ZSTD_ELECTRON_NODE = '1'
@@ -358,8 +367,8 @@ function sidecarEnvironment() {
   }
   if (process.env.ELECTRON_ENABLE_LOGGING) {
     console.log('[allpet] zstd bridge:', JSON.stringify({
-      packaged: app.isPackaged, executable: environment.ALLPET_ZSTD_EXECUTABLE || null,
-      prefix: environment.ALLPET_ZSTD_PREFIX_JSON || null, resourcesPath: process.resourcesPath
+      packaged: app.isPackaged, system: systemZstdAvailable(environment), executable: environment.ALLPET_ZSTD_EXECUTABLE || null,
+      resourcesPath: process.resourcesPath
     }))
   }
   return environment
@@ -698,22 +707,37 @@ async function wakeTask(taskID) {
   const task = taskByID(taskID)
   const plan = wakePlanForTask(task)
   if (plan.kind !== 'external') return presentWakeFallback(plan, task)
+  if (wakeInFlight.has(taskID)) return wakeInFlight.get(taskID)
 
-  try {
-    await shell.openExternal(plan.url)
-    return {
-      succeeded: true,
-      requested: true,
-      exact: false,
-      openedApp: false,
-      message: '已将原会话深链交给系统；Electron 无法验证目标会话是否已显示，因此任务卡片会继续保留。'
+  const request = (async () => {
+    try {
+      await shell.openExternal(plan.url)
+      if (task && (task.phase === 'done' || task.phase === 'failed')) {
+        const state = mutableHistoryState()
+        if (dismissTaskHistory(state, taskID)) {
+          adoptHistoryState(state)
+          persistHistory()
+          if (currentSnapshot) sendSnapshot(currentSnapshot)
+        }
+      }
+      return {
+        succeeded: true,
+        requested: true,
+        exact: false,
+        openedApp: false,
+        message: '已将原会话深链交给系统；Electron 无法验证目标会话是否已显示。'
+      }
+    } catch (err) {
+      return presentWakeFallback(
+        failedExternalWakePlan(task, String(err && err.message || err)),
+        task
+      )
+    } finally {
+      wakeInFlight.delete(taskID)
     }
-  } catch (err) {
-    return presentWakeFallback(
-      failedExternalWakePlan(task, String(err && err.message || err)),
-      task
-    )
-  }
+  })()
+  wakeInFlight.set(taskID, request)
+  return request
 }
 
 // ---- 宠物管理 ----

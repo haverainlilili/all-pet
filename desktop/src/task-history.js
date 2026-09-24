@@ -69,7 +69,6 @@ function sanitizedHistoryTask(platform, input) {
   }
   if (!task.sessionID || !task.sessionID.trim()) return null
   task.sessionID = task.sessionID.trim()
-  if (platform === 'dsh' && isUUID(task.sessionID)) task.sessionID = `session-${task.sessionID}`
   const updatedAt = Number(input.updatedAt)
   if (Number.isFinite(updatedAt)) task.updatedAt = updatedAt
   const processID = Number(input.processID)
@@ -255,7 +254,7 @@ function dismissTaskHistory(state, taskID) {
   const platform = String(taskID || '').split('|')[0]
   const task = (state.platforms[platform] || []).find(item => item.id === taskID)
   if (!task) return false
-  if (task.phase === 'done') {
+  if (task.phase === 'done' || task.phase === 'failed') {
     if (!state.dismissed.includes(taskID)) state.dismissed.push(taskID)
   } else {
     state.hidden[taskID] = task.title || task.action || ''

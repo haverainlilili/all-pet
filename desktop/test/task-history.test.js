@@ -194,3 +194,20 @@ test('tray menu text matches AppKit action, grapheme, scale, and pet rows', () =
     pending: [{ kind: 'default', label: '奶龙', source: 'nai-long-2' }]
   })
 })
+
+test('DSH canonical IDs retain the raw session locator for exact wake URLs', () => {
+  const uuid = '123e4567-e89b-12d3-a456-426614174000'
+  const value = normalizeTaskHistory({
+    platforms: { dsh: [{ sessionID: uuid, phase: 'running', title: 'task', updatedAt: 20 }] }
+  })
+  assert.equal(value.platforms.dsh[0].id, `dsh|session-${uuid}`)
+  assert.equal(value.platforms.dsh[0].sessionID, uuid)
+})
+
+test('failed terminal dismissal persists through normalization', () => {
+  const value = state({ codex: [{ id: 'codex|failed', platform: 'codex', sessionID: 'failed', phase: 'failed', title: 'failed', updatedAt: 20 }] })
+  assert.equal(dismissTaskHistory(value, 'codex|failed'), true)
+  const reloaded = normalizeTaskHistory({ platforms: value.platforms, dismissedTaskIDs: value.dismissed })
+  assert.deepEqual(reloaded.platforms, {})
+  assert.deepEqual(reloaded.dismissed, ['codex|failed'])
+})

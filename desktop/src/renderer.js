@@ -214,7 +214,13 @@
 
     const hasNotification = completed.length > 0
       || unfinished.length > 0
-      || groups.some(group => group.tasks.length > 0 || group.status.phase !== 'idle')
+      || groups.some(group => group.tasks.length > 0 || (
+        group.status.phase !== 'idle'
+        && group.status.phase !== 'done'
+        && group.status.phase !== 'failed'
+        && group.status.task
+        && (group.status.task.sessionID || group.status.task.scheduledTaskName)
+      ))
 
     return { groups, completed, unfinished, hasNotification }
   }
@@ -398,11 +404,16 @@
   }
 
   function fallbackBubbles(data) {
-    return data.groups.map((group) => {
+    return data.groups.filter(group => {
+      const primary = group.status.task || {}
+      return group.status.phase === 'idle' || primary.sessionID || primary.scheduledTaskName
+    }).map((group) => {
       const primary = group.status.task || {}
       return {
-        id: null,
+        id: primary.sessionID || primary.scheduledTaskName ? canonicalTaskID(group.platform, primary) : null,
         platform: group.platform,
+        sessionID: primary.sessionID,
+        scheduledTaskName: primary.scheduledTaskName,
         sessionDisplayName: primary.sessionName || primary.title || (group.status.phase === 'idle' ? '暂无会话' : '未命名会话'),
         action: primary.action || group.status.detail || '',
         phase: primary.phase || group.status.phase
@@ -521,6 +532,9 @@
   function renderBubble(providedData) {
     const data = providedData || buildData()
     if (!data.hasNotification) {
+      bubbleStage = 'collapsed'
+      selectedPlatform = null
+      rotationIndex = 0
       bubble.replaceChildren()
       bubble.className = 'hidden'
       syncRotationTimer(data)
@@ -580,7 +594,11 @@
 
   function onPlatformClick(platform) {
     const group = buildData().groups.find(item => item.platform === platform)
-    if (!group || group.tasks.length === 0) {
+    if (!group) return
+    if (group.tasks.length === 0) {
+      const task = group.status && group.status.task
+      const hasStableIdentity = task && (task.sessionID || task.scheduledTaskName)
+      if (group.status.phase !== 'idle' && !hasStableIdentity) return
       launchPlatform(platform)
     } else if (group.tasks.length === 1) {
       wakeTask(group.tasks[0].id, platform)

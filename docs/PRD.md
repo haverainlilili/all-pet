@@ -595,7 +595,7 @@ macOS 精确唤起可能需要：
 3. 点击平台：一项直接唤起，多项进入任务列表；
 4. 点击目标任务；
 5. macOS 尝试精确定位，失败时给出原因和强唤起选择；
-6. 成功查看完成任务后，macOS 自动移除完成气泡；Electron 可手动 `×`。
+6. 成功唤起完成/失败任务后，Electron 与 macOS 都移除对应终态气泡；未能精确定位时保留卡片并禁止打开新会话。
 
 ### 8.3 更换宠物
 
@@ -682,7 +682,7 @@ macOS 精确唤起可能需要：
 3. **Claude Desktop 无公开现有会话深链**：不能保证自动切到目标会话；禁止使用会 fork 副本的 resume 路径。
 4. **Grok 详细多会话不足**：只输出一个选中任务，`activeSessions` 与气泡任务数可能不同。
 5. **Windows/Linux 本地宠物转换尚未实现**：Electron 已禁用并解释该入口；标准宠物包远程安装仍可用。
-6. **独立 AppKit/CLI 仍依赖外部 zstd**：Electron 安装包已使用自身 Node zlib 和随包脚本完成三平台内置解码；脱离 Electron 启动的原生 AppKit/CLI 仍需 `zstdcat`/`zstd`。
+6. **独立 AppKit/CLI 仍依赖外部 zstd**：Electron 优先使用系统 `zstdcat`/`zstd` 以兼容真实 DSH concatenated frames；仅在系统不存在时启用随包 Node fallback；脱离 Electron 启动的原生 AppKit/CLI 仍需外部解码器。
 7. **v1.3.0 Release 资源遗漏**：已发布 ZIP 无法补救；main 的后续打包已复制平台对应 `.bundle/.resources`、采用自包含 sidecar 并增加空 HOME/实际 unpacked 应用校验。
 8. **未签名与无自动更新**：macOS 未公证/签名，Windows 也未配置代码签名；提高首次安装和升级成本。
 9. **上游日志格式风险**：四个平台升级后字段或目录变化可能使解析失效。
