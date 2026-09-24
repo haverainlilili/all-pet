@@ -45,7 +45,7 @@ function reopensAfterTrayAction(platform, action) {
   return String(platform || '') === 'darwin' && (action === 'scale-decrease' || action === 'scale-increase')
 }
 
-const TRAY_PET_ICON_CACHE_VERSION = 'menu-v3'
+const TRAY_PET_ICON_CACHE_VERSION = 'menu-v4'
 
 function trayPetIconFrames() {
   return [[0, 0]]

@@ -177,7 +177,7 @@ test('legacy macOS Electron fallback reopens only for scale actions', () => {
 })
 
 test('native menu thumbnails always use the complete idle frame and a fresh cache generation', () => {
-  assert.equal(TRAY_PET_ICON_CACHE_VERSION, 'menu-v3')
+  assert.equal(TRAY_PET_ICON_CACHE_VERSION, 'menu-v4')
   assert.deepEqual(trayPetIconFrames(), [[0, 0]])
 })
 

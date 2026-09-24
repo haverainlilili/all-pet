@@ -26,6 +26,7 @@ const { TRAY_PET_ICON_CACHE_VERSION, platformMenuTitles, scalePercentText, petTr
 const { createBoundedThumbnailDataURL } = require('./src/pet-thumbnail')
 const { reuseExistingDshTab } = require('./src/dsh-browser')
 const { menuBridgeState } = require('./src/menu-bridge')
+const { cropTrayPetIcon } = require('./src/tray-icon')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).href
@@ -50,12 +51,12 @@ let trayMenu = null
 let nativeMenuBridgeProc = null
 let nativeMenuBridgeBuffer = ''
 let nativeMenuBridgeFailed = false
+const activeSipsProcesses = new Map()
 let nativeTrayPopupCount = 0
 let trayFallbackIcon = null
 let trayPetIconRefreshPromise = null
 const trayPetIcons = new Map()
 const trayDefaultPetIcons = new Map()
-const activeSipsProcesses = new Map()
 const wakeInFlight = new Map()
 let watchProc = null
 let watchRestartTimer = null
@@ -1066,39 +1067,32 @@ async function generateTrayPetIcon(descriptor) {
   }
   if (!fs.existsSync(descriptor.cachePath)) {
     const nonce = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
-    const cropPath = path.join(os.tmpdir(), `allpet-menu-crop-${nonce}.png`)
-    const outputPaths = []
-    const generateCandidate = async (row, column) => {
-      const outputPath = path.join(descriptor.cacheDirectory, `.${descriptor.signature}-${row}-${column}-${nonce}.png`)
-      outputPaths.push(outputPath)
-      await runSips([
-        '-c', String(descriptor.cellHeight), String(descriptor.cellWidth),
-        '--cropOffset', String(row * descriptor.cellHeight), String(column * descriptor.cellWidth),
-        '-s', 'format', 'png', descriptor.source, '--out', cropPath
-      ])
-      await runSips(['-Z', '20', cropPath, '--out', outputPath])
-      if (!boundedPNGSize(outputPath, 20)) throw new Error('generated tray icon is not a bounded PNG')
-      return outputPath
-    }
+    const outputPath = path.join(descriptor.cacheDirectory, `.${descriptor.signature}-${nonce}.png`)
+    const convertedPath = path.join(os.tmpdir(), `allpet-menu-source-${nonce}.png`)
     try {
-      // 菜单缩略图必须与 AppKit/管理器一致，固定使用完整的 idle 首帧。
-      // 不得按压缩后文件大小挑选其它动画帧；那些帧可能正在平移或越过单元格边缘。
+      // nativeImage.crop 使用明确的左上角像素坐标；不要再把 atlas 坐标传给
+      // sips --cropOffset，后者的 (0, 0) 实际会裁到图集中心。
+      // Electron 不能直接解码部分 WebP atlas 时，只让 sips 做格式转换，不让它决定裁切坐标。
+      let cropDescriptor = descriptor
+      const sourceImage = nativeImage.createFromPath(descriptor.source)
+      if (sourceImage.isEmpty()) {
+        await runSips(['-s', 'format', 'png', descriptor.source, '--out', convertedPath])
+        cropDescriptor = { ...descriptor, source: convertedPath }
+      }
       const [[row, column]] = trayPetIconFrames()
-      const bestPath = await generateCandidate(row, column)
-      const bounded = boundedPNGSize(bestPath, 20)
-      const icon = nativeImage.createFromPath(bestPath)
-      if (!bounded || icon.isEmpty()) throw new Error('generated tray icon cannot be decoded')
-      fs.renameSync(bestPath, descriptor.cachePath)
+      const icon = cropTrayPetIcon(nativeImage, cropDescriptor, row, column, 20)
+      fs.writeFileSync(outputPath, icon.toPNG(), { mode: 0o600 })
+      if (!boundedPNGSize(outputPath, 20)) throw new Error('generated tray icon is not a bounded PNG')
+      fs.renameSync(outputPath, descriptor.cachePath)
       try { fs.chmodSync(descriptor.cachePath, 0o600) } catch {}
     } finally {
-      try { fs.unlinkSync(cropPath) } catch {}
-      for (const outputPath of outputPaths) { try { fs.unlinkSync(outputPath) } catch {} }
+      try { fs.unlinkSync(outputPath) } catch {}
+      try { fs.unlinkSync(convertedPath) } catch {}
     }
   }
   const icon = nativeImage.createFromPath(descriptor.cachePath)
   return icon.isEmpty() ? null : icon
 }
-
 function fallbackTrayPetIcon() {
   if (trayFallbackIcon) return trayFallbackIcon
   const iconPath = path.join(__dirname, 'assets', 'icon.png')

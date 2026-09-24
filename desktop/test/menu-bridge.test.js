@@ -8,14 +8,14 @@ test('native menu bridge state preserves scale, complete icon paths, and platfor
   const state = menuBridgeState({
     visible: true, hasPet: true, busy: false, scalePercent: '109%', tooltip: 'AllPet · Hoops',
     statusIconPath: '/resources/tray/icon.png', platformTitles: ['Claude Code：完成'],
-    installedPets: [{ label: 'Hoops', target: '/pets/hoops', current: true, iconPath: '/cache/menu-v3.png' }],
+    installedPets: [{ label: 'Hoops', target: '/pets/hoops', current: true, iconPath: '/cache/menu-v4.png' }],
     defaultPets: [{ label: '噜噜', source: 'lulu', iconPath: '/cache/lulu.png' }]
   })
   assert.equal(state.type, 'state')
   assert.equal(state.scalePercent, '109%')
   assert.equal(state.statusIconPath, '/resources/tray/icon.png')
   assert.deepEqual(state.platformTitles, ['Claude Code：完成'])
-  assert.equal(state.installedPets[0].iconPath, '/cache/menu-v3.png')
+  assert.equal(state.installedPets[0].iconPath, '/cache/menu-v4.png')
   assert.equal(state.installedPets[0].current, true)
 })
 
