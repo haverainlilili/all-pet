@@ -49,6 +49,7 @@ let nativeTrayPopupCount = 0
 let trayFallbackIcon = null
 let trayPetIconRefreshPromise = null
 const trayPetIcons = new Map()
+const trayDefaultPetIcons = new Map()
 const activeSipsProcesses = new Map()
 let watchProc = null
 let watchRestartTimer = null
@@ -976,11 +977,13 @@ function trayPetIconDescriptor(item) {
     if (!Number.isFinite(rawCellWidth) || !Number.isFinite(rawCellHeight) || rawCellWidth < 1 || rawCellHeight < 1) return null
     const cellWidth = Math.round(rawCellWidth)
     const cellHeight = Math.round(rawCellHeight)
+    const rows = Math.max(1, Math.round(Number(item.rows) || 1))
+    const columns = Math.max(1, Math.round(Number(item.columns) || 1))
     const signature = createHash('sha256')
-      .update(`${source}\0${stat.size}\0${stat.mtimeMs}\0${cellWidth}\0${cellHeight}`)
+      .update(`menu-v2\0${source}\0${stat.size}\0${stat.mtimeMs}\0${cellWidth}\0${cellHeight}\0${rows}\0${columns}`)
       .digest('hex').slice(0, 24)
     const cacheDirectory = path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'thumbnails', 'menu')
-    return { source, cellWidth, cellHeight, signature, cacheDirectory, cachePath: path.join(cacheDirectory, `${signature}.png`) }
+    return { source, cellWidth, cellHeight, rows, columns, signature, cacheDirectory, cachePath: path.join(cacheDirectory, `${signature}.png`) }
   } catch {
     return null
   }
@@ -1015,22 +1018,40 @@ async function generateTrayPetIcon(descriptor) {
   if (!fs.existsSync(descriptor.cachePath)) {
     const nonce = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`
     const cropPath = path.join(os.tmpdir(), `allpet-menu-crop-${nonce}.png`)
-    const outputPath = path.join(descriptor.cacheDirectory, `.${descriptor.signature}-${nonce}.png`)
-    try {
+    const outputPaths = []
+    const generateCandidate = async (row, column) => {
+      const outputPath = path.join(descriptor.cacheDirectory, `.${descriptor.signature}-${row}-${column}-${nonce}.png`)
+      outputPaths.push(outputPath)
       await runSips([
-        '-c', String(descriptor.cellHeight), String(descriptor.cellWidth), '--cropOffset', '0', '0',
+        '-c', String(descriptor.cellHeight), String(descriptor.cellWidth),
+        '--cropOffset', String(row * descriptor.cellHeight), String(column * descriptor.cellWidth),
         '-s', 'format', 'png', descriptor.source, '--out', cropPath
       ])
       await runSips(['-Z', '20', cropPath, '--out', outputPath])
-      const bounded = boundedPNGSize(outputPath, 20)
-      if (!bounded) throw new Error('generated tray icon is not a bounded PNG')
-      const icon = nativeImage.createFromPath(outputPath)
-      if (icon.isEmpty()) throw new Error(`generated tray icon cannot be decoded (${bounded.width}x${bounded.height})`)
-      fs.renameSync(outputPath, descriptor.cachePath)
+      if (!boundedPNGSize(outputPath, 20)) throw new Error('generated tray icon is not a bounded PNG')
+      return outputPath
+    }
+    try {
+      let bestPath = await generateCandidate(0, 0)
+      if (fs.statSync(bestPath).size < 1024) {
+        for (const [row, column] of [[2, 6], [8, 1]]) {
+          if (row >= descriptor.rows || column >= descriptor.columns) continue
+          try {
+            const candidatePath = await generateCandidate(row, column)
+            if (fs.statSync(candidatePath).size > fs.statSync(bestPath).size) bestPath = candidatePath
+          } catch (err) {
+            if (!app.isQuitting) console.error('[allpet] 生成候选菜单缩略图失败:', err && err.message || err)
+          }
+        }
+      }
+      const bounded = boundedPNGSize(bestPath, 20)
+      const icon = nativeImage.createFromPath(bestPath)
+      if (!bounded || icon.isEmpty()) throw new Error('generated tray icon cannot be decoded')
+      fs.renameSync(bestPath, descriptor.cachePath)
       try { fs.chmodSync(descriptor.cachePath, 0o600) } catch {}
     } finally {
       try { fs.unlinkSync(cropPath) } catch {}
-      try { fs.unlinkSync(outputPath) } catch {}
+      for (const outputPath of outputPaths) { try { fs.unlinkSync(outputPath) } catch {} }
     }
   }
   const icon = nativeImage.createFromPath(descriptor.cachePath)
@@ -1100,9 +1121,22 @@ function defaultTrayPetIcon(source) {
   const slug = String(source || '')
   if (/^[a-z0-9._-]+$/i.test(slug)) {
     const filePath = path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'thumbnails', `${slug}.png`)
-    if (boundedPNGSize(filePath, 24)) {
-      const image = nativeImage.createFromPath(filePath)
-      if (!image.isEmpty()) return image.resize({ width: 18, height: 18, quality: 'best' })
+    const bounded = boundedPNGSize(filePath, 64)
+    if (bounded) {
+      try {
+        const stat = fs.statSync(filePath)
+        const signature = `${stat.size}:${stat.mtimeMs}`
+        const cached = trayDefaultPetIcons.get(slug)
+        if (cached && cached.signature === signature) return cached.icon
+        const image = nativeImage.createFromPath(filePath)
+        if (!image.isEmpty()) {
+          const size = image.getSize()
+          const scale = 20 / Math.max(size.width, size.height)
+          const icon = image.resize({ width: Math.max(1, Math.round(size.width * scale)), height: Math.max(1, Math.round(size.height * scale)), quality: 'best' })
+          trayDefaultPetIcons.set(slug, { signature, icon })
+          return icon
+        }
+      } catch {}
     }
   }
   return fallbackTrayPetIcon()
@@ -1110,7 +1144,7 @@ function defaultTrayPetIcon(source) {
 
 function popUpMacTrayMenu() {
   if (process.platform !== 'darwin' || !tray || !trayMenu) return
-  tray.popUpContextMenu(trayMenu)
+  if (!process.env.ALLPET_TRAY_NATIVE_HEADLESS_SMOKE) tray.popUpContextMenu(trayMenu)
   nativeTrayPopupCount += 1
 }
 
@@ -1204,9 +1238,10 @@ function petTraySubmenu() {
     submenu.push({ type: 'separator' })
     submenu.push({ label: '未安装的默认宠物', enabled: false })
     for (const row of rows.pending) {
+      const defaultIcon = process.platform === 'darwin' ? defaultTrayPetIcon(row.source) : undefined
       submenu.push({
         label: row.label, enabled: !busy,
-        icon: process.platform === 'darwin' ? defaultTrayPetIcon(row.source) : undefined,
+        icon: defaultIcon,
         click: () => runTrayPetCommand('安装宠物', ['pet', 'install', row.source])
       })
     }
@@ -1409,9 +1444,11 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
     }, 900)
   }
 
-  // 调试：验证 macOS 继续使用原生菜单、点击图标不隐藏宠物、缩放后重开菜单，且每只宠物都有小图。
-  if (process.platform === 'darwin' && process.env.ALLPET_TRAY_NATIVE_SMOKE) {
-    const target = process.env.ALLPET_TRAY_NATIVE_SMOKE
+  // 调试：本机模式调用真实原生 popup；CI headless 模式验证同一菜单/回调路径但不进入无会话可关闭的 AppKit tracking loop。
+  const trayNativeSmokeTarget = process.env.ALLPET_TRAY_NATIVE_SMOKE || process.env.ALLPET_TRAY_NATIVE_HEADLESS_SMOKE
+  if (process.platform === 'darwin' && trayNativeSmokeTarget) {
+    const target = trayNativeSmokeTarget
+    const headlessPopup = Boolean(process.env.ALLPET_TRAY_NATIVE_HEADLESS_SMOKE)
     setTimeout(async () => {
       try {
         const wait = delay => new Promise(resolve => setTimeout(resolve, delay))
@@ -1445,6 +1482,7 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
         applyScale(scaleBefore - scaleAfter)
         const diagnostics = {
           nativeMenu: trayPrimaryAction(process.platform) === 'open-menu',
+          popupMode: headlessPopup ? 'headless-callback' : 'native-popup',
           visibleBefore, visibleAfterClick,
           popupCount: nativeTrayPopupCount,
           scaleChanged: Math.abs(scaleAfter - scaleBefore) > 0.0001,

@@ -87,7 +87,7 @@ jobs:
         run: |
           swift build -c release --static-swift-stdlib
           node desktop/scripts/prepare-sidecar.js
-      - name: macOS 原生菜单栏点击 / 连续缩放 / 宠物缩略图
+      - name: macOS 原生菜单构造 / 点击回调 / 连续缩放 / 宠物缩略图
         if: runner.os == 'macOS'
         working-directory: desktop
         shell: bash
@@ -95,9 +95,9 @@ jobs:
           rm -rf "$RUNNER_TEMP/allpet-native-tray-home"
           mkdir -p "$RUNNER_TEMP/allpet-native-tray-home"
           ALLPET_HOME="$RUNNER_TEMP/allpet-native-tray-home" \
-            ALLPET_TRAY_NATIVE_SMOKE="$RUNNER_TEMP/allpet-native-tray.json" \
+            ALLPET_TRAY_NATIVE_HEADLESS_SMOKE="$RUNNER_TEMP/allpet-native-tray.json" \
             ./node_modules/.bin/electron .
-          node -e "const j=require(process.argv[1]);if(!j.nativeMenu||j.visibleAfterClick!==j.visibleBefore||j.popupCount<2||!j.scaleChanged||j.petCount<1||j.generatedIconCount!==j.petCount||j.iconSizes.length!==j.petCount||j.iconSizes.some(x=>x.width<1||x.height<1||x.width>20||x.height>20))process.exit(1);console.log(j)" "$RUNNER_TEMP/allpet-native-tray.json"
+          node -e "const j=require(process.argv[1]);if(!j.nativeMenu||j.popupMode!=='headless-callback'||j.visibleAfterClick!==j.visibleBefore||j.popupCount<2||!j.scaleChanged||j.petCount<1||j.generatedIconCount!==j.petCount||j.iconSizes.length!==j.petCount||j.iconSizes.some(x=>x.width<1||x.height<1||x.width>20||x.height>20))process.exit(1);console.log(j)" "$RUNNER_TEMP/allpet-native-tray.json"
 
   desktop-smoke:
     name: Electron 冒烟（Linux + xvfb）

@@ -381,7 +381,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 14 | 菜单大小控件 | 点按钮不关菜单连续点击；禁用平台显示“已禁用” | ✅ 保留 Electron 原生菜单样式；±5% 后自动以新百分比重开，可连续点击；Windows/Linux 原生托盘不变 |
 | 15 | 任务历史持久化 | canonical migration + 去重/过滤 + 12/100 上限 + 终态 24h TTL | ✅ 已对齐（共享字段；加载时迁移旧 DSH UUID/清理损坏 shape；Electron 独立 wall-clock timer） |
 | 16 | 托盘生命周期 | 点击状态图标打开菜单；显示/隐藏、打开配置、常驻、退出清理 | ✅ 已对齐（macOS 点击图标只打开原生菜单、不误隐藏宠物；单实例；关闭窗口不退出；Windows/Linux 托盘点击仍切换） |
-| 17 | 宠物选择与删除 | 行首缩略图；按 bundle URL 精确操作，删除/外部失效后回退 | ✅ 已对齐（macOS 原生子菜单逐行显示 idle 首帧；规范路径；refresh 同闸门；只消费 sidecar 验证后的 catalog） |
+| 17 | 宠物选择与删除 | 行首缩略图；按 bundle URL 精确操作，删除/外部失效后回退 | ✅ 已对齐（macOS 原生子菜单逐行显示小形象，近空 idle 首帧会选更清晰候选帧；规范路径；refresh 同闸门；只消费 sidecar 验证后的 catalog） |
 | 18 | 首启与图集 | 首只发现宠物；按实际 atlas cell 排版 | ✅ 已对齐（失效配置回退；动态 8×9/11 图集；元数据/图片不一致则占位） |
 | 19 | 本地导入能力 | AppKit/ImageIO 多格式导入 | ⚠️ macOS 可用；Windows/Linux 明示禁用，标准包安装可用 |
 
@@ -394,4 +394,4 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 
 > - **共享 HOME**：Electron config/history、宠物发现与继承环境的 sidecar 统一使用 `ALLPET_HOME`；加载历史后以原子 `0600` 文件（适用平台）重写规范化结果。
 > - **DSH zstd**：Windows 外部命令发现按 `;` 拆分 PATH 并查找 `.exe`；Electron 安装包还会把自身 Node zlib decoder 注入 sidecar，已用 clean PATH 的实际 `.zstd` transcript 验收，不要求用户安装 zstd。独立 AppKit/CLI 启动仍采用外部命令。
-> - **宠物缩略图**：Electron 管理器不再同步 base64 传输每张完整 atlas；macOS 原生宠物子菜单则由独立 `/usr/bin/sips` 子进程按 canonical path + mtime + cell 几何裁出 ≤20×20 的 idle 首帧 PNG，持久缓存后才由主进程载入，打开菜单不读取/解码完整 atlas。
+> - **宠物缩略图**：Electron 管理器不再同步 base64 传输每张完整 atlas；macOS 原生宠物子菜单则由独立 `/usr/bin/sips` 子进程按 canonical path + mtime + cell 几何优先裁 idle 首帧，首帧过淡/近空时在 sidecar 验证几何内选取更清晰的候选帧，最终只把 ≤20×20 PNG 持久缓存并交给主进程，打开菜单不读取/解码完整 atlas。
