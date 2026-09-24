@@ -493,11 +493,12 @@ macOS 精确唤起可能需要：
 
 #### 7.7.2 Electron 托盘
 
-- 显示/隐藏宠物；点击托盘图标同样切换可见性；
+- 显示/隐藏宠物；macOS 点击菜单栏图标只打开原生菜单，不再意外切换宠物可见性；Windows/Linux 点击托盘图标继续切换可见性；
 - 打开宠物管理窗口、打开配置；
 - 按 AppKit 顺序显示大小百分比、宠物子菜单、四个平台状态、配置与退出；平台状态包含最多 28 个字符的当前动作，禁用的平台明确显示“已禁用”而非永久“加载中…”；
 - 宠物子菜单可直接切换/删除已安装宠物、安装未安装默认宠物、进入 GitHub 安装或本地导入入口，并进入完整管理器或刷新目录；删除确认显示规范化 bundle 路径；
-- 托盘提供 ±5%，管理窗口也提供大小调整；原生托盘菜单无法承载 macOS 同类自定义连续控件；
+- 保留此前的 macOS 原生菜单样式；点击 ±5% 后立即以更新后的百分比重新打开同一菜单，可连续调节，管理窗口也提供大小调整；
+- macOS 原生“宠物 ›”子菜单在每只宠物左侧显示 idle 首帧形象；图标由独立 `sips` 子进程裁成 ≤20×20 的小 PNG 并持久缓存，菜单打开时不读取或解码完整 atlas；
 - Electron 使用单实例、托盘常驻生命周期；关闭窗口不会退出，退出时只清理一次 watcher 和重启计时器。
 
 #### 7.7.3 配置
@@ -629,7 +630,7 @@ macOS 精确唤起可能需要：
 - 日志缺失时平台进入 idle，不应导致全局崩溃；
 - 单个平台失败不影响其它平台快照；
 - 任务定位失败时保留气泡；
-- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 17 项宠物选择、操作闸门、持久化、窗口夹紧、降低动态效果、Windows zstd 命令发现及 decoder 参数契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、idle/no-task 僵尸清理、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 54 项 Node 测试（含旧历史 canonical migration/防御过滤、`ALLPET_HOME`、可信 pet catalog、wall-clock 24 小时 TTL、可见任务动画、动态降低动态效果、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、真实 reduced-motion、管理器缩略图边界、独立 HOME/history migration、clean-PATH 实际 DSH zstd transcript 和生命周期截图。
+- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 17 项宠物选择、操作闸门、持久化、窗口夹紧、降低动态效果、Windows zstd 命令发现及 decoder 参数契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、idle/no-task 僵尸清理、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 55 项 Node 测试（含旧历史 canonical migration/防御过滤、`ALLPET_HOME`、可信 pet catalog、wall-clock 24 小时 TTL、可见任务动画、动态降低动态效果、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、真实 reduced-motion、管理器缩略图边界、独立 HOME/history migration、clean-PATH 实际 DSH zstd transcript 和生命周期截图。
 
 ### 9.3 隐私与安全
 
@@ -663,7 +664,7 @@ macOS 精确唤起可能需要：
 | 24h 完成卡 TTL | ✅ | ✅ | ✅ | ✅ |
 | 拖动/悬停动画 | ✅ | ✅ | ✅ | ✅ |
 | 所有工作区可见 | ✅ | ✅ | 不适用 | ⚠️ 依赖桌面环境 |
-| 宠物大小/切换/删除 | ✅ | ✅ 事务化、精确 bundle | ✅ 事务化、精确 bundle | ✅ 事务化、精确 bundle |
+| 宠物大小/切换/删除 | ✅ | ✅ 原生菜单连续缩放、行缩略图、事务化精确 bundle | ✅ 事务化、精确 bundle | ✅ 事务化、精确 bundle |
 | 标准远程宠物下载 | ✅ | ✅ | ✅ | ✅ |
 | 本地多格式宠物转换 | ✅ | ✅（调用 Swift） | ❌ | ❌ |
 | 系统托盘 | ✅ | ✅ | ✅ | ⚠️ GNOME 需扩展 |

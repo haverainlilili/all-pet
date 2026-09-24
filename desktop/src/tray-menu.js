@@ -37,6 +37,14 @@ function platformMenuTitles(statuses, disabledPlatforms = []) {
   })
 }
 
+function trayPrimaryAction(platform) {
+  return String(platform || '') === 'darwin' ? 'open-menu' : 'toggle-pet'
+}
+
+function reopensAfterTrayAction(platform, action) {
+  return String(platform || '') === 'darwin' && (action === 'scale-decrease' || action === 'scale-increase')
+}
+
 function scalePercentText(scale) {
   const defaultScale = 112 / 192
   const value = Number.isFinite(Number(scale)) ? Number(scale) : defaultScale
@@ -67,4 +75,4 @@ function petTrayRows(pets, defaults) {
   return { installed, pending }
 }
 
-module.exports = { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows }
+module.exports = { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPrimaryAction }

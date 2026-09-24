@@ -6,7 +6,7 @@ const {
   APPLE_REF_MS, DONE_TTL_SECONDS, accumulateTaskHistory, canonicalID, dismissPlatformHistory,
   dismissTaskHistory, expireTaskHistory, normalizeTaskHistory, sessionDisplayName
 } = require('../src/task-history')
-const { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows } = require('../src/tray-menu')
+const { graphemePrefix, platformMenuTitles, platformStatusTitle, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPrimaryAction } = require('../src/tray-menu')
 
 function state(platforms = {}, dismissed = [], hidden = {}) { return { platforms, dismissed, hidden } }
 function task(sessionID, phase, title = sessionID, extra = {}) {
@@ -164,6 +164,16 @@ test('platform dismiss includes live tasks and uses terminal versus hidden seman
   assert.deepEqual(value.platforms.dsh, [])
   assert.ok(value.dismissed.includes('dsh|done'))
   assert.equal(value.hidden['dsh|active'], 'active title')
+})
+
+test('macOS tray click opens the native menu and only scale actions reopen it', () => {
+  assert.equal(trayPrimaryAction('darwin'), 'open-menu')
+  assert.equal(trayPrimaryAction('win32'), 'toggle-pet')
+  assert.equal(trayPrimaryAction('linux'), 'toggle-pet')
+  assert.equal(reopensAfterTrayAction('darwin', 'scale-decrease'), true)
+  assert.equal(reopensAfterTrayAction('darwin', 'scale-increase'), true)
+  assert.equal(reopensAfterTrayAction('darwin', 'toggle-pet'), false)
+  assert.equal(reopensAfterTrayAction('win32', 'scale-increase'), false)
 })
 
 test('tray menu text matches AppKit action, grapheme, scale, and pet rows', () => {

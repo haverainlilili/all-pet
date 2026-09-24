@@ -378,20 +378,20 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 11 | 交互动画 | 悬停 jumping / 拖动 running | ✅ 已对齐（悬停/拖动动画） |
 | 12 | 点击宠物展开 | 点击精灵 → Stage 2 | ✅ 已对齐 |
 | 13 | 窗口属性 | transparent / alwaysOnTop / 全空间 | ⚠️ 已 alwaysOnTop；全空间仅 darwin/linux（Windows 无此概念） |
-| 14 | 菜单大小控件 | 点按钮不关菜单连续点击；禁用平台显示“已禁用” | ⚠️ 托盘顺序、百分比、±5%、切换/安装/导入/删除/刷新和禁用状态文案已对齐；原生 Electron 菜单无法承载不关闭的自定义控件 |
+| 14 | 菜单大小控件 | 点按钮不关菜单连续点击；禁用平台显示“已禁用” | ✅ 保留 Electron 原生菜单样式；±5% 后自动以新百分比重开，可连续点击；Windows/Linux 原生托盘不变 |
 | 15 | 任务历史持久化 | canonical migration + 去重/过滤 + 12/100 上限 + 终态 24h TTL | ✅ 已对齐（共享字段；加载时迁移旧 DSH UUID/清理损坏 shape；Electron 独立 wall-clock timer） |
-| 16 | 托盘生命周期 | 显示/隐藏、打开配置、常驻、退出清理 | ✅ 已对齐（单实例；关闭窗口不退出；托盘点击切换） |
-| 17 | 宠物选择与删除 | 按 bundle URL 精确操作，删除/外部失效后回退 | ✅ 已对齐（规范路径；refresh 同闸门；只消费 sidecar 验证后的 spritesheet/atlas catalog；管理器 IPC 只传有界缩略图或受限 token） |
+| 16 | 托盘生命周期 | 点击状态图标打开菜单；显示/隐藏、打开配置、常驻、退出清理 | ✅ 已对齐（macOS 点击图标只打开原生菜单、不误隐藏宠物；单实例；关闭窗口不退出；Windows/Linux 托盘点击仍切换） |
+| 17 | 宠物选择与删除 | 行首缩略图；按 bundle URL 精确操作，删除/外部失效后回退 | ✅ 已对齐（macOS 原生子菜单逐行显示 idle 首帧；规范路径；refresh 同闸门；只消费 sidecar 验证后的 catalog） |
 | 18 | 首启与图集 | 首只发现宠物；按实际 atlas cell 排版 | ✅ 已对齐（失效配置回退；动态 8×9/11 图集；元数据/图片不一致则占位） |
 | 19 | 本地导入能力 | AppKit/ImageIO 多格式导入 | ⚠️ macOS 可用；Windows/Linux 明示禁用，标准包安装可用 |
 
 > 已知简化（平台限制 / 暂未实现）：
 > - **#10 唤醒**：Electron 已按 canonical task ID 规划唤醒；来源明确的 Codex Desktop 任务可发送 `codex://threads/<id>`，但系统接收深链无法证明目标会话已显示，因此仍保留卡片。CLI 终端 tab 暂无可移植的精确聚焦 API，CLI/Claude/Grok fail-closed。DSH 任务卡改用 `#allpet-session=<encoded ID>` 交给已认证的系统浏览器；DSH 客户端仅在权威列表中找到该 session 后执行选择并清理 fragment，认证 cookie 始终留在浏览器中，因此不再出现“只打开基页”提示。Claude Desktop 上游未提供「聚焦现有会话」的安全深链，`resume` 可能 fork 副本，因此继续采用手动侧栏选择。
 > - **#13 全空间**：Windows 无「所有 Space 可见」概念。
-> - **#14 大小控件位置**：Electron 托盘显示 AppKit 同口径百分比和 ±5%，管理窗口也可调节；但原生托盘菜单不支持 AppKit 那种不关菜单的自定义视图。
+> - **#14 大小控件位置**：macOS Electron 保留原生菜单及 AppKit 同口径百分比和 ±5%；原生菜单选择命令后会关闭，因此在缩放回调后立即以新百分比重开，实现连续调节。Windows/Linux 保留原生托盘菜单，管理窗口也可调节。
 > - 等待态时钟、运行/思考 spinner、完成勾、失败叹号与深浅色卡片已按 AppKit 绘制逻辑对齐。
 > - 任务生命周期：Electron 与 AppKit 都会在典型 idle/no-task 快照清空活跃记录、会话切换时清空非当前活跃记录，只保留 done/failed 与当前/并发任务；隐藏最后一条活跃任务后，两端都从可见状态重算宠物动画。Electron 合并时保留 sourcePath/terminalBinding，并用独立 wall-clock timer 执行 24 小时 TTL；三平台 Node 测试覆盖 canonical ID、12/100 上限、时间戳保持、隐藏复活和定位字段继承。
 
 > - **共享 HOME**：Electron config/history、宠物发现与继承环境的 sidecar 统一使用 `ALLPET_HOME`；加载历史后以原子 `0600` 文件（适用平台）重写规范化结果。
 > - **DSH zstd**：Windows 外部命令发现按 `;` 拆分 PATH 并查找 `.exe`；Electron 安装包还会把自身 Node zlib decoder 注入 sidecar，已用 clean PATH 的实际 `.zstd` transcript 验收，不要求用户安装 zstd。独立 AppKit/CLI 启动仍采用外部命令。
-> - **宠物缩略图**：Electron 不再同步读取并 base64 传输每张完整 atlas；优先用 nativeImage 生成最大 72×72、96 KiB 的 PNG，不支持的格式经 CSP 限定的只读协议逐张解码裁剪，所有管理器截图验收都检查尺寸与传输上限。
+> - **宠物缩略图**：Electron 管理器不再同步 base64 传输每张完整 atlas；macOS 原生宠物子菜单则由独立 `/usr/bin/sips` 子进程按 canonical path + mtime + cell 几何裁出 ≤20×20 的 idle 首帧 PNG，持久缓存后才由主进程载入，打开菜单不读取/解码完整 atlas。
