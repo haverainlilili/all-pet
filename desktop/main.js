@@ -1424,7 +1424,9 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
           return { target, current: Boolean(descriptor && cached && cached.signature === descriptor.signature) }
         })
         const visibleBefore = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
+        setTimeout(() => { try { tray.closeContextMenu() } catch {} }, 100)
         tray.emit('click')
+        await wait(140)
         const visibleAfterClick = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible())
         const petItem = trayMenu.items.find(item => item.label === '宠物')
         const petRows = petItem && petItem.submenu ? petItem.submenu.items.slice(0, petCatalog.length) : []
@@ -1437,7 +1439,8 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
         const scaleItem = trayMenu.items.find(item => item.label === scaleLabel)
         if (!scaleItem || typeof scaleItem.click !== 'function') throw new Error('native scale item missing')
         scaleItem.click(scaleItem, undefined, {})
-        await wait(120)
+        setTimeout(() => { try { tray.closeContextMenu() } catch {} }, 120)
+        await wait(180)
         const scaleAfter = readScale()
         applyScale(scaleBefore - scaleAfter)
         const diagnostics = {
