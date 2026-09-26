@@ -63,6 +63,8 @@ let trayPanelExpanded = false
 let nativeMenuBridgeProc = null
 let nativeMenuBridgeBuffer = ''
 let nativeMenuBridgeFailed = false
+let nativeBridgeRetryTimer = null
+let nativeBridgeRetryDelay = 2000
 const activeSipsProcesses = new Map()
 let nativeTrayPopupCount = 0
 let trayFallbackIcon = null
@@ -1322,17 +1324,30 @@ function shouldUseLegacyMacTray() {
   return Boolean(process.env.ALLPET_TRAY_NATIVE_SMOKE || process.env.ALLPET_TRAY_NATIVE_HEADLESS_SMOKE || process.env.ALLPET_TRAY_NATIVE_PREVIEW || process.env.ALLPET_TRAY_PETS_PREVIEW)
 }
 
+function retryNativeBridge() {
+  if (app.isQuitting || nativeBridgeRetryTimer) return
+  nativeMenuBridgeFailed = true
+  recordManualViewStatus({ bridgeReady: false })
+  nativeBridgeRetryTimer = setTimeout(() => {
+    nativeBridgeRetryTimer = null; nativeMenuBridgeFailed = false
+    startNativeMenuBridge().catch(() => {})
+  }, nativeBridgeRetryDelay)
+  nativeBridgeRetryDelay = Math.min(nativeBridgeRetryDelay * 2, 30000)
+}
+
 function startNativeMenuBridge() {
   if (process.platform !== 'darwin' || nativeMenuBridgeFailed || shouldUseLegacyMacTray() || process.env.ALLPET_TRAY_PANEL_SMOKE) return Promise.resolve(false)
   if (nativeMenuBridgeProc) return Promise.resolve(true)
   return new Promise(resolve => {
     let settled = false
     let child
+    nativeMenuBridgeBuffer = ''
     const finish = value => { if (!settled) { settled = true; clearTimeout(timer); resolve(value) } }
     try {
       child = spawn(allpetBinary(), ['menu-bridge'], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...sidecarEnvironment(), ALLPET_BRIDGE_HEADLESS: usesTrayPanel() ? '1' : '0' } })
     } catch (err) {
       console.error('[allpet] 启动原生菜单桥接失败:', err && err.message || err)
+      retryNativeBridge()
       resolve(false)
       return
     }
@@ -1340,20 +1355,17 @@ function startNativeMenuBridge() {
     child.stdout.on('data', chunk => consumeNativeMenuBridgeOutput(chunk, () => {
       if (settled) return
       nativeMenuBridgeProc = child
+      nativeBridgeRetryDelay = 2000
       sendNativeMenuState()
       finish(true)
     }))
+    child.stdin.on('error', () => { if (nativeMenuBridgeProc === child) nativeTerminalRPC.disconnect(); try { child.kill() } catch {} })
     child.stderr.on('data', chunk => { if (!app.isQuitting) console.error('[allpet] 原生菜单桥接:', chunk.toString('utf8').trim()) })
     child.once('error', err => { console.error('[allpet] 原生菜单桥接错误:', err && err.message || err); finish(false) })
     child.once('close', () => {
       const wasActive = nativeMenuBridgeProc === child
       if (wasActive) { nativeMenuBridgeProc = null; nativeTerminalRPC.disconnect() }
-      if (!app.isQuitting && wasActive) {
-        nativeMenuBridgeFailed = true
-        recordManualViewStatus({ bridgeReady: false })
-        console.error('[allpet] 系统桥接已退出，正在恢复')
-        setTimeout(() => { nativeMenuBridgeFailed = false; startNativeMenuBridge().catch(() => {}) }, 2000)
-      }
+      if (!app.isQuitting) retryNativeBridge()
       finish(false)
     })
   })
@@ -1689,6 +1701,7 @@ function cleanupLifecycle() {
   terminalService?.stop()
   terminalService = null
   nativeTerminalRPC.disconnect()
+  if (nativeBridgeRetryTimer) { clearTimeout(nativeBridgeRetryTimer); nativeBridgeRetryTimer = null }
   pendingViewParts.clear()
   manualViewMonitor?.stop()
   manualViewMonitor = null

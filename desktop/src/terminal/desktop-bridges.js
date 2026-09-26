@@ -11,7 +11,10 @@ function createDesktopBridges(home, { now = Date.now } = {}) {
   const directory = path.join(home, '.config', 'all-pet', 'terminal-bridge')
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 })
   const token = crypto.randomBytes(32).toString('hex')
-  const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\allpet-${token.slice(0, 20)}` : path.join(directory, 'bridge.sock')
+  const localPath = path.join(directory, 'bridge.sock')
+  // sockaddr_un is limited to 104 bytes on macOS, including the terminator.
+  const socketPath = Buffer.byteLength(localPath) < 100 ? localPath : path.join('/tmp', `allpet-${process.getuid?.() || 0}-${token.slice(0, 24)}.sock`)
+  const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\allpet-${token.slice(0, 20)}` : socketPath
   const clients = new Set(), pending = new Map()
   let serial = 0
   const server = net.createServer(socket => {
@@ -32,7 +35,7 @@ function createDesktopBridges(home, { now = Date.now } = {}) {
           if (message.type === 'state' && Array.isArray(message.terminals)) {
             client.terminals = message.terminals.slice(0, 256).filter(t => typeof t.id === 'string' && t.id.length < 128 && Number.isInteger(t.pid) && t.pid > 1)
               .map(t => ({ id: t.id, pid: t.pid, tty: typeof t.tty === 'string' ? t.tty : null,
-                focused: t.focused === true, local: t.local === true }))
+                focused: t.focused === true, local: t.local === true, viewedAt: Number(t.viewedAt) || 0 }))
             client.at = now()
           } else if (message.type === 'reply') {
             const entry = pending.get(message.id)
@@ -62,7 +65,7 @@ function createDesktopBridges(home, { now = Date.now } = {}) {
     return found.length === 1 ? found[0] : null
   }
   return {
-    viewed(anchor) { return matches(anchor)?.terminal.focused === true },
+    viewed(anchor) { const match = matches(anchor); return Boolean(match?.terminal.focused && (match.client.adapter !== 'vscode' || match.terminal.viewedAt >= (anchor.completedAt || 0))) },
     has(anchor) { return Boolean(matches(anchor)) },
     async focus(anchor) {
       const match = matches(anchor)

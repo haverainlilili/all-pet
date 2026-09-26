@@ -33,7 +33,7 @@ function activate(context) {
               const request = JSON.parse(line)
               if (request.type !== 'focus') continue
               const terminal = vscode.window.terminals.find(value => identity(value) === request.terminal)
-              if (terminal) { terminal.show(false); await vscode.commands.executeCommand('workbench.action.focusWindow') }
+              if (terminal) { terminal.show(false); try { await vscode.commands.executeCommand('workbench.action.focusWindow') } catch {} }
               setTimeout(() => {
                 if (!socket?.destroyed) socket.write(JSON.stringify({ type: 'reply', id: request.id,
                   succeeded: Boolean(terminal && vscode.window.state.focused && vscode.window.activeTerminal === terminal) }) + '\n')
@@ -47,6 +47,7 @@ function activate(context) {
         id: identity(terminal), pid: await terminal.processId,
         // Remote PID namespaces cannot be compared to local task processes.
         local: !vscode.env.remoteName,
+        viewedAt: selectedAt.get(terminal) || 0,
         focused: vscode.window.state.focused && vscode.window.activeTerminal === terminal && Date.now() - (selectedAt.get(terminal) || 0) < 1000
       })))
       if (!socket.destroyed) socket.write(JSON.stringify({ type: 'state', terminals }) + '\n')

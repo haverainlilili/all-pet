@@ -1,5 +1,5 @@
 'use strict'
-const { cliTask, linuxProcess, linuxDiscover, sanitizeLocator } = require('./process')
+const { cliTask, linuxProcess, linuxDiscover, sanitizeLocator, APPLE_EPOCH } = require('./process')
 const { createUnixTerminal } = require('./unix')
 const { createWindowsTerminal } = require('./windows')
 const { createDesktopBridges } = require('./desktop-bridges')
@@ -36,7 +36,7 @@ function createTerminalService({ platform = process.platform, home, native, getT
     viewed: anchor => editors.has(anchor) ? editors.viewed(anchor) : wezterm.viewed(anchor),
     focus: anchor => editors.has(anchor) ? editors.focus(anchor) : wezterm.focus(anchor)
   }
-  let inFlight = false, timer = null, stopped = false
+  let inFlight = null, timer = null, stopped = false
   const misses = new Map(), captured = new Map()
   async function anchor(task) {
     if (platform === 'darwin' && task.terminalBinding) {
@@ -64,8 +64,9 @@ function createTerminalService({ platform = process.platform, home, native, getT
   }
   const unix = platform !== 'win32' ? createUnixTerminal({ platform, native, bridges, config, terminalForTTY }) : null
   async function capture(taskList = getTasks()) {
-    if (inFlight || stopped) return
-    inFlight = true
+    if (stopped) return
+    if (inFlight) { await inFlight; return }
+    const discover = async () => {
     try {
       const candidates = []
       for (const task of taskList.filter(cliTask).sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))) {
@@ -88,7 +89,10 @@ function createTerminalService({ platform = process.platform, home, native, getT
       }
       if (captured.size > 512) captured.clear()
       onBindings(candidates, bindings || [])
-    } catch {} finally { inFlight = false }
+    } catch {}
+    }
+    inFlight = discover()
+    try { await inFlight } finally { inFlight = null }
   }
   return {
     start() { if (timer) return; capture(); timer = setInterval(() => capture(), 1000) },
@@ -98,13 +102,17 @@ function createTerminalService({ platform = process.platform, home, native, getT
       try {
         const target = await anchor(task)
         if (!target) return false
+        target.completedAt = APPLE_EPOCH + Number(task.updatedAt || 0) * 1000
         if (bridges.has(target)) return bridges.viewed(target)
         return platform === 'win32' ? Boolean((await windows.request('view', { locator: target })).viewed) : unix.viewed(target)
       } catch { return false }
     },
     async focus(task) {
       try {
-        if (!anchorKey(task)) await capture([task])
+        if (!anchorKey(task)) {
+          await capture([task])
+          if (!captured.has(identity(task))) await capture([task])
+        }
         const current = getTasks().find(value => value.id === task.id) || { ...task, ...captured.get(identity(task)) }
         // A clicked done task may already be removed from history; capture can still update it via onBindings.
         if (anchorKey(current) && getTasks().some(other => other.id !== current.id && anchorKey(other) === anchorKey(current) && Number(other.updatedAt) >= Number(current.updatedAt))) throw new Error('原终端已被另一项任务使用')

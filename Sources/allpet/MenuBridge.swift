@@ -123,6 +123,15 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
                     bindings.append(["id": task.id, "terminalBinding": object])
                 }
                 reply["bindings"] = bindings
+            } else if request.operation == "owner", let binding = request.binding, TerminalBindingResolver.isValid(binding) {
+                var pid = binding.anchorProcessID
+                for _ in 0..<32 {
+                    if let app = NSRunningApplication(processIdentifier: pid), let bundle = app.bundleIdentifier {
+                        reply["bundleID"] = bundle; break
+                    }
+                    guard let parent = TerminalBindingResolver.parentProcessID(pid), parent > 1, parent != pid else { break }
+                    pid = parent
+                }
             } else if let binding = request.binding {
                 switch request.operation {
                 case "valid": reply["valid"] = TerminalBindingResolver.isValid(binding)

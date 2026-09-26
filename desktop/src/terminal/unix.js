@@ -1,6 +1,7 @@
 'use strict'
 const fs = require('node:fs')
 const path = require('node:path')
+const { createGhostty } = require('./ghostty')
 const { createATSPI } = require('./atspi')
 const { run, normalizeTTY, linuxProcess, selectedEnvironment } = require('./process')
 function executable(name, extras = []) {
@@ -20,6 +21,7 @@ function kittyPanes(windows) {
 }
 function createUnixTerminal({ platform, native, bridges, config = () => ({}), command = run, terminalForTTY }) {
   const atspi = platform === 'linux' ? createATSPI() : null
+  const ghostty = platform === 'darwin' ? createGhostty(native, command) : null
   const tmux = executable('tmux'), kitty = executable('kitty', ['/Applications/kitty.app/Contents/MacOS/kitty'])
   const xdotool = executable('xdotool'), qdbus = executable('qdbus6') || executable('qdbus')
   async function kittyTarget(anchor, focus) {
@@ -81,6 +83,7 @@ function createUnixTerminal({ platform, native, bridges, config = () => ({}), co
       const result = await native.request(focus ? 'focus' : 'view', { binding: anchor.binding })
       if (focus ? result.succeeded : result.viewed) return true
     }
+    if (ghostty) { try { if (await ghostty.operate(anchor, focus)) return true } catch {} }
     for (const adapter of [kittyTarget, konsole, x11]) {
       try { if (await adapter(anchor, focus)) return true } catch {}
     }

@@ -75,3 +75,33 @@ test('cascading menu preserves root position at either edge of a negative monito
     assert.equal(expanded.bounds.x+(expanded.rootSide==='right'?294:0),root.bounds.x)
   }
 })
+test('editor bridge requires a fresh authenticated receipt after completion, never a previous selection', async () => {
+  const net=require('node:net'), {createDesktopBridges}=require('../src/terminal/desktop-bridges')
+  const home=fs.mkdtempSync(path.join(os.tmpdir(),'allpet-editor-')),file=path.join(home,'.config','all-pet','terminal-bridge','connection.json')
+  let now=1000, socket; const bridge=createDesktopBridges(home,{now:()=>now}),pause=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+  try {
+    for(let i=0;i<50&&!fs.existsSync(file);i++) await pause(10)
+    const connection=JSON.parse(fs.readFileSync(file,'utf8'))
+    socket=net.createConnection(connection.endpoint); await new Promise(resolve=>socket.once('connect',resolve))
+    socket.write(JSON.stringify({adapter:'vscode',token:connection.token})+'\n')
+    socket.write(JSON.stringify({type:'state',terminals:[{id:'one',pid:42,local:true,focused:true,viewedAt:900}]})+'\n')
+    for(let i=0;i<30&&!bridge.has({pid:42});i++)await pause(10)
+    assert.equal(bridge.viewed({pid:42,completedAt:901}),false)
+    assert.equal(bridge.viewed({pid:42,completedAt:800}),true)
+    now=2500;assert.equal(bridge.viewed({pid:42,completedAt:800}),false)
+  } finally { socket?.destroy();bridge.stop();fs.rmSync(home,{recursive:true,force:true}) }
+})
+test('Ghostty only touches its owning terminal and confirms the exact UUID in the foreground', async () => {
+  const {createGhostty}=require('../src/terminal/ghostty'),home=fs.mkdtempSync(path.join(os.tmpdir(),'allpet-ghostty-')),tty=path.join(home,'fixture-tty')
+  fs.writeFileSync(tty,'');const id='00000000-0000-0000-0000-000000000001',other='00000000-0000-0000-0000-000000000002'
+  let front=true, selected=other, writes=0
+  const native={request:async op=>({bundleID:op==='owner'||front?'com.mitchellh.ghostty':'com.apple.Terminal'})}
+  const command=async (_,args)=>{const s=args[1];if(s.includes('every terminal whose name'))return id;if(s.includes('then focus')){writes++;selected=id;return ''};return selected}
+  const adapter=createGhostty(native,command),anchor={pid:99,tty,binding:{anchorStartedAtMicroseconds:1}}
+  try {
+    assert.equal(await adapter.operate(anchor,false),false)
+    assert.equal(await adapter.operate(anchor,true),true);assert.equal(writes,1)
+    front=false;assert.equal(await adapter.operate(anchor,false),false)
+    assert.ok(fs.readFileSync(tty,'utf8').endsWith('\x1b[23;0t'))
+  } finally { fs.rmSync(home,{recursive:true,force:true}) }
+})

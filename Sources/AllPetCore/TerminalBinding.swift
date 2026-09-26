@@ -47,6 +47,8 @@ public enum TerminalBindingResolver {
         return true
     }
 
+    public static func parentProcessID(_ pid: Int32) -> Int32? { processInfo(pid).map { Int32($0.pbi_ppid) } }
+
     public static func startedAt(processID: Int32) -> Date? {
         processInfo(processID).map { Date(timeIntervalSince1970: Double(startToken($0)) / 1_000_000) }
     }

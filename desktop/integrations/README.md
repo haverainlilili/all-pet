@@ -9,6 +9,7 @@ AllPet 先用会话 ID、日志文件的持有进程或带时间校验的进程�
 | 终端 | 点击原终端 | 手动查看确认 | 条件 |
 | --- | --- | --- | --- |
 | macOS Terminal / iTerm2 | 原标签页 / iTerm2 session | 前台窗口且选中对应 TTY | 允许 AllPet 控制终端；运行期间完成绑定 |
+| macOS Ghostty 1.3+ | 原 terminal UUID / 分屏 | 前台窗口的 focused terminal UUID | 允许 AppleScript，标题探针能唯一匹配原 TTY；尚未实机验收 |
 | Windows Terminal | 原标签页和 TermControl 控件 | 控件确实获得键盘焦点 | 同一用户、相同权限级别，UI Automation 可用；程序允许更改终端标题 |
 | PowerShell / CMD 的独立控制台 | 原 console HWND | 原窗口在前台且未最小化 | 使用可见 conhost 控制台；这些 shell 在 Windows Terminal 中按上一行处理 |
 | kitty | 精确 window ID | OS window、tab、pane 同时处于焦点 | 本地 remote-control Unix socket，可执行 `ls` / `focus-window` |
@@ -66,4 +67,8 @@ VTE 控件和 Windows Terminal 的初次绑定会临时写入随机标题标记�
 - 同一个终端已经承载更新任务时，旧任务不会因为这个终端获得焦点而被自动确认。
 - 任务如果在 AllPet 启动前已经退出且没有已保存绑定，日志通常不足以恢复原终端位置。
 - SSH、WSL、容器、tmux 自定义 server/socket、kitty 多实例、Windows 管理员与普通用户跨权限控制目前不保证；缺少证据时保留通知并给出定位失败说明。
-- Ghostty、Warp 目前没有此版本接通并验证的专用终端定位适配器；本地任务日志仍可产生气泡。
+- Warp 目前没有接通并验证的原终端定位适配器；本地任务日志仍可产生气泡。Ghostty 适配器使用 1.3+ 的 AppleScript 接口，旧版本不适用。
+
+## 终端接口依据
+
+[Ghostty AppleScript](https://ghostty.org/docs/features/applescript)、[kitty remote control](https://sw.kovidgoyal.net/kitty/remote-control/)、[WezTerm Window API](https://wezterm.org/config/lua/window/index.html)、[VS Code API](https://code.visualstudio.com/api/references/vscode-api)、[Windows Terminal 参数](https://learn.microsoft.com/en-us/windows/terminal/command-line-arguments)。Windows Terminal 的 `wt` 参数不能单独证明原 pane 身份，因此使用原控件绑定。

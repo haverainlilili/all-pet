@@ -1,4 +1,4 @@
-# AllPet Electron 桌宠 v1.4.1
+# AllPet Electron 桌宠（开发版；稳定版 v1.4.1）
 
 Electron 通过 `allpet watch --json` 复用 Swift AllPetCore，macOS/Windows/Linux 共用动画、气泡与宠物管理。九平台接入与用户点击行为见 [功能设计说明](../docs/功能设计说明.md)；手动查看能力见 [验收表](../docs/平台行为验收.md)。
 
@@ -14,9 +14,9 @@ Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查
 
 ## 菜单与终端支持
 
-Windows/Linux 左键或右键托盘图标打开同一个菜单面板；平台显示勾选、全部显示/隐藏、大小 −/＋、宠物切换、目录刷新均保持面板打开。子页内原位更新，返回按钮回到主菜单；Esc、失焦或右上角 × 关闭。安装、删除、管理窗、接入修复、打开配置与退出先关闭菜单再执行。macOS 保留 AppKit 菜单桥接。
+三平台左/右键均打开同一套菜单，子菜单侧边展开、保留主菜单；连续平台开关、大小与宠物选择不会关闭。Esc/失焦关闭；对话框和外部动作先关闭菜单。macOS 后台 AppKit 桥接只负责系统接口。
 
-终端日志监控与精确终端唤起是两项能力；包括 Codex CLI 在内，Electron 仍缺少完整的原终端绑定/聚焦链路，见 [终端 CLI 支持说明](../docs/终端CLI支持说明.md)。
+原终端身份捕获与定位已接通；每种终端的接口要求、扩展安装及实际验收边界见 [终端接入说明](integrations/README.md)。
 
 ## 开发运行
 
@@ -36,8 +36,10 @@ npm start
 - `main.js`：窗口、托盘、监控、历史与 IPC。
 - `src/renderer.*`、`style.css`：动画、三层气泡和平台分页。
 - `src/platforms.js`、`task-history.js`：九平台定义、可见性与通知生命周期。
-- `src/manual-view.js`、`menu-bridge.js`：macOS 每 500 ms 分平台查看检查。
-- `src/tray-panel.*`、`tray-panel-model.js`、`tray-panel-preload.js`：Windows/Linux 常驻菜单面板及受限 IPC。
+- `src/manual-view.js`、`menu-bridge.js`：每 500 ms 分平台查看检查与 Mac 原生协议。
+- `src/tray-panel.*`、`tray-panel-model.js`、`tray-panel-preload.js`：三平台统一常驻菜单面板及受限 IPC。
+- `src/terminal/`：进程身份、原窗口/tab/pane 适配器和带超时的私有 IPC。
+- `integrations/`：VS Code/Cursor VSIX 源码、WezTerm Lua 和用户说明。
 - `src/wake.js`：按来源尝试定位，缺少精确能力时提示限制。
 - `scripts/sqlite-read.js`、`zstdcat.js`：随包只读数据解码器。
 
