@@ -1,0 +1,45 @@
+name: Editor Terminal
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/src/terminal/desktop-bridges.js'
+      - 'desktop/integrations/vscode/**'
+      - 'desktop/scripts/vscode-terminal-fixture.cjs'
+      - '.github/workflows/terminal-editor.yml'
+permissions:
+  contents: read
+jobs:
+  vscode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: 准备隔离的 VS Code 环境
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y xvfb openbox dbus-x11 libasound2t64
+          curl -fL 'https://update.code.visualstudio.com/1.139.1/linux-x64/stable' -o "$RUNNER_TEMP/vscode.tar.gz"
+          echo "0c9cbcea070e9a0fc62de5c78fee01a80f8e32f78ada664d9731f6c517503b7e  $RUNNER_TEMP/vscode.tar.gz" | sha256sum -c
+          mkdir -p "$RUNNER_TEMP/vscode" "$RUNNER_TEMP/editor-home/profile/User" "$RUNNER_TEMP/editor-home/workspace"
+          tar -xzf "$RUNNER_TEMP/vscode.tar.gz" -C "$RUNNER_TEMP/vscode" --strip-components=1
+          cp -R desktop/integrations/vscode "$RUNNER_TEMP/editor-extension"
+          cp desktop/scripts/vscode-terminal-fixture.cjs "$RUNNER_TEMP/editor-extension/fixture.cjs"
+          echo '{"security.workspace.trust.enabled":false,"telemetry.telemetryLevel":"off","terminal.integrated.shellIntegration.enabled":false,"workbench.startupEditor":"none"}' > "$RUNNER_TEMP/editor-home/profile/User/settings.json"
+      - name: 真实内置终端切换和查看确认
+        run: |
+          export ALLPET_EDITOR_BRIDGE_MODULE="$PWD/desktop/src/terminal/desktop-bridges.js"
+          export ALLPET_EDITOR_TEST_RESULT="$RUNNER_TEMP/editor-result.json"
+          export ALLPET_HOME="$RUNNER_TEMP/editor-home"
+          xvfb-run -a dbus-run-session -- bash -c 'openbox >"$RUNNER_TEMP/editor-openbox.log" 2>&1 & timeout 70s "$RUNNER_TEMP/vscode/code" --no-sandbox --disable-gpu --skip-welcome --skip-release-notes --disable-workspace-trust --user-data-dir "$ALLPET_HOME/profile" --extensions-dir "$ALLPET_HOME/extensions" --extensionDevelopmentPath="$RUNNER_TEMP/editor-extension" --extensionTestsPath="$RUNNER_TEMP/editor-extension/fixture.cjs" "$ALLPET_HOME/workspace"'
+          node -e 'const r=require(process.env.ALLPET_EDITOR_TEST_RESULT); console.log(r); if(!r.ok) process.exit(1)'
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: vscode-terminal-verification
+          path: |
+            ${{ runner.temp }}/editor-result.json
+            ${{ runner.temp }}/editor-home/profile/logs/

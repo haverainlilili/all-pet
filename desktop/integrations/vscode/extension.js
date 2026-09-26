@@ -14,7 +14,7 @@ function activate(context) {
     busy = true
     try {
       if (!socket || socket.destroyed) {
-        const file = path.join(os.homedir(), '.config', 'all-pet', 'terminal-bridge', 'connection.json')
+        const file = path.join(process.env.ALLPET_HOME || os.homedir(), '.config', 'all-pet', 'terminal-bridge', 'connection.json')
         const st = fs.lstatSync(file)
         if (!st.isFile() || st.isSymbolicLink() || st.size > 4096) return
         const connection = JSON.parse(fs.readFileSync(file, 'utf8'))
