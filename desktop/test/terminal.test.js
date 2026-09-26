@@ -10,6 +10,31 @@ const { performTaskWake } = require('../src/wake')
 const { normalizeTaskHistory } = require('../src/task-history')
 const { trayPanelLayout } = require('../src/tray-panel-model')
 
+test('Windows cold startup is outside focus deadline and discovery does not block viewing', async () => {
+  const { EventEmitter } = require('node:events'), { PassThrough } = require('node:stream')
+  const { createWindowsTerminal } = require('../src/terminal/windows')
+  const children = []
+  const spawnProcess = () => {
+    const child = new EventEmitter(); child.stdin = new PassThrough(); child.stdout = new PassThrough()
+    child.kill = () => child.emit('close'); children.push(child)
+    setTimeout(() => child.stdout.write('{"type":"terminal-ready"}\n'), 80)
+    child.stdin.on('data', data => {
+      const message = JSON.parse(data)
+      // Slow capture should never hold up a foreground request on its worker.
+      setTimeout(() => child.stdout.write(JSON.stringify({ type: 'terminal-result', requestID: message.requestID, viewed: true, bindings: [] }) + '\n'), message.operation === 'bind' ? 120 : 1)
+    })
+    return child
+  }
+  const bridge = createWindowsTerminal({ spawnProcess, startupTimeout: 1000, requestTimeout: 40 })
+  try {
+    let captured = false
+    const binding = bridge.request('bind', { tasks: [] }).then(() => { captured = true })
+    assert.equal((await bridge.request('view', { locator: {} })).viewed, true)
+    assert.equal(captured, false, 'foreground view finishes while discovery is still running')
+    await binding; assert.equal(children.length, 2)
+  } finally { bridge.stop() }
+})
+
 test('terminal RPC times out, cancels on disconnect and ignores old replies', async () => {
   const sent=[], rpc=createRPC(value=>sent.push(value), {timeoutMs:20})
   await assert.rejects(rpc.request('view'), /超时/)

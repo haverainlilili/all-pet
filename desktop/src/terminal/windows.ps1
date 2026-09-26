@@ -128,6 +128,7 @@ public static class AllPetTerminal {
  }
 }
 '@
+[Console]::WriteLine('{"type":"terminal-ready"}')
 while ($null -ne ($line = [Console]::ReadLine())) {
  try {
   $r = $line | ConvertFrom-Json
