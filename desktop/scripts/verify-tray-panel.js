@@ -20,7 +20,7 @@ try {
     env: { ...process.env, ALLPET_HOME: home, ALLPET_TRAY_PANEL_SMOKE: output },
     encoding: 'utf8', timeout: 60000, windowsHide: false
   })
-  if (result.status !== 0 || result.error) throw new Error(result.error?.message || result.stderr || result.stdout || `Electron exited ${result.status}`)
+  if (result.status !== 0 || result.error) throw new Error([result.error?.message, result.stdout, result.stderr, `Electron exited ${result.status}`].filter(Boolean).join('\n'))
   const report = JSON.parse(fs.readFileSync(output, 'utf8'))
   for (const key of ['ok', 'continuousPlatformClicks', 'allPlatforms', 'continuousScale', 'petSelection', 'visibility', 'refresh', 'sameWindow', 'thumbnails', 'invalidActionRejected', 'escapeCloses', 'blurCloses']) {
     if (report[key] !== true) throw new Error(`Menu smoke failed: ${key}`)

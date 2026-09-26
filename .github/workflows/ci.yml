@@ -144,7 +144,7 @@ jobs:
         working-directory: desktop
       - name: 安装无头依赖
         run: |
-          sudo apt-get install -y xvfb libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
+          sudo apt-get install -y xvfb fonts-noto-cjk libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
       - name: 构建解包 Electron 应用
         run: npm run dist:dir
         working-directory: desktop

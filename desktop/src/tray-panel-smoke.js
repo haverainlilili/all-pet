@@ -8,6 +8,9 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 module.exports = async function verify({ show, window, state, readConfig, output }) {
   const until = async (predicate, label) => {
     for (let i = 0; i < 100; i++) { if (await predicate()) return; await wait(100) }
+    const diagnostic = { label, state: state(), config: readConfig(), renderer: await js('({state, actionPending, text: document.body.innerText})') }
+    fs.writeFileSync(output.replace(/\.json$/, '-failure.json'), JSON.stringify(diagnostic, null, 2))
+    await capture('failure')
     throw new Error(`Timed out: ${label}`)
   }
   await show()
@@ -34,7 +37,7 @@ module.exports = async function verify({ show, window, state, readConfig, output
   for (let i = 0; i < 2; i++) {
     const start = state().visible
     await click('[data-action="toggle-visibility"]')
-    await until(() => state().visible !== start, 'pet visibility change')
+    await until(() => state().visible !== start, `pet visibility change ${i}, initially ${start}`)
     await wait(150); visible()
   }
   for (let i = 0; i < 2; i++) {
