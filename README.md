@@ -13,13 +13,13 @@ The pet switches animation based on what your agents are doing — idle, running
 ---
 
 
-## 开发版：统一菜单与终端定位（尚未发布）
+## In development: unified menus and terminal navigation
 
-三平台 Electron 共用 Mac 风格级联菜单。悬停或点击打开子菜单；平台开关、全部显示/隐藏、大小和宠物切换持续保持打开；Esc、点击外部或打开另一个窗口时关闭。macOS 的系统识别桥接在后台运行，不再额外创建菜单栏图标。
+Electron uses the same Mac-style cascading menu on all three systems. Hover or click opens a submenu. Provider toggles, show/hide all, size controls, and pet selection keep the menu open; Escape, outside clicks, and actions that open another window close it. The macOS system bridge runs without an additional tray icon.
 
-Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查看检查。各终端的条件与限制见 [终端接入说明](desktop/integrations/README.md)：VS Code/Cursor 需要扩展，WezTerm 需要 Lua 接入，kitty 需要本地控制 socket，Linux 部分路径依赖辅助功能或 X11。接口存在不等于所有版本均已实测，也不构成无条件两秒内确认的保证。
+Electron now captures terminal identities while tasks run, focuses existing tabs or panes on click, and checks viewing state every 500 ms. See [terminal setup and limits](desktop/integrations/README.md): VS Code/Cursor requires an extension, WezTerm requires Lua integration, kitty requires a local control socket, and some Linux paths depend on accessibility or X11. Implemented adapters do not mean every terminal version has been tested, or that acknowledgement is unconditionally guaranteed within two seconds.
 
-下面 v1.4.1 的下载链接仍对应已发布的旧版本，不包含本节新增能力。
+These changes are not yet released. The v1.4.1 downloads below do not include them.
 
 
 ## What's new in v1.4.1
