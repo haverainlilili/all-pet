@@ -83,15 +83,27 @@ jobs:
         run: npm test
         working-directory: desktop
       - uses: SwiftyLab/setup-swift@latest
-        if: runner.os == 'macOS'
+        if: runner.os != 'Linux'
         with:
           swift-version: '6.2.4'
           update-sdk-modules: true
-      - name: 构建 macOS 菜单栏冒烟 sidecar
-        if: runner.os == 'macOS'
+      - name: 构建菜单冒烟 sidecar
+        if: runner.os != 'Linux'
         run: |
           swift build -c release --static-swift-stdlib
           node desktop/scripts/prepare-sidecar.js
+      - name: Windows/Linux 菜单实际点击与失焦关闭
+        if: runner.os != 'Linux'
+        run: node desktop/scripts/verify-tray-panel.js
+        env:
+          ALLPET_TRAY_PANEL_OUTPUT: ${{ runner.temp }}/tray-panel/menu.json
+      - name: 保存菜单验收记录和截图
+        if: always() && runner.os != 'Linux'
+        uses: actions/upload-artifact@v5
+        with:
+          name: tray-panel-${{ matrix.os }}
+          path: ${{ runner.temp }}/tray-panel/
+          if-no-files-found: ignore
       - name: macOS 原生菜单构造 / 点击回调 / 连续缩放 / 宠物缩略图
         if: runner.os == 'macOS'
         working-directory: desktop
@@ -136,6 +148,19 @@ jobs:
       - name: 构建解包 Electron 应用
         run: npm run dist:dir
         working-directory: desktop
+      - name: Linux 菜单连续点击与失焦关闭
+        run: |
+          xvfb-run -a --server-args="-screen 0 1024x768x24" \
+            env ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 \
+                ALLPET_TRAY_PANEL_OUTPUT="$RUNNER_TEMP/tray-panel/menu.json" \
+            node desktop/scripts/verify-tray-panel.js
+      - name: 保存 Linux 菜单记录和截图
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: tray-panel-linux
+          path: ${{ runner.temp }}/tray-panel/
+          if-no-files-found: ignore
       - name: 无头启动 + 三阶段任务气泡截图
         working-directory: desktop
         run: |

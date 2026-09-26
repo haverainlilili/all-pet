@@ -8,7 +8,13 @@
 
 [完整功能设计说明](./docs/功能设计说明.md)：记录当前实现、交互规则、平台差异与验收结果。
 
-## v1.4.0 更新
+## v1.4.1 更新
+
+修复 Windows/Linux 菜单点一下就关闭的问题：左键或右键托盘图标打开菜单面板，平台勾选、大小调节、宠物切换可连续操作；新增行内缩略图与大小控件。点击外部或按 Esc 关闭。macOS 继续使用原生菜单。
+
+Codex CLI 等终端工具可读取本地日志并展示任务；Electron 尚未完整实现原终端标签页定位与手动切回自动消泡，详见 [终端 CLI 支持范围](docs/终端CLI支持说明.md)。
+
+### v1.4.0 功能基础
 
 新增 Cursor、WorkBuddy、Qoder、pi coding agent、智谱 Z Code；菜单中可逐个平台显示或隐藏气泡。macOS 勾选平台后菜单保持展开，可连续调整。
 
@@ -32,14 +38,14 @@
 
 ### 选择正确安装包（供用户与 AI 直接判断）
 
-**当前稳定版：v1.4.0。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
+**当前稳定版：v1.4.1。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
 
 | 设备 | 架构 / 适用型号 | 直接下载 | 适用场景 |
 | --- | --- | --- | --- |
-| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.4.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0-arm64-mac.zip) | Apple M 系列芯片的 Mac |
-| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.4.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-Setup-1.4.0.exe) | 常见 Intel / AMD Windows 电脑 |
-| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.4.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0.AppImage) | 大多数 x64 Linux，免安装便携使用 |
-| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.4.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/allpet-desktop_1.4.0_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
+| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.4.1-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1-arm64-mac.zip) | Apple M 系列芯片的 Mac |
+| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.4.1.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-Setup-1.4.1.exe) | 常见 Intel / AMD Windows 电脑 |
+| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.4.1.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1.AppImage) | 大多数 x64 Linux，免安装便携使用 |
+| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.4.1_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/allpet-desktop_1.4.1_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
 
 **当前未提供预编译包：** Intel Mac（`x86_64`）、Windows on ARM、Linux ARM（`aarch64`）。这些环境请从源码构建，或欢迎贡献对应打包支持。
 

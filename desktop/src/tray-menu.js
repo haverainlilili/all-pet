@@ -34,7 +34,7 @@ function platformMenuTitles(statuses, disabledPlatforms = []) {
 }
 
 function trayPrimaryAction(platform) {
-  return String(platform || '') === 'darwin' ? 'open-menu' : 'toggle-pet'
+  return String(platform || '') === 'darwin' ? 'open-menu' : 'open-panel'
 }
 
 function reopensAfterTrayAction(platform, action) {

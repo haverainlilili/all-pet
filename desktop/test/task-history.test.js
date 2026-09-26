@@ -169,8 +169,8 @@ test('platform dismiss includes live tasks and uses terminal versus hidden seman
 
 test('legacy macOS Electron fallback reopens only for scale actions', () => {
   assert.equal(trayPrimaryAction('darwin'), 'open-menu')
-  assert.equal(trayPrimaryAction('win32'), 'toggle-pet')
-  assert.equal(trayPrimaryAction('linux'), 'toggle-pet')
+  assert.equal(trayPrimaryAction('win32'), 'open-panel')
+  assert.equal(trayPrimaryAction('linux'), 'open-panel')
   assert.equal(reopensAfterTrayAction('darwin', 'scale-decrease'), true)
   assert.equal(reopensAfterTrayAction('darwin', 'scale-increase'), true)
   assert.equal(reopensAfterTrayAction('darwin', 'toggle-pet'), false)

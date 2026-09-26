@@ -26,12 +26,14 @@ const { TRAY_PET_ICON_CACHE_VERSION, platformMenuTitles, scalePercentText, petTr
 const { createBoundedThumbnailDataURL } = require('./src/pet-thumbnail')
 const { reuseExistingDshTab } = require('./src/dsh-browser')
 const { menuBridgeState } = require('./src/menu-bridge')
+const { trayPanelBounds, keepsTrayPanelOpen, validTrayPanelAction } = require('./src/tray-panel-model')
 const { createManualViewMonitor, readCodexUnread } = require('./src/manual-view')
 const { cropTrayPetIcon } = require('./src/tray-icon')
 const { isExcludedCodexHistory } = require('./src/codex-session-metadata')
 const { PLATFORMS, bubblePlatformRows, hiddenBubblePlatforms, setBubblePlatformVisibility, filterBubbleSnapshot } = require('./src/platforms')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
+const TRAY_PANEL_URL = pathToFileURL(path.join(__dirname, 'src', 'tray-panel.html')).href
 const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).href
 const EFFECTIVE_HOME = effectiveHome(process.env, os.homedir())
 
@@ -51,6 +53,9 @@ let mainWindow = null
 let petManagerWindow = null
 let tray = null
 let trayMenu = null
+let trayPanelWindow = null
+let trayPanelLoad = null
+let trayPanelOpenRequest = 0
 let nativeMenuBridgeProc = null
 let nativeMenuBridgeBuffer = ''
 let nativeMenuBridgeFailed = false
@@ -453,7 +458,7 @@ async function refreshDesktopState(options = {}) {
   if (pet) petSurfaceAvailable = true
   if (mainWindow && !mainWindow.isDestroyed()) {
     resizeWindowPreservingSprite(scale, scale, pet, previousPet)
-    if (!previousPet && pet && readPetEnabled()) mainWindow.show()
+    if (!previousPet && pet && readPetEnabled()) showPetWindow()
   }
   pushPet()
   updateTrayMenu()
@@ -842,6 +847,18 @@ function managerPetPayload(catalog) {
 }
 
 function registerPetIpc() {
+  ipcMain.handle('tray-panel:state', event => { requireTrayPanelFrame(event); return trayPanelState() })
+  ipcMain.handle('tray-panel:close', event => { requireTrayPanelFrame(event); hideTrayPanel(); return { ok: true } })
+  ipcMain.handle('tray-panel:action', async (event, action, value) => {
+    requireTrayPanelFrame(event)
+    const state = trayPanelState()
+    if (!validTrayPanelAction(action, value, state)) return { ok: false, error: '操作已失效，请重新选择。' }
+    if (!keepsTrayPanelOpen(action)) hideTrayPanel()
+    try {
+      await handleNativeMenuAction({ action, value })
+      return { ok: true, state: trayPanelState() }
+    } catch (error) { return { ok: false, error: String(error.message || error) } }
+  })
   ipcMain.handle('pets:list', async (event) => {
     requirePetManagerFrame(event)
     if (petOperationGate.active) {
@@ -1211,7 +1228,7 @@ async function handleNativeMenuAction(message) {
   if (action === 'bubble-platform-toggle') await changeBubbleVisibility(String(value))
   else if (action === 'integration-install') await installPlatformIntegration(String(value))
   else if (action === 'bubble-platform-all') await changeBubbleVisibility('all', value === 'show')
-  else if (action === 'toggle-visibility') togglePetVisibility()
+  else if (action === 'toggle-visibility') await togglePetVisibility()
   else if (action === 'scale-decrease') applyScale(-0.05)
   else if (action === 'scale-increase') applyScale(0.05)
   else if (action === 'pet-select' && value) await runTrayPetCommand('切换宠物', ['pet', 'set', String(value)])
@@ -1259,7 +1276,7 @@ function shouldUseLegacyMacTray() {
 }
 
 function startNativeMenuBridge() {
-  if (process.platform !== 'darwin' || nativeMenuBridgeFailed || shouldUseLegacyMacTray()) return Promise.resolve(false)
+  if (process.platform !== 'darwin' || usesTrayPanel() || nativeMenuBridgeFailed || shouldUseLegacyMacTray()) return Promise.resolve(false)
   return new Promise(resolve => {
     let settled = false
     let child
@@ -1293,6 +1310,71 @@ function startNativeMenuBridge() {
   })
 }
 
+function usesTrayPanel() {
+  return process.platform !== 'darwin' || Boolean(process.env.ALLPET_TRAY_PANEL_SMOKE || process.env.ALLPET_TRAY_PANEL_PREVIEW)
+}
+
+function requireTrayPanelFrame(event) {
+  if (!isTrustedMainFrame(event, trayPanelWindow, TRAY_PANEL_URL)) throw new Error('untrusted tray-panel IPC source')
+}
+
+function trayPanelState() {
+  const state = nativeMenuState()
+  state.importLocal = petCapabilities(process.platform).importLocal
+  state.installedPets = state.installedPets.map(row => {
+    const entry = petCatalog.find(pet => petMutationTarget(pet) === row.target)
+    return { label: row.label, target: row.target, current: row.current,
+      thumbnailURL: entry?.spritesheetPath ? managerThumbnailURL(entry.spritesheetPath) : null,
+      columns: entry?.columns || 8, rows: entry?.rows || 11 }
+  })
+  return state
+}
+
+function sendTrayPanelState() {
+  if (trayPanelWindow && !trayPanelWindow.isDestroyed() && !trayPanelWindow.webContents.isLoadingMainFrame()) {
+    trayPanelWindow.webContents.send('tray-panel:state', trayPanelState())
+  }
+}
+
+function hideTrayPanel() {
+  trayPanelOpenRequest += 1
+  if (trayPanelWindow && !trayPanelWindow.isDestroyed()) trayPanelWindow.hide()
+}
+
+async function showTrayPanel() {
+  const request = ++trayPanelOpenRequest
+  if (!trayPanelWindow || trayPanelWindow.isDestroyed()) {
+    const panel = new BrowserWindow({
+      width: 304, height: 568, show: false, frame: false, resizable: false,
+      minimizable: false, maximizable: false, fullscreenable: false,
+      skipTaskbar: true, alwaysOnTop: true, backgroundColor: '#28282c',
+      webPreferences: { preload: path.join(__dirname, 'src', 'tray-panel-preload.js'),
+        contextIsolation: true, nodeIntegration: false, sandbox: true }
+    })
+    trayPanelWindow = panel
+    panel.setMenu(null)
+    panel.on('blur', hideTrayPanel)
+    panel.on('closed', () => { if (trayPanelWindow === panel) { trayPanelWindow = null; trayPanelLoad = null } })
+    panel.webContents.on('will-navigate', (event, url) => { if (url !== TRAY_PANEL_URL) event.preventDefault() })
+    panel.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    trayPanelLoad = panel.loadFile(path.join(__dirname, 'src', 'tray-panel.html'))
+  }
+  await trayPanelLoad
+  if (request !== trayPanelOpenRequest || app.isQuitting || !trayPanelWindow || trayPanelWindow.isDestroyed()) return
+  let anchor = tray?.getBounds()
+  if (!anchor || anchor.width < 1 || anchor.height < 1) anchor = { ...screen.getCursorScreenPoint(), width: 0, height: 0 }
+  const display = screen.getDisplayNearestPoint({ x: Math.round(anchor.x), y: Math.round(anchor.y) })
+  trayPanelWindow.setBounds(trayPanelBounds(anchor, display.workArea))
+  sendTrayPanelState()
+  trayPanelWindow.show()
+  trayPanelWindow.focus()
+}
+
+function toggleTrayPanel() {
+  if (trayPanelWindow && !trayPanelWindow.isDestroyed() && trayPanelWindow.isVisible()) hideTrayPanel()
+  else showTrayPanel().catch(error => console.error('[allpet] 托盘菜单打开失败:', error.message))
+}
+
 function popUpMacTrayMenu() {
   if (process.platform !== 'darwin' || !tray || !trayMenu) return
   if (!process.env.ALLPET_TRAY_NATIVE_HEADLESS_SMOKE) tray.popUpContextMenu(trayMenu)
@@ -1316,7 +1398,10 @@ async function createTray() {
   }
   tray = new Tray(icon)
   tray.setToolTip('AllPet')
-  if (trayPrimaryAction(process.platform) === 'open-menu') {
+  if (usesTrayPanel()) {
+    tray.on('click', toggleTrayPanel)
+    tray.on('right-click', toggleTrayPanel)
+  } else if (trayPrimaryAction(process.platform) === 'open-menu') {
     tray.on('click', popUpMacTrayMenu)
     tray.on('right-click', popUpMacTrayMenu)
   } else {
@@ -1333,9 +1418,16 @@ async function showPet() {
     )
     if (!result || !result.ok || !petSurfaceAvailable) return
   }
-  if (!mainWindow || mainWindow.isDestroyed()) createWindow()
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show()
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow({ show: false })
+  showPetWindow()
   updateTrayMenu()
+}
+
+function showPetWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  // Showing the pet from a persistent menu must not steal its focus and close it.
+  if (trayPanelWindow && !trayPanelWindow.isDestroyed() && trayPanelWindow.isVisible()) mainWindow.showInactive()
+  else mainWindow.show()
 }
 
 function hidePet() {
@@ -1345,7 +1437,7 @@ function hidePet() {
 
 function togglePetVisibility() {
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) hidePet()
-  else showPet()
+  else return showPet()
 }
 
 async function openConfig() {
@@ -1495,6 +1587,11 @@ function disabledPlatformKeys() {
 }
 
 function updateTrayMenu() {
+  if (usesTrayPanel()) {
+    tray?.setToolTip(petOperationState.busy ? `AllPet · 正在${petOperationState.label}` : `AllPet · ${pet ? pet.displayName : '无宠物'}`)
+    sendTrayPanelState()
+    return
+  }
   if (nativeMenuBridgeProc) {
     sendNativeMenuState()
     return
@@ -1529,6 +1626,8 @@ function cleanupLifecycle() {
   if (lifecycleCleaned) return
   lifecycleCleaned = true
   app.isQuitting = true
+  hideTrayPanel()
+  if (trayPanelWindow && !trayPanelWindow.isDestroyed()) trayPanelWindow.destroy()
   manualViewMonitor?.stop()
   manualViewMonitor = null
   if (watchRestartTimer) { clearTimeout(watchRestartTimer); watchRestartTimer = null }
@@ -1640,7 +1739,19 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   startManualViewMonitor()
   if (process.platform === 'darwin') refreshTrayPetIcons().catch(() => {})
   // 三阶段截图使用确定性 fixture，避免真实 watcher 快照覆盖测试数据。
-  if (!process.env.ALLPET_SCREENSHOT_STAGE && !process.env.ALLPET_PLATFORM_UI_SMOKE) startWatch()
+  if (!process.env.ALLPET_SCREENSHOT_STAGE && !process.env.ALLPET_PLATFORM_UI_SMOKE && !process.env.ALLPET_TRAY_PANEL_SMOKE) startWatch()
+
+  if (process.env.ALLPET_TRAY_PANEL_SMOKE) {
+    try {
+      const result = await require('./src/tray-panel-smoke')({ show: showTrayPanel, window: () => trayPanelWindow,
+        state: trayPanelState, readConfig: readBubbleConfig, output: process.env.ALLPET_TRAY_PANEL_SMOKE })
+      console.log('[allpet] tray panel verified:', JSON.stringify(result))
+      cleanupLifecycle(); app.exit(0)
+    } catch (error) { console.error(error); cleanupLifecycle(); app.exit(1) }
+    return
+  }
+
+  if (process.env.ALLPET_TRAY_PANEL_PREVIEW) await showTrayPanel()
 
   if (process.platform === 'darwin' && process.env.ALLPET_TRAY_NATIVE_PREVIEW) {
     setTimeout(() => {

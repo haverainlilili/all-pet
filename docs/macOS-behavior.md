@@ -397,9 +397,9 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 11 | 交互动画 | 悬停 jumping / 拖动 running | ✅ 已对齐（悬停/拖动动画） |
 | 12 | 点击宠物展开 | 点击精灵 → Stage 2 | ✅ 已对齐 |
 | 13 | 窗口属性 | transparent / alwaysOnTop / 全空间 | ⚠️ 已 alwaysOnTop；全空间仅 darwin/linux（Windows 无此概念） |
-| 14 | 菜单大小控件 | 点按钮不关菜单连续点击；禁用平台显示“已禁用” | ✅ Electron 主进程通过 AppKit 原生菜单桥接使用 `NSMenuItem.view`；±5% 原位更新且菜单保持打开；Windows/Linux 原生托盘不变 |
+| 14 | 菜单大小控件 | 点按钮不关菜单连续点击；禁用平台显示“已禁用” | ✅ Electron 主进程通过 AppKit 原生菜单桥接使用 `NSMenuItem.view`；±5% 原位更新且菜单保持打开；Windows/Linux v1.4.1 使用持续菜单面板，支持连续操作 |
 | 15 | 任务历史持久化 | canonical migration + 去重/过滤 + 12/100 上限 + 终态 24h TTL | ✅ 已对齐（共享字段；加载时迁移旧 DSH UUID/清理损坏 shape；Electron 独立 wall-clock timer） |
-| 16 | 托盘生命周期 | 点击状态图标打开菜单；显示/隐藏、打开配置、常驻、退出清理 | ✅ 已对齐（macOS 点击图标只打开原生菜单、不误隐藏宠物；单实例；关闭窗口不退出；Windows/Linux 托盘点击仍切换） |
+| 16 | 托盘生命周期 | 点击状态图标打开菜单；显示/隐藏、打开配置、常驻、退出清理 | ✅ 已对齐（macOS 点击图标只打开原生菜单、不误隐藏宠物；单实例；关闭窗口不退出；Windows/Linux 左/右键打开菜单面板） |
 | 17 | 宠物选择与删除 | 行首缩略图；按 bundle URL 精确操作，删除/外部失效后回退 | ✅ 已对齐（macOS 原生子菜单逐行显示小形象，固定取 atlas 左上角完整 idle 首帧；规范路径；refresh 同闸门；只消费 sidecar 验证后的 catalog） |
 | 18 | 首启与图集 | 首只发现宠物；按实际 atlas cell 排版 | ✅ 已对齐（失效配置回退；动态 8×9/11 图集；元数据/图片不一致则占位） |
 | 19 | 本地导入能力 | AppKit/ImageIO 多格式导入 | ⚠️ macOS 可用；Windows/Linux 明示禁用，标准包安装可用 |
@@ -407,7 +407,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 > 已知简化（平台限制 / 暂未实现）：
 > - **#10 唤醒**：Electron 已按 canonical task ID 规划唤醒；来源明确的 Codex Desktop 任务可发送 `codex://threads/<id>`，但系统接收深链无法证明目标会话已显示，完成/失败卡片已点击确认，活动卡片仍保留。CLI 终端 tab 暂无可移植的精确聚焦 API，CLI/未知来源/Grok fail-closed；经 metadata 确认的 Claude Desktop 任务只激活现有应用，绝不调用会 fork 副本的 resume，未精确聚焦时提示实际结果，不恢复已确认的完成/失败卡片。DSH 任务卡改用 `#allpet-session=<encoded ID>` 交给已认证的系统浏览器；DSH 客户端仅在权威列表中找到该 session 后执行选择并清理 fragment，认证 cookie 始终留在浏览器中，因此不再出现“只打开基页”提示。Claude Desktop 上游未提供「聚焦现有会话」的安全深链，`resume` 可能 fork 副本，因此继续采用手动侧栏选择。
 > - **#13 全空间**：Windows 无「所有 Space 可见」概念。
-> - **#14 大小控件位置**：macOS Electron 将状态栏菜单交给同包 AppKit 桥接进程，缩放行复用 `PetSizeControlView`，点击 ±5% 不结束 NSMenu tracking，并由 Electron 回传新百分比原位更新。Windows/Linux 保留 Electron 原生托盘菜单，管理窗口也可调节。
+> - **#14 大小控件位置**：macOS Electron 将状态栏菜单交给同包 AppKit 桥接进程，缩放行复用 `PetSizeControlView`，点击 ±5% 不结束 NSMenu tracking，并由 Electron 回传新百分比原位更新。Windows/Linux v1.4.1 改为 Electron 菜单面板，使用内嵌大小控件并保持打开，管理窗口也可调节。
 > - 等待态时钟、运行/思考 spinner、完成勾、失败叹号与深浅色卡片已按 AppKit 绘制逻辑对齐。
 > - 任务生命周期：Electron 与 AppKit 都会在典型 idle/no-task 快照清空活跃记录、会话切换时清空非当前活跃记录，只保留 done/failed 与当前/并发任务；隐藏最后一条活跃任务后，两端都从可见状态重算宠物动画。Electron 合并时保留 sourcePath/terminalBinding，并用独立 wall-clock timer 执行 24 小时 TTL；三平台 Node 测试覆盖 canonical ID、12/100 上限、时间戳保持、隐藏复活和定位字段继承。
 

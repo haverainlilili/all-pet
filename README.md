@@ -12,7 +12,13 @@ The pet switches animation based on what your agents are doing — idle, running
 
 ---
 
-## What's new in v1.4.0
+## What's new in v1.4.1
+
+Windows/Linux now use a persistent tray panel: left or right click opens it; provider checkboxes, inline size controls, and pet selection stay open for repeated clicks. Pet rows include thumbnails. Outside focus or Escape closes the panel. macOS keeps its native menu.
+
+Local CLI logs, including Codex CLI, can produce task bubbles. The Electron app does not yet fully support returning to the original terminal tab or automatically acknowledging a CLI task when that tab is viewed. See [terminal support and limits](docs/终端CLI支持说明.md).
+
+### v1.4.0 foundation
 
 Five new providers, persistent per-platform bubble visibility, immediate acknowledgement of completed notifications, and macOS manual-view detection improvements.
 
@@ -45,14 +51,14 @@ Installers bundle the Swift core, runtime and five built-in pets; no Node.js or 
 
 ### Choose the correct installer — humans and AI agents
 
-**Latest stable release: v1.4.0.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
+**Latest stable release: v1.4.1.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
 
 | User device | Architecture / supported models | Download | Choose this when |
 | --- | --- | --- | --- |
-| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.4.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0-arm64-mac.zip) | Mac with an Apple M-series chip |
-| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.4.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-Setup-1.4.0.exe) | Typical Intel / AMD Windows PC |
-| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.4.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0.AppImage) | Portable install on most x64 Linux distributions |
-| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.4.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/allpet-desktop_1.4.0_amd64.deb) | Debian / Ubuntu and compatible distributions |
+| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.4.1-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1-arm64-mac.zip) | Mac with an Apple M-series chip |
+| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.4.1.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-Setup-1.4.1.exe) | Typical Intel / AMD Windows PC |
+| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.4.1.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1.AppImage) | Portable install on most x64 Linux distributions |
+| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.4.1_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/allpet-desktop_1.4.1_amd64.deb) | Debian / Ubuntu and compatible distributions |
 
 **Not packaged yet:** Intel Mac (`x86_64`), Windows on ARM, and Linux ARM (`aarch64`) do not currently have ready-made installers. Build from source or contribute a package build.
 

@@ -1,13 +1,13 @@
 # AllPet 产品需求文档（现状版 PRD）
 
-> 本文以 v1.4.0 为产品基线。完整点击、悬停、拖动及取消行为见 [功能设计说明](功能设计说明.md)，逐平台实测边界见 [平台行为验收](平台行为验收.md)。
+> 本文以 v1.4.1 为产品基线。完整点击、悬停、拖动及取消行为见 [功能设计说明](功能设计说明.md)，逐平台实测边界见 [平台行为验收](平台行为验收.md)。
 
 ## 0. 文档信息
 
 | 项目 | 内容 |
 |---|---|
 | 产品名称 | AllPet |
-| PRD / 发布基线 | v1.4.0 |
+| PRD / 发布基线 | v1.4.1 |
 | 日期 | 2026-09-26 |
 | 安装包 | macOS arm64、Windows x64、Linux x64 |
 | 产品阶段 | 开源桌面工具；macOS 覆盖最完整，其他系统与第三方客户端仍有能力差异 |
@@ -15,6 +15,10 @@
 ✅ 表示已实现并纳入本版本；⚠️ 表示部分实现或平台依赖；❌ 表示未实现。构建通过与真实平台操作验收分别记录，不互相替代。
 
 ### 0.1 本版变化
+
+- v1.4.1 补齐 Windows/Linux 持续菜单面板：托盘左/右键打开，平台勾选、缩放、宠物选择和刷新不关闭；内嵌大小控件、缩略图与返回按钮。终端 CLI 能力边界见 [专门说明](终端CLI支持说明.md)。
+
+v1.4.0 的功能基础：
 
 - 新增 Cursor、WorkBuddy、Qoder、pi coding agent、智谱 Z Code，总计九平台。
 - 平台气泡显示设置持久化；macOS 菜单支持连续勾选。
@@ -43,9 +47,9 @@
 | 形态 | 平台 | 作用 | 当前成熟度 |
 | --- | --- | --- | --- |
 | 原生 AppKit 桌宠 | macOS 14+，从源码运行 | 完整动画、三层气泡、菜单栏宠物管理、尽力精确唤起 | 最高；**不是当前 Release 安装包的 GUI** |
-| Electron 桌宠 | macOS / Windows / Linux | 跨平台动画、三层气泡、托盘和宠物管理 | v1.4.0 三平台安装包实际提供的 GUI；存在平台差异 |
+| Electron 桌宠 | macOS / Windows / Linux | 跨平台动画、三层气泡、托盘和宠物管理 | v1.4.1 三平台安装包实际提供的 GUI；存在平台差异 |
 | Swift CLI / sidecar | macOS / Windows / Linux | `status`、`watch`、JSON sidecar、宠物命令 | 核心监控跨平台；`self-test` 仅 macOS |
-| GitHub Releases | macOS arm64 / Windows x64 / Linux x64 | Electron GUI + 内嵌 Swift sidecar 的预编译安装包 | v1.4.0 发布目标 |
+| GitHub Releases | macOS arm64 / Windows x64 / Linux x64 | Electron GUI + 内嵌 Swift sidecar 的预编译安装包 | v1.4.1 发布目标 |
 
 ---
 
@@ -498,11 +502,11 @@ macOS 精确唤起可能需要：
 
 #### 7.7.2 Electron 托盘
 
-- 显示/隐藏宠物；macOS 点击菜单栏图标只打开原生菜单，不再意外切换宠物可见性；Windows/Linux 点击托盘图标继续切换可见性；
+- 显示/隐藏宠物；macOS 点击菜单栏图标只打开原生菜单，不再意外切换宠物可见性；Windows/Linux 左/右键托盘图标打开持续菜单面板；
 - 打开宠物管理窗口、打开配置；
 - 按 AppKit 顺序显示大小百分比、宠物子菜单、九个平台状态、配置与退出；平台状态包含最多 28 个字符的当前动作，禁用的平台明确显示“已禁用”而非永久“加载中…”；
 - 宠物子菜单可直接切换/删除已安装宠物、安装未安装默认宠物、进入 GitHub 安装或本地导入入口，并进入完整管理器或刷新目录；删除确认显示规范化 bundle 路径；
-- macOS 由 AppKit 原生菜单桥接承载状态栏菜单，使用 `NSMenuItem.view` 原位更新 − / 百分比 / ＋；点击 ±5% 时菜单保持打开、不再关闭重开，Windows/Linux 原生托盘不变，管理窗口也提供大小调整；
+- macOS 由 AppKit 原生菜单桥接承载状态栏菜单，使用 `NSMenuItem.view` 原位更新 − / 百分比 / ＋；点击 ±5% 时菜单保持打开、不再关闭重开，Windows/Linux v1.4.1 面板同样连续操作不关闭，管理窗口也提供大小调整；
 - macOS 原生“宠物 ›”子菜单在每只宠物左侧显示小形象；图标按 sidecar 验证过的 cell 几何使用 `nativeImage.crop` 明确裁切 atlas 左上角 `(0,0)` 的完整 idle 首帧，`sips` 仅在 Electron 无法解码 WebP 等格式时负责转成临时 PNG、不参与裁切；最终仅把 `menu-v4` 的 ≤20×20 小 PNG 持久缓存交给菜单桥接，菜单打开时不读取或解码完整 atlas；
 - Electron 使用单实例、托盘常驻生命周期；关闭窗口不会退出，退出时只清理一次 watcher 和重启计时器。
 
@@ -526,7 +530,7 @@ macOS 精确唤起可能需要：
 
 ---
 
-气泡显示平台设置：顶层 `hiddenBubblePlatforms` 保存被隐藏平台；不停止监控或删除历史。macOS 原生菜单勾选及全部显示/隐藏后保持展开，Esc/外部点击关闭。
+气泡显示平台设置：顶层 `hiddenBubblePlatforms` 保存被隐藏平台；不停止监控或删除历史。macOS 原生菜单及 Windows/Linux v1.4.1 面板勾选、全部显示/隐藏后保持展开，Esc/外部点击关闭。
 
 ### FR-08 CLI 与自动化接口
 

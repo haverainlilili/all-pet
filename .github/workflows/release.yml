@@ -98,6 +98,21 @@ jobs:
           test -d "${apps[0]}/Contents/Resources/sidecar/AllPet_AllPetCore.bundle"
           ALLPET_APP_BINARY="$PWD/${apps[0]}/Contents/MacOS/AllPet" node scripts/verify-manual-view.js
 
+      - name: Windows 成品菜单连续点击与失焦关闭
+        if: runner.os == 'Windows'
+        run: node desktop/scripts/verify-tray-panel.js
+        env:
+          ALLPET_APP_BINARY: ${{ github.workspace }}/desktop/dist/win-unpacked/AllPet.exe
+          ALLPET_TRAY_PANEL_OUTPUT: ${{ runner.temp }}/tray-panel/menu.json
+
+      - name: 保存 Windows 成品菜单验收
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v5
+        with:
+          name: packaged-menu-windows
+          path: ${{ runner.temp }}/tray-panel/
+          if-no-files-found: ignore
+
       - name: 上传产物（兜底）
         uses: actions/upload-artifact@v5
         with:
