@@ -1,9 +1,9 @@
 # AllPet · macOS 平台行为基准文档
 
 > 本文档是 macOS 原生 GUI（`Sources/allpet`）的**权威行为记录**，作为其余平台（Electron 壳 / 后续客户端）对齐「展示 + 交互」的唯一基准。
-> 所有数值、顺序、文案、阈值均与本文所在提交的源码逐行核对。后续若改 macOS 行为，**必须同步修改本文档**。
+> 后续修改 macOS 行为时同步维护本文；第三方客户端的实际验收状态以 [平台行为验收](平台行为验收.md) 为准。
 
-> 2026-09-26：已同步 Claude 完成通知点击确认与失败通知持久化规则。全平台的完整设计记录见 [功能设计说明](功能设计说明.md)。
+> v1.4.0（2026-09-26）：已同步九平台、平台显示设置、完成通知点击确认与手动查看检测。全平台的完整设计记录见 [功能设计说明](功能设计说明.md)。
 
 ---
 
@@ -178,7 +178,7 @@ content.height = sprite.height + tray.height + 6
 
 - 聚合 phase 优先级：`failed` > `running/thinking` > `waiting` > `done` > `idle`。
 - `summary` = 所有非空闲平台 `"<label> <phaseLabel>"` 用 `" · "` 连接；全空 → `"全部空闲"`。
-- 平台顺序固定：Codex → Claude Code → DSH → Grok（`PlatformKind.allCases`）。
+- 平台顺序固定：Codex → Claude Code → DSH → Grok → Cursor → WorkBuddy → Qoder → pi → Z Code（`PlatformKind.allCases`）。
 
 ---
 
@@ -192,6 +192,11 @@ content.height = sprite.height + tray.height + 6
 | claude | Claude Code |
 | dsh | DSH |
 | grok | Grok |
+| cursor | Cursor |
+| workbuddy | WorkBuddy |
+| qoder | Qoder |
+| pi | pi |
+| zcode | Z Code |
 
 ### 5.2 `bubbleHeader`
 
@@ -235,7 +240,7 @@ content.height = sprite.height + tray.height + 6
 
 ### 6.3 Stage 2（平台）
 
-- 每平台一张卡片，最多 **4 张**，每张显示：
+- 每平台一张卡片，每页最多 **4 张**（九平台共三页，支持上一页/下一页；隐藏平台不占位置），每张显示：
   `平台名(彩色加粗) + 任务列表(最多 5 条：小圆点 + 会话显示名) + 状态图标`；超过 5 条 → `+N`。
 - 空平台：`暂无会话 · 点击打开`。
 - 尺寸：宽 **324**。
@@ -263,7 +268,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 点击精灵 / 收起态气泡 | 进入 Stage 2（`showPlatformStage`） |
 | 点击窗口外部 | 收起回 Stage 1（`collapseToStage1`） |
 | 点平台卡片（Stage 2） | 无任务 → 打开平台并收起；1 条任务 → 唤醒该任务；≥2 条 → 进入 Stage 3 |
-| 点任务（Stage 1 完成卡 / Stage 3） | 唤醒该任务（`wakeTask`）；Claude 的 done/failed 通知在异步唤起前立即确认并持久移除，不以精确聚焦成功为条件 |
+| 点任务（Stage 1 完成卡 / Stage 3） | 唤醒该任务（`wakeTask`）；九平台的 done/failed 通知在异步唤起前立即确认并持久移除，不以精确聚焦成功为条件 |
 | 「×」删除任务 | 移除气泡：done/failed → 记入 `dismissedTaskIDs`；其他状态 → 记入 `manuallyHiddenTaskTitles` |
 | 「×」删除平台 | 清空该平台历史并收起 |
 | 返回（Stage 3） | 回 Stage 2 |
@@ -278,13 +283,14 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 - 存储：`~/.config/all-pet/task-history.json`。
 - 每平台历史**去重**（按 `canonicalID`），最多保留 **12 条**。
 - `dismissedTaskIDs` 最多保留 **100 条**。
-- 过滤规则：合成/占位任务、DSH 子代理任务、DSH 背书的 Codex 任务不入历史。
+- 过滤规则：合成/占位任务、DSH 子代理、DSH 背书的 Codex，以及有明确 metadata 的 Codex 内部守护/子代理不入历史；短 ID 本身不作为过滤依据。
 - **手动隐藏后的复活**：非终态任务保持隐藏，直到同一 canonical ID 的标题发生变化；新的非终态活动也会移除历史 dismissed ID。
 - Electron macOS 的 Codex 已完成任务每 0.5 秒独立检查手动查看：前台主内容标题必须唯一匹配，或观察到同账号/本地主机的精确“未读→已读”回执。确认时核对原完成轮次，立即持久化移除；旧回调不删除新一轮。标题路径需要辅助功能权限，首次没有未读标记不等于已读。隐藏平台及非 done 不通过此路径清理。
-- `manualViewGraceInterval=15` 只用于完成任务的“已手动查看”检测：刚唤起任务后的保护窗口避免误判其他完成任务，刚点中的 pending wake 仍可被识别。
+- Electron macOS 也为 Claude、DSH、Grok、pi 独立调度查看检查；精确会话/有效 TTY 不足时保留。Cursor/WorkBuddy/Qoder/Z Code 尚无可靠检测，Windows/Linux 尚无同等能力。详见平台验收表。
+- 原生 AppKit 的 `manualViewGraceInterval=15` 只用于完成任务的“已手动查看”检测：刚唤起任务后的保护窗口避免误判其他完成任务，刚点中的 pending wake 仍可被识别。
 - 完成/失败卡片最长保留 24 小时，过期后从历史移除并写入 dismissed。
-- Claude 完成/失败卡片点击后即记入 dismissed，刷新或重启不重新显示；重新观察到同会话的非终态活动后撤销确认，下一轮完成仍可展示。非首个并发任务同样适用。
-- 点击确认与唤起结果独立：仍按真实结果反馈是否打开应用、能否定位原会话；异步唤起完成后不再次移除已确认的 Claude 卡片，避免误删期间开始的新一轮任务。
+- 九平台完成/失败卡片点击后即记入 dismissed，刷新或重启不重新显示；重新观察到同会话的非终态活动后撤销确认，下一轮完成仍可展示。非首个并发任务同样适用。
+- 点击确认与唤起结果独立：仍按真实结果反馈是否打开应用、能否定位原会话；异步唤起完成后不再次移除已确认的终态卡片，避免误删期间开始的新一轮任务。
 
 ---
 
@@ -327,7 +333,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 
 | 操作 | 菜单行为 |
 | --- | --- |
-| 切换宠物、调大小 | **菜单保持打开**（不 cancelTracking）；切换宠物后等菜单关闭再重建子菜单刷新勾选 |
+| 切换宠物、调大小、勾选气泡平台、全部显示/隐藏平台 | **菜单保持打开**（不 cancelTracking）；切换宠物后等菜单关闭再重建子菜单刷新勾选 |
 | 删除宠物、下载/安装/导入 | **关闭菜单**（需弹确认框/输入框） |
 
 ---
@@ -362,6 +368,13 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 - claude：`~/.claude/projects`
 - dsh：`~/.dsh/sessions`
 - grok：`~/.grok/logs/unified.jsonl` + `~/.grok/active_sessions.json`
+- cursor：`~/.cursor/projects`
+- workbuddy：`~/.workbuddy/projects`
+- qoder：`~/.qoder/projects`
+- pi：`~/.pi/agent/sessions`
+- zcode：`~/.zcode/cli/db/db.sqlite`
+
+顶层 `hiddenBubblePlatforms` 仅控制气泡；后台继续监控、历史保持原有过期规则。
 
 ---
 
@@ -392,7 +405,7 @@ hasNotification = (任一平台 taskHistory 非空) 或 (任一平台 phase ≠ 
 | 19 | 本地导入能力 | AppKit/ImageIO 多格式导入 | ⚠️ macOS 可用；Windows/Linux 明示禁用，标准包安装可用 |
 
 > 已知简化（平台限制 / 暂未实现）：
-> - **#10 唤醒**：Electron 已按 canonical task ID 规划唤醒；来源明确的 Codex Desktop 任务可发送 `codex://threads/<id>`，但系统接收深链无法证明目标会话已显示，因此仍保留卡片。CLI 终端 tab 暂无可移植的精确聚焦 API，CLI/未知来源/Grok fail-closed；经 metadata 确认的 Claude Desktop 任务只激活现有应用，绝不调用会 fork 副本的 resume，未精确聚焦时保留卡片。DSH 任务卡改用 `#allpet-session=<encoded ID>` 交给已认证的系统浏览器；DSH 客户端仅在权威列表中找到该 session 后执行选择并清理 fragment，认证 cookie 始终留在浏览器中，因此不再出现“只打开基页”提示。Claude Desktop 上游未提供「聚焦现有会话」的安全深链，`resume` 可能 fork 副本，因此继续采用手动侧栏选择。
+> - **#10 唤醒**：Electron 已按 canonical task ID 规划唤醒；来源明确的 Codex Desktop 任务可发送 `codex://threads/<id>`，但系统接收深链无法证明目标会话已显示，完成/失败卡片已点击确认，活动卡片仍保留。CLI 终端 tab 暂无可移植的精确聚焦 API，CLI/未知来源/Grok fail-closed；经 metadata 确认的 Claude Desktop 任务只激活现有应用，绝不调用会 fork 副本的 resume，未精确聚焦时提示实际结果，不恢复已确认的完成/失败卡片。DSH 任务卡改用 `#allpet-session=<encoded ID>` 交给已认证的系统浏览器；DSH 客户端仅在权威列表中找到该 session 后执行选择并清理 fragment，认证 cookie 始终留在浏览器中，因此不再出现“只打开基页”提示。Claude Desktop 上游未提供「聚焦现有会话」的安全深链，`resume` 可能 fork 副本，因此继续采用手动侧栏选择。
 > - **#13 全空间**：Windows 无「所有 Space 可见」概念。
 > - **#14 大小控件位置**：macOS Electron 将状态栏菜单交给同包 AppKit 桥接进程，缩放行复用 `PetSizeControlView`，点击 ±5% 不结束 NSMenu tracking，并由 Electron 回传新百分比原位更新。Windows/Linux 保留 Electron 原生托盘菜单，管理窗口也可调节。
 > - 等待态时钟、运行/思考 spinner、完成勾、失败叹号与深浅色卡片已按 AppKit 绘制逻辑对齐。
