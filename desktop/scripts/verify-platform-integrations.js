@@ -48,6 +48,13 @@ async function main() {
   ])
   write('.qoder/projects/project/q-main.jsonl', [{ type: 'user', sessionId: 'q-main', message: { role: 'user', content: 'Qoder fixture' } }])
   write('.cursor/projects/project/agent-transcripts/c-main/c-main.jsonl', [{ role: 'user', message: { role: 'user', content: 'Cursor fixture' } }])
+  write('.qoder/projects/project/subagent/q-child.jsonl', [{ type: 'user', sessionId: 'q-child', message: { role: 'user', content: 'hidden child' } }])
+  write('.cursor/projects/project/agent-transcripts/subagents/c-child.jsonl', [{ role: 'user', message: { role: 'user', content: 'hidden child' } }])
+  // Hook metadata can contain Windows paths even when this verifier runs on macOS/Linux.
+  for (const transcript of ['C:\\project\\subagents\\child.jsonl', 'C:/project/subagent/child.jsonl']) {
+    const hookInput = { hook_event_name: 'stop', session_id: 'hook-child', transcript_path: transcript }
+    assert.equal(run(['hook', 'cursor'], JSON.stringify(hookInput)).trim(), '{}')
+  }
   hook('qoder', 'PermissionRequest', 'q-main')
   hook('cursor', 'stop', 'c-main')
   const events = path.join(home, '.config/all-pet/events/cursor')
@@ -85,6 +92,7 @@ async function main() {
   assert.equal(platforms.pi.task.phase, 'running')
   assert.equal(platforms.qoder.task.phase, 'waiting')
   assert.equal(platforms.qoder.tasks.length, 1)
+  assert.equal(platforms.cursor.tasks.length, 1)
   assert.equal(platforms.cursor.task.phase, 'done')
   assert.equal(platforms.cursor.task.sessionName, 'Cursor fixture')
   assert.deepEqual(platforms.zcode.tasks.map(row => row.sessionID).sort(), ['z-fork', 'z-main'])
@@ -118,10 +126,12 @@ async function main() {
       }
     })
   })
-  console.log('Native integrations verified: nine platforms, five native formats, hook merge/privacy/idempotence, child filtering, read-only SQLite, live WAL invalidation.')
+  console.log('Native integrations verified: nine platforms, five native formats, hook merge/privacy/idempotence, cross-platform child-path filtering, read-only SQLite, live WAL invalidation.')
 }
-main().finally(() => {
-  if (watcher) watcher.kill()
+main().finally(async () => {
+  if (watcher?.pid && watcher.exitCode === null && watcher.signalCode === null) {
+    await new Promise(resolve => { watcher.once('close', resolve); watcher.kill() })
+  }
   if (db) db.close()
-  fs.rmSync(home, { recursive: true, force: true })
+  fs.rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }).catch(error => { console.error(error); process.exitCode = 1 })

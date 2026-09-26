@@ -15,6 +15,7 @@
 - macOS Electron 独立检测手动查看；Codex 支持未读→已读回执，Claude/DSH/Grok/pi 按精确会话或有效终端绑定判断。
 - 根据来源过滤 Codex 内部守护/子代理，清理旧历史中的内部任务；不以短 ID 作为过滤理由。
 - 包含 v1.3.0 后的 DSH 多会话、原浏览器标签页复用、菜单缩略图裁切与 Claude 安全激活修复。
+- 修复 Windows 路径分隔符导致的 WorkBuddy/Qoder 子任务误收录与 Cursor transcript 漏读；Hook 同步过滤子任务目录。
 - 安装包保留 SwiftPM 内置资源，补齐 SQLite 解码器；macOS 执行有效 ad-hoc 签名。
 
 ### 限制

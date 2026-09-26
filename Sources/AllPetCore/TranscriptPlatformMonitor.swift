@@ -14,11 +14,14 @@ public struct TranscriptPlatformMonitor: PlatformMonitor {
 
     public func snapshot(config: WatchConfig, now: Date) -> PlatformStatus {
         let scan = ActivityScanner.scan(roots: roots, isIncluded: { path in
-            guard !path.contains("/subagents/"), !path.contains("/subagent/"),
+            // FileManager can return mixed separators on Windows. Match directories
+            // consistently without changing the original path used to read the file.
+            let normalizedPath = path.replacingOccurrences(of: "\\", with: "/")
+            guard !normalizedPath.contains("/subagents/"), !normalizedPath.contains("/subagent/"),
                   !URL(fileURLWithPath: path).lastPathComponent.hasPrefix("agent-") else { return false }
             if path.hasSuffix(".allpet-event.json") { return true }
             guard path.hasSuffix(".jsonl") || (platform == .cursor && path.hasSuffix(".txt")) else { return false }
-            if platform == .cursor { return path.contains("/agent-transcripts/") }
+            if platform == .cursor { return normalizedPath.contains("/agent-transcripts/") }
             return true
         }, recentWindow: max(120, config.waitingWindowSeconds), now: now)
         var byID: [String: (TaskInfo, Date, Bool)] = [:]

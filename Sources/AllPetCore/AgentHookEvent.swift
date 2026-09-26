@@ -27,7 +27,10 @@ public enum AgentHookEvent {
               !id.isEmpty, id.utf8.count <= 150 else { return }
         if payload["agent_id"] != nil || payload["isSidechain"] as? Bool == true { return }
         let source = payload["transcript_path"] as? String
-        if source?.contains("/subagents/") == true { return }
+        if let source {
+            let normalizedPath = source.replacingOccurrences(of: "\\", with: "/")
+            if normalizedPath.contains("/subagents/") || normalizedPath.contains("/subagent/") { return }
+        }
         let name = payload["tool_name"] as? String
         var actualPhase = phase
         if let name, ["askuserquestion", "ask_user_question"].contains(name.lowercased()) { actualPhase = .waiting }
