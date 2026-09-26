@@ -577,7 +577,7 @@ enum TaskExtractors {
         return false
     }
 
-    private static func toolAction(name: String, arguments: Any?) -> String {
+    static func toolAction(name: String, arguments: Any?) -> String {
         let display = toolDisplayName(name)
         guard let detail = toolArgumentDetail(arguments) else { return display }
         return "\(display)：\(detail)"

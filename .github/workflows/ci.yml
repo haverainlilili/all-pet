@@ -21,7 +21,7 @@ jobs:
           update-sdk-modules: true
       - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
       - name: 安装 Linux 静态链接依赖
         if: runner.os == 'Linux'
         run: |
@@ -43,6 +43,11 @@ jobs:
           swift run allpet status --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.animation||!Array.isArray(j.platforms)){console.error('bad json');process.exit(1)}console.log('OK:',j.animation,j.platforms.length+' platforms')})"
       - name: 构建自包含 release sidecar
         run: swift build -c release --static-swift-stdlib
+      - name: 九平台原生格式 / Hook / SQLite WAL 验收
+        run: node desktop/scripts/verify-platform-integrations.js
+      - name: macOS 原生查看桥接
+        if: runner.os == 'macOS'
+        run: ALLPET_BINARY="$PWD/.build/release/allpet" node desktop/scripts/verify-manual-view-bridge.js
       - name: 准备 release sidecar（原生路径）
         run: node desktop/scripts/prepare-sidecar.js
         env:
@@ -65,14 +70,14 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
       - name: 安装依赖
         run: npm ci
         working-directory: desktop
       - name: JS 语法检查
         shell: bash
         run: |
-          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/motion.js && node -c src/pets.js && node -c src/pet-thumbnail.js && node -c src/dsh-wake.js && node -c src/wake.js && node -c src/pet-state.js && node -c src/task-history.js && node -c src/tray-menu.js && node -c src/interaction.js && node -c src/atlas.js && node -c src/latest.js && node -c scripts/prepare-sidecar.js && node -c scripts/verify-sidecar.js && node -c scripts/verify-appkit-lifecycle.js && node -c scripts/zstdcat.js && echo "syntax OK"
+          node -c main.js && node -c preload.js && node -c src/renderer.js && node -c src/motion.js && node -c src/pets.js && node -c src/pet-thumbnail.js && node -c src/dsh-wake.js && node -c src/wake.js && node -c src/pet-state.js && node -c src/task-history.js && node -c src/tray-menu.js && node -c src/interaction.js && node -c src/atlas.js && node -c src/latest.js && node -c scripts/prepare-sidecar.js && node -c scripts/verify-sidecar.js && node -c scripts/verify-appkit-lifecycle.js && node -c scripts/zstdcat.js && node -c scripts/sqlite-read.js && node -c scripts/verify-platform-integrations.js && node -c src/platforms.js && node -c src/manual-view.js && node -c src/codex-session-metadata.js && echo "syntax OK"
         working-directory: desktop
       - name: Electron 行为测试
         run: npm test
@@ -110,7 +115,7 @@ jobs:
           update-sdk-modules: true
       - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
       - name: 安装 Linux 静态链接依赖
         run: |
           sudo apt-get update -y

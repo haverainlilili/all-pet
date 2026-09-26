@@ -98,6 +98,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
     private var petOperationGate = PetOperationGate()
     private var statusMenuIsOpen = false
     private var statusMenuItems: [PlatformKind: NSMenuItem] = [:]
+    private var bubblePlatformMenuItems: [PlatformKind: NSMenuItem] = [:]
     private var defaultPetThumbnailCache: [String: NSImage] = [:]
     private var defaultPetThumbnailRequests: Set<String> = []
     private var petSizeControl: PetSizeControlView?
@@ -203,6 +204,9 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             )
             _ = self.updateTaskTray([idleStatus])
             let idlePrunesActiveHistory = self.taskHistory[.codex]?.isEmpty != false
+            let completedClicksAcknowledged = self.verifyCompletedTaskAcknowledgement()
+            let internalCodexHistoryPruned = self.verifyInternalCodexHistoryFiltering()
+            let bubblePlatformsPersisted = self.verifyBubblePlatformVisibility()
             self.window?.orderOut(nil)
             let hidden = self.window?.isVisible == false
             if !ownsWindow,
@@ -239,6 +243,9 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 "windowWithinWorkArea": windowWithinWorkArea,
                 "observesMotionChanges": observesMotionChanges,
                 "idlePrunesActiveHistory": idlePrunesActiveHistory,
+                "completedClicksAcknowledged": completedClicksAcknowledged,
+                "internalCodexHistoryPruned": internalCodexHistoryPruned,
+                "bubblePlatformsPersisted": bubblePlatformsPersisted,
                 "disabledPlatformsLabeled": disabledPlatformsLabeled,
                 "bundlePath": self.config.pet.bundlePath ?? "",
                 "petID": self.bundle?.manifest.id ?? ""
@@ -253,6 +260,167 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             NSApp.terminate(nil)
         }
         return true
+    }
+
+    /// 使用隔离 HOME 的生命周期冒烟验证真实历史更新及持久化，不打开外部应用。
+    private func verifyCompletedTaskAcknowledgement() -> Bool {
+        let savedHistory = taskHistory
+        let savedDismissed = dismissedTaskIDs
+        let savedHidden = manuallyHiddenTaskTitles
+        let savedStatuses = latestStatuses
+        defer {
+            taskHistory = savedHistory
+            dismissedTaskIDs = savedDismissed
+            manuallyHiddenTaskTitles = savedHidden
+            _ = updateTaskTray(savedStatuses)
+            saveTaskHistory()
+        }
+        taskHistory = [:]
+        dismissedTaskIDs = []
+        manuallyHiddenTaskTitles = [:]
+        let now = Date()
+        func status(_ phase: AgentPhase, platform: PlatformKind = .claude, offset: TimeInterval = 0) -> PlatformStatus {
+            PlatformStatus(
+                platform: platform, phase: phase, detail: phase.label,
+                lastActivityAt: now.addingTimeInterval(offset), activeSessions: 1, enabled: true,
+                task: TaskInfo(title: "same title", action: phase.label, sessionID: "completion-click-smoke", phase: phase)
+            )
+        }
+        let done = status(.done)
+        let clicked = TrayTaskItem(status: done)
+        _ = updateTaskTray([done])
+        guard acknowledgeCompletedTaskClick(clicked), taskHistory[.claude]?.isEmpty != false else { return false }
+        let persisted = Self.loadTaskHistory(home: home)
+        guard persisted.dismissedTaskIDs.contains(clicked.id), persisted.platforms[.claude]?.isEmpty != false else { return false }
+        taskHistory = persisted.platforms
+        dismissedTaskIDs = persisted.dismissedTaskIDs
+        _ = updateTaskTray([done])
+        guard taskHistory[.claude]?.isEmpty != false else { return false }
+
+        // 同名会话开始新一轮后恢复展示；旧点击的异步成功回调不能清掉新任务。
+        let running = status(.running, offset: 1)
+        _ = updateTaskTray([running])
+        handleWakeResult(TaskLauncher.Result(succeeded: true, message: nil), task: clicked)
+        guard taskHistory[.claude]?.first?.phase == .running,
+              !dismissedTaskIDs.contains(clicked.id) else { return false }
+        let nextDone = status(.done, offset: 2)
+        _ = updateTaskTray([nextDone])
+        guard taskHistory[.claude]?.first?.phase == .done else { return false }
+
+        // 失败通知也持久确认；运行、思考、等待不走此规则；其他平台的完成通知同样确认。
+        let failed = status(.failed, offset: 3)
+        _ = updateTaskTray([failed])
+        guard acknowledgeCompletedTaskClick(TrayTaskItem(status: failed)),
+              Self.loadTaskHistory(home: home).dismissedTaskIDs.contains(clicked.id) else { return false }
+        for phase in [AgentPhase.running, .thinking, .waiting] {
+            let active = status(phase, offset: 4)
+            _ = updateTaskTray([active])
+            guard !acknowledgeCompletedTaskClick(TrayTaskItem(status: active)),
+                  taskHistory[.claude]?.first?.phase == phase else { return false }
+        }
+        for platform in PlatformKind.allCases where platform != .claude {
+            let done = status(.done, platform: platform)
+            _ = updateTaskTray([done])
+            guard acknowledgeCompletedTaskClick(TrayTaskItem(status: done)),
+                  taskHistory[platform]?.isEmpty != false else { return false }
+        }
+
+        // 非首个并发会话重新开始，也必须清除上一轮的确认记录。
+        let extraID = "claude|extra-completion-smoke"
+        dismissedTaskIDs.append(extraID)
+        var concurrent = running
+        let first = running.task!
+        concurrent.tasks = [first, TaskInfo(title: "extra", action: "running", sessionID: "extra-completion-smoke", phase: .running)]
+        _ = updateTaskTray([concurrent])
+        guard !dismissedTaskIDs.contains(extraID) else { return false }
+        concurrent.tasks[1].phase = .done
+        _ = updateTaskTray([concurrent])
+        return taskHistory[.claude]?.contains(where: { $0.id == extraID && $0.phase == .done }) == true
+    }
+
+    /// Real menu callbacks and disk round-trips, only called by isolated lifecycle smoke.
+    private func verifyBubblePlatformVisibility() -> Bool {
+        let savedConfig = config
+        let savedHistory = taskHistory
+        let savedStatuses = latestStatuses
+        defer {
+            config = savedConfig
+            try? config.save(to: AllPetConfiguration.configURL(home: home))
+            taskHistory = savedHistory
+            _ = updateTaskTray(savedStatuses)
+            saveTaskHistory()
+        }
+        let statuses = PlatformKind.allCases.map { kind in
+            PlatformStatus(platform: kind, phase: .done, detail: "fixture", lastActivityAt: Date(), activeSessions: 1, enabled: true,
+                task: TaskInfo(title: "visibility", sessionID: "visibility-\(kind.rawValue)", phase: .done))
+        }
+        latestStatuses = statuses
+        taskHistory = [:]
+        _ = updateTaskTray(statuses)
+        guard bubblePlatformMenuItems.count == 9 else { return false }
+        setBubbleVisibility(kind: nil, visible: false)
+        let hidden = AllPetConfiguration.load(from: AllPetConfiguration.configURL(home: home), home: home)
+        guard PlatformKind.allCases.allSatisfy({ !hidden.showsBubbles(for: $0) }),
+              updateTaskTray(statuses).isEmpty,
+              bubblePlatformMenuItems.values.allSatisfy({ $0.state == .off }),
+              taskHistory.values.reduce(0, { $0 + $1.count }) == 9 else { return false }
+        setBubbleVisibility(kind: .pi, visible: true)
+        guard updateTaskTray(statuses).map(\.platform) == [.pi],
+              bubblePlatformMenuItems[.pi]?.state == .on else { return false }
+        setBubbleVisibility(kind: nil, visible: true)
+        let shown = AllPetConfiguration.load(from: AllPetConfiguration.configURL(home: home), home: home)
+        return updateTaskTray(statuses).count == 9
+            && Self.loadTaskHistory(home: home).platforms.values.reduce(0, { $0 + $1.count }) == 9
+            && PlatformKind.allCases.allSatisfy({ shown.showsBubbles(for: $0) })
+            && shown.platforms.mapValues(\.enabled) == savedConfig.platforms.mapValues(\.enabled)
+    }
+
+    /// Exercises history migration with real metadata files in the isolated smoke HOME.
+    private func verifyInternalCodexHistoryFiltering() -> Bool {
+        let saved = taskHistory
+        let fixture = home.appendingPathComponent("codex-history-filter-fixture", isDirectory: true)
+        defer {
+            taskHistory = saved
+            saveTaskHistory()
+            try? FileManager.default.removeItem(at: fixture)
+        }
+        do {
+            try FileManager.default.createDirectory(at: fixture, withIntermediateDirectories: true)
+            let sources: [[String: Any]?] = [
+                ["thread_source": "guardian_review", "source": ["subagent": ["other": "guardian"]]],
+                ["source": ["subagent": ["thread_spawn": ["parent_thread_id": "parent"]]], "instructions": String(repeating: "x", count: 90_000)],
+                ["source": "vscode", "thread_source": "user", "parent_thread_id": "user-fork-parent"],
+                nil
+            ]
+            var items: [TrayTaskItem] = []
+            for (index, payload) in sources.enumerated() {
+                let file = fixture.appendingPathComponent("session-\(index).jsonl")
+                if let payload {
+                    var data = try JSONSerialization.data(withJSONObject: ["type": "session_meta", "payload": payload])
+                    data.append(0x0A)
+                    try data.write(to: file)
+                } else {
+                    try Data("{unfinished".utf8).write(to: file)
+                }
+                let status = PlatformStatus(platform: .codex, phase: index == 1 ? .failed : .done,
+                    detail: "fixture", lastActivityAt: Date(), activeSessions: 1, enabled: true,
+                    task: TaskInfo(title: "fixture", sessionID: "internal-history-\(index)"))
+                var item = TrayTaskItem(status: status)
+                item.sourcePath = file.path
+                items.append(item)
+            }
+            taskHistory = [.codex: items]
+            saveTaskHistory()
+            let loaded = Self.loadTaskHistory(home: home)
+            let expected = Set(["internal-history-2", "internal-history-3"])
+            guard Set((loaded.platforms[.codex] ?? []).compactMap(\.sessionID)) == expected else { return false }
+            taskHistory = loaded.platforms
+            saveTaskHistory()
+            return Set((Self.loadTaskHistory(home: home).platforms[.codex] ?? []).compactMap(\.sessionID)) == expected
+                && sources.indices.allSatisfy { FileManager.default.fileExists(atPath: fixture.appendingPathComponent("session-\($0).jsonl").path) }
+        } catch {
+            return false
+        }
     }
 
     // MARK: - Pet
@@ -704,7 +872,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 self?.dismissManuallyViewedDoneTasks(ids: expiredIDs)
             }
         }
-        var doneTasks = terminalTasks.filter { $0.phase == .done }
+        var doneTasks = terminalTasks.filter { $0.phase == .done && config.showsBubbles(for: $0.platform) }
         // 宽限期内仍放行「刚点气泡唤起」的那个任务，做到秒级消失；其余任务维持保护。
         if inGrace {
             doneTasks = doneTasks.filter { self.taskLauncher.hasPendingWakeView(for: $0.canonicalID) }
@@ -821,6 +989,11 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                 single.phase = extraTask.phase ?? display.phase
                 let extraItem = TrayTaskItem(status: single)
                 guard extraItem.sessionID?.isEmpty == false else { continue }
+                if extraItem.phase != .done && extraItem.phase != .failed,
+                   dismissedTaskIDs.contains(extraItem.id) {
+                    dismissedTaskIDs.removeAll { $0 == extraItem.id }
+                    shouldPersistHistory = true
+                }
                 // done/failed 且已被 dismiss：跳过，避免「手动查看后消失」又被重新累积回来。
                 if (extraItem.phase == .done || extraItem.phase == .failed), dismissedTaskIDs.contains(extraItem.id) {
                     continue
@@ -833,13 +1006,15 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         displayStatuses.sort {
             platformOrder($0.platform) < platformOrder($1.platform)
         }
-        let hasNotification = !taskHistory.values.allSatisfy(\.isEmpty)
-            || displayStatuses.contains { $0.phase != .idle }
-        taskTrayView?.update(statuses: displayStatuses, tasksByPlatform: taskHistory)
+        let visibleStatuses = displayStatuses.filter { config.showsBubbles(for: $0.platform) }
+        let visibleHistory = taskHistory.filter { config.showsBubbles(for: $0.key) }
+        let hasNotification = !visibleHistory.values.allSatisfy(\.isEmpty)
+            || visibleStatuses.contains { $0.phase != .idle }
+        taskTrayView?.update(statuses: visibleStatuses, tasksByPlatform: visibleHistory)
         if !hasNotification { taskTrayView?.collapseToStage1() }
         taskTrayView?.isHidden = !hasNotification
         setTaskTrayVisible(hasNotification)
-        return displayStatuses
+        return visibleStatuses
     }
 
     /// 把一个任务累积进历史：存在则更新并继承终端/来源字段，否则追加；返回是否有变化。
@@ -887,7 +1062,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
 
     private func dismissTaskBubble(id: String) {
         guard let task = taskHistory.values.flatMap({ $0 }).first(where: { $0.canonicalID == id }) else { return }
-        if task.phase == .done {
+        if task.phase == .done || task.phase == .failed {
             if !dismissedTaskIDs.contains(task.id) { dismissedTaskIDs.append(task.id) }
         } else {
             manuallyHiddenTaskTitles[task.id] = task.title
@@ -900,7 +1075,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
 
     private func dismissPlatformBubbles(_ platform: PlatformKind) {
         for task in taskHistory[platform] ?? [] {
-            if task.phase == .done {
+            if task.phase == .done || task.phase == .failed {
                 if !dismissedTaskIDs.contains(task.id) { dismissedTaskIDs.append(task.id) }
             } else {
                 manuallyHiddenTaskTitles[task.id] = task.title
@@ -912,7 +1087,19 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         setStatusAnimation(Aggregator.snapshot(statuses: displayedStatuses, now: Date()).animation)
     }
 
+    @discardableResult
+    private func acknowledgeCompletedTaskClick(_ task: TrayTaskItem) -> Bool {
+        guard task.acknowledgesCompletionOnClick,
+              let current = taskHistory[task.platform]?.first(where: { $0.canonicalID == task.canonicalID }),
+              current.phase == task.phase, current.updatedAt == task.updatedAt else { return false }
+        dismissTaskBubble(id: task.canonicalID)
+        return true
+    }
+
     private func wakeTask(_ task: TrayTaskItem) {
+        // 先确认用户点击的完成通知，再尝试唤起。Claude 的焦点元数据可能滞后，
+        // 或者只能打开应用；这不应让已处理的通知永久留在桌面上。
+        acknowledgeCompletedTaskClick(task)
         lastEvokeAt = Date()
         taskWakeQueue.async { [weak self] in
             guard let self else { return }
@@ -969,7 +1156,8 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
                     saveTaskHistory()
                 }
             }
-            if task.phase == .done || task.phase == .failed {
+            // 终态已在点击时处理；迟到的唤起结果不能再次删除同会话的新一轮任务。
+            if (task.phase == .done || task.phase == .failed), !task.acknowledgesCompletionOnClick {
                 dismissedTaskIDs.removeAll { $0 == task.id }
                 dismissedTaskIDs.append(task.id)
                 taskHistory[task.platform]?.removeAll { $0.canonicalID == task.id }
@@ -1129,17 +1317,9 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
         return !URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent.hasPrefix("session-")
     }
 
-    private static func isDSHBackedCodexTask(_ task: TrayTaskItem) -> Bool {
-        guard task.platform == .codex, let path = task.sourcePath,
-              let handle = FileHandle(forReadingAtPath: path) else { return false }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 16_384),
-              let newline = data.firstIndex(of: 0x0A),
-              let object = try? JSONSerialization.jsonObject(with: Data(data[..<newline])) as? [String: Any],
-              let payload = object["payload"] as? [String: Any] else { return false }
-        let originator = (payload["originator"] as? String ?? "").lowercased()
-        let threadSource = (payload["thread_source"] as? String ?? "").lowercased()
-        return originator.contains("dsh") || threadSource.contains("dsh")
+    private static func isExcludedCodexTask(_ task: TrayTaskItem) -> Bool {
+        guard task.platform == .codex, let path = task.sourcePath else { return false }
+        return CodexSessionMetadata.isExcluded(path: path)
     }
 
     private static func loadTaskHistory(home: URL) -> LoadedTaskHistory {
@@ -1153,7 +1333,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             guard let platform = PlatformKind(rawValue: key) else { continue }
             let ownedTasks = tasks.filter {
                 $0.sessionID?.isEmpty == false
-                    && !isDSHBackedCodexTask($0)
+                    && !isExcludedCodexTask($0)
                     && !isDSHSubagentHistoryTask($0)
                     && !isSyntheticHistoryTask($0)
             }.map { enrichStoredTask($0, home: home) }
@@ -1195,6 +1375,7 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             }
         case .dsh:
             task.sessionName = DSHSessionNameLookup.name(for: sessionID, home: home) ?? task.sessionName
+        case .cursor, .workbuddy, .qoder, .pi, .zcode: break
         }
         return task
     }
@@ -1312,6 +1493,45 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
 
     // MARK: - Menu bar
 
+    @objc private func installPlatformIntegration(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String, let platform = PlatformKind(rawValue: key) else { return }
+        let alert = NSAlert()
+        do {
+            let url = try AgentHookEvent.install(platform: platform,
+                executable: URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path, home: home)
+            alert.messageText = "\(platform.label) 实时状态已接入"
+            alert.informativeText = "已保留原设置并备份原配置。只记录本地任务状态，不更改权限审批。\n\(url.path)\n请重启 \(platform.label) 后开始新一轮任务。"
+        } catch { alert.messageText = "接入失败"; alert.informativeText = error.localizedDescription }
+        alert.runModal()
+    }
+
+    private func setBubbleVisibility(kind: PlatformKind?, visible: Bool) {
+        let url = AllPetConfiguration.configURL(home: home)
+        do {
+            // Refuse to replace unreadable or malformed existing settings.
+            var updated = FileManager.default.fileExists(atPath: url.path)
+                ? try JSONDecoder().decode(AllPetConfiguration.self, from: Data(contentsOf: url))
+                : AllPetConfiguration.makeDefault(home: home)
+            var hidden = Set(updated.hiddenBubblePlatforms ?? [])
+            for platform in PlatformKind.allCases where kind == nil || kind == platform {
+                if visible { hidden.remove(platform.rawValue) } else { hidden.insert(platform.rawValue) }
+            }
+            updated.hiddenBubblePlatforms = hidden.sorted()
+            try updated.save(to: url)
+            config.hiddenBubblePlatforms = updated.hiddenBubblePlatforms
+            for (platform, item) in bubblePlatformMenuItems {
+                PlatformVisibilityMenuView.update(item, checked: config.showsBubbles(for: platform))
+            }
+            _ = updateTaskTray(latestStatuses)
+        } catch {
+            for (platform, item) in bubblePlatformMenuItems {
+                PlatformVisibilityMenuView.update(item, checked: config.showsBubbles(for: platform))
+            }
+            let alert = NSAlert(); alert.messageText = "未能保存气泡显示平台"; alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+
     private func setupMenuBar() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         item.button?.title = "🐾"
@@ -1337,6 +1557,35 @@ final class PetApp: NSObject, NSMenuDelegate, @unchecked Sendable {
             menu.addItem(petsItem)
         }
 
+        let bubbleMenu = NSMenu()
+        for kind in PlatformKind.allCases {
+            let choice = NSMenuItem(title: kind.label, action: nil, keyEquivalent: "")
+            choice.state = config.showsBubbles(for: kind) ? .on : .off
+            choice.view = PlatformVisibilityMenuView(title: kind.label, checked: config.showsBubbles(for: kind)) { [weak self] in
+                guard let self else { return }
+                self.setBubbleVisibility(kind: kind, visible: !self.config.showsBubbles(for: kind))
+            }
+            bubblePlatformMenuItems[kind] = choice; bubbleMenu.addItem(choice)
+        }
+        bubbleMenu.addItem(.separator())
+        for (title, key) in [("全部显示", "show"), ("全部隐藏", "hide")] {
+            let choice = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            choice.view = PlatformVisibilityMenuView(title: title) { [weak self] in
+                self?.setBubbleVisibility(kind: nil, visible: key == "show")
+            }
+            bubbleMenu.addItem(choice)
+        }
+        let note = NSMenuItem(title: "仅影响气泡显示，保留任务历史", action: nil, keyEquivalent: "")
+        note.isEnabled = false; bubbleMenu.addItem(note)
+        let bubbleItem = NSMenuItem(title: "气泡显示平台", action: nil, keyEquivalent: "")
+        bubbleItem.submenu = bubbleMenu; menu.addItem(bubbleItem)
+        let integrations = NSMenu()
+        for platform in AgentHookEvent.supportedPlatforms {
+            let choice = NSMenuItem(title: "启用/修复 \(platform.label)", action: #selector(installPlatformIntegration(_:)), keyEquivalent: "")
+            choice.target = self; choice.representedObject = platform.rawValue; integrations.addItem(choice)
+        }
+        let integrationItem = NSMenuItem(title: "实时状态接入", action: nil, keyEquivalent: "")
+        integrationItem.submenu = integrations; menu.addItem(integrationItem)
         menu.addItem(.separator())
         for kind in PlatformKind.allCases {
             let initialStatus = config.platformConfig(for: kind).enabled ? "加载中…" : "已禁用"

@@ -30,6 +30,7 @@ function menuBridgeState(input = {}) {
     scalePercent: String(input.scalePercent || '100%'),
     tooltip: String(input.tooltip || 'AllPet'),
     statusIconPath: input.statusIconPath ? String(input.statusIconPath) : null,
+    bubblePlatforms: (Array.isArray(input.bubblePlatforms) ? input.bubblePlatforms : []).map(row => ({ key: String(row.key), label: String(row.label), visible: row.visible !== false })),
     platformTitles: (Array.isArray(input.platformTitles) ? input.platformTitles : []).map(String),
     installedPets: installed.map(item => ({
       label: String(item.label || ''), target: String(item.target || ''), current: Boolean(item.current),

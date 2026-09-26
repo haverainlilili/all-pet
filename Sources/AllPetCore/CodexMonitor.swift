@@ -12,28 +12,12 @@ private final class CodexSessionClassifier: @unchecked Sendable {
         }
         lock.unlock()
 
-        var included = false
-        var cacheable = false
-        if let handle = FileHandle(forReadingAtPath: path) {
-            defer { try? handle.close() }
-            let data = (try? handle.read(upToCount: 65_536)) ?? nil
-            let firstLine = data.flatMap { chunk -> Data? in
-                if let newline = chunk.firstIndex(of: 0x0A) { return Data(chunk[..<newline]) }
-                return chunk.count < 65_536 ? chunk : nil
-            }
-            if let firstLine,
-               let object = try? JSONSerialization.jsonObject(with: firstLine) as? [String: Any] {
-                if let payload = object["payload"] as? [String: Any] {
-                    let originator = (payload["originator"] as? String ?? "").lowercased()
-                    let threadSource = (payload["thread_source"] as? String ?? "").lowercased()
-                    // 排除 DSH 起源，以及 Codex 子代理 rollout（thread_source == "subagent"）。
-                    included = !originator.contains("dsh") && !threadSource.contains("dsh") && threadSource != "subagent"
-                } else {
-                    included = true
-                }
-                cacheable = true
-            }
-        }
+        let record = CodexSessionMetadata.firstRecord(path: path)
+        let cacheable = record != nil
+        let included = record.map { object in
+            guard let payload = object["payload"] as? [String: Any] else { return true }
+            return !CodexSessionMetadata.isExcluded(payload: payload)
+        } ?? false
 
         if cacheable {
             lock.lock()

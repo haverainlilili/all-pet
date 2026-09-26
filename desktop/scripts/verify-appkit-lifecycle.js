@@ -6,11 +6,14 @@ const path = require('node:path')
 const { spawnSync } = require('node:child_process')
 
 if (process.platform !== 'darwin') throw new Error('AppKit lifecycle verification requires macOS')
-const build = spawnSync('swift', ['build'], { encoding: 'utf8' })
-if (build.status !== 0) throw new Error(build.stderr || build.stdout || 'swift build failed')
-const query = spawnSync('swift', ['build', '--show-bin-path'], { encoding: 'utf8' })
-if (query.status !== 0) throw new Error(query.stderr || query.stdout || 'swift --show-bin-path failed')
-const binary = path.join(query.stdout.trim().split(/\r?\n/).at(-1), 'allpet')
+let binary = process.env.ALLPET_BINARY
+if (!binary) {
+  const build = spawnSync('swift', ['build'], { encoding: 'utf8' })
+  if (build.status !== 0) throw new Error(build.stderr || build.stdout || 'swift build failed')
+  const query = spawnSync('swift', ['build', '--show-bin-path'], { encoding: 'utf8' })
+  if (query.status !== 0) throw new Error(query.stderr || query.stdout || 'swift --show-bin-path failed')
+  binary = path.join(query.stdout.trim().split(/\r?\n/).at(-1), 'allpet')
+}
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'allpet-appkit-home-'))
 const freshOutput = path.join(home, 'fresh.json')
 const disabledOutput = path.join(home, 'disabled.json')
@@ -29,6 +32,9 @@ function launch(output, extraEnv = {}) {
 
 try {
   const fresh = launch(freshOutput)
+  if (!fresh.bubblePlatformsPersisted) throw new Error('Nine-platform visibility persistence failed in fresh lifecycle')
+  if (!fresh.internalCodexHistoryPruned) throw new Error('Internal Codex history migration failed in fresh lifecycle')
+  if (!fresh.completedClicksAcknowledged) throw new Error('Nine-platform completion click acknowledgement failed in fresh lifecycle')
   if (!fresh.ownsWindow || !fresh.initiallyVisible || !fresh.hidden || !fresh.shown || !fresh.operationUnlocked || !fresh.windowWithinWorkArea || !fresh.observesMotionChanges || !fresh.idlePrunesActiveHistory || !fresh.disabledPlatformsLabeled || !fresh.petID || !fresh.bundlePath) {
     throw new Error(`invalid fresh lifecycle result: ${JSON.stringify(fresh)}`)
   }
@@ -41,6 +47,9 @@ try {
   fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
 
   const disabled = launch(disabledOutput)
+  if (!disabled.bubblePlatformsPersisted) throw new Error('Nine-platform visibility persistence failed in disabled lifecycle')
+  if (!disabled.internalCodexHistoryPruned) throw new Error('Internal Codex history migration failed in disabled lifecycle')
+  if (!disabled.completedClicksAcknowledged) throw new Error('Nine-platform completion click acknowledgement failed in disabled lifecycle')
   if (!disabled.ownsWindow || disabled.initiallyVisible || !disabled.hidden || !disabled.shown || !disabled.operationUnlocked || !disabled.windowWithinWorkArea || !disabled.observesMotionChanges || !disabled.idlePrunesActiveHistory || !disabled.disabledPlatformsLabeled || !disabled.petID) {
     throw new Error(`invalid disabled lifecycle result: ${JSON.stringify(disabled)}`)
   }
@@ -54,6 +63,9 @@ try {
   emptyConfig.pet.enabled = true
   fs.writeFileSync(configPath, `${JSON.stringify(emptyConfig, null, 2)}\n`)
   const recovered = launch(recoveredOutput, { ALLPET_APPKIT_SMOKE_INSTALL_SOURCE: backup })
+  if (!recovered.bubblePlatformsPersisted) throw new Error('Nine-platform visibility persistence failed in recovered lifecycle')
+  if (!recovered.internalCodexHistoryPruned) throw new Error('Internal Codex history migration failed in recovered lifecycle')
+  if (!recovered.completedClicksAcknowledged) throw new Error('Nine-platform completion click acknowledgement failed in recovered lifecycle')
   if (recovered.ownsWindow || recovered.initiallyVisible || recovered.hidden || !recovered.shown || !recovered.operationUnlocked || !recovered.windowWithinWorkArea || !recovered.observesMotionChanges || !recovered.idlePrunesActiveHistory || !recovered.disabledPlatformsLabeled || !recovered.petID) {
     throw new Error(`invalid no-window recovery result: ${JSON.stringify(recovered)}`)
   }

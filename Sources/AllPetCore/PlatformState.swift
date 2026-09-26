@@ -20,6 +20,11 @@ public enum PlatformKind: String, Codable, CaseIterable, Sendable {
     case claude
     case dsh
     case grok
+    case cursor
+    case workbuddy
+    case qoder
+    case pi
+    case zcode
 
     public var label: String {
         switch self {
@@ -27,6 +32,11 @@ public enum PlatformKind: String, Codable, CaseIterable, Sendable {
         case .claude: "Claude Code"
         case .dsh: "DSH"
         case .grok: "Grok"
+        case .cursor: "Cursor"
+        case .workbuddy: "WorkBuddy"
+        case .qoder: "Qoder"
+        case .pi: "pi"
+        case .zcode: "Z Code"
         }
     }
 }

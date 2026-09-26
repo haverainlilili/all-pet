@@ -95,6 +95,30 @@ body {
   gap: 0;
 }
 
+.bc-platform-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  height: 32px;
+  color: var(--text);
+  font-size: 11px;
+}
+.bc-platform-pager button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px 10px;
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+}
+.bc-platform-pager button:disabled { opacity: 0.4; cursor: default; }
+.bc-platform-pager span {
+  background: var(--card);
+  border-radius: 8px;
+  padding: 3px 7px;
+}
+
 .stage-platforms .platform-group + .platform-group,
 .stage-tasks .task-card + .task-card {
   margin-top: 7px;

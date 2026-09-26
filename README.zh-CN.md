@@ -2,19 +2,21 @@
 
 # AllPet 🐾
 
-一只 AI 编码桌面宠物，同时查看 **Codex、Claude Code / Desktop、DeepSeek Harness（DSH）和 Grok** 的任务状态。原生宠物 GUI 仅 macOS；跨平台 Electron 壳（`desktop/`）可在 macOS / Linux / Windows 显示宠物并提供图形化宠物管理。核心监控与 `status`/`watch` 等 CLI 支持全平台。
+一只 AI 编码桌面宠物，同时查看 **Codex、Claude Code / Desktop、DeepSeek Harness（DSH）、Grok、Cursor、WorkBuddy、Qoder、pi 和 Z Code** 的任务状态。原生宠物 GUI 仅 macOS；跨平台 Electron 壳（`desktop/`）可在 macOS / Linux / Windows 显示宠物并提供图形化宠物管理。核心监控与 `status`/`watch` 等 CLI 支持全平台。
 
-宠物会根据运行、等待、完成和失败状态切换动画；点击任务气泡可以回到对应会话。
+宠物根据运行、等待、完成和失败状态切换动画；点击任务气泡尝试返回原会话或打开对应应用，具体定位能力因平台而异。
 
-## 为什么同时看这么多平台？
+[完整功能设计说明](./docs/功能设计说明.md)：记录当前实现、交互规则、平台差异与验收结果。
 
-你现在真正用到的能力不是「某个模型」，而是 **harness（执行外壳）× 模型** 的组合。harness 决定模型看到什么上下文、能用哪些工具、什么时候重试或收尾——同一个模型套上不同的 harness，结果可以差很远：
+## v1.4.0 更新
 
-- 同一个 **Claude Sonnet 4.6**：在 Claude Code 里 SWE-bench Verified 约 71%，换成 Continue 外壳只剩约 52%。([TensorFeed](https://tensorfeed.ai/harnesses))
-- 同一个 **Claude Opus 4.5**：统一 SEAL 脚手架下 45.9%，放回自家 Claude Code 是 55.4%。([arXiv 2605.23950](https://arxiv.org/html/2605.23950))
-- 同一个 **Grok 4**：通用 SWE-agent 下 58.6%，换成 xAI 自家脚手架 72–75%。([arXiv 2605.23950](https://arxiv.org/html/2605.23950))
+新增 Cursor、WorkBuddy、Qoder、pi coding agent、智谱 Z Code；菜单中可逐个平台显示或隐藏气泡。macOS 勾选平台后菜单保持展开，可连续调整。
 
-规律很一致：**各家模型在自己的 harness 里最强**（系统提示、工具定义、上下文管理都围绕自家模型调过），换到别家外壳就掉分。所以「Claude 用 Claude Code、GPT 用 Codex、Grok 用 Grok」才是日常用法——这也是 AllPet 同时盯着 Codex、Claude Code、DSH、Grok 的原因。
+九个平台的完成/失败气泡现在点击即确认并保存，定位失败也不会恢复。macOS Electron 补齐手动查看检测，但各平台能力不同，见下表。
+
+[版本记录](./CHANGELOG.md) · [平台接入说明](./docs/平台接入说明.md) · [平台行为与验收边界](./docs/平台行为验收.md)
+
+多个编码工具同时运行时，AllPet 将它们的进度和完成通知放在同一个桌面入口。
 
 ## 快速开始
 
@@ -26,18 +28,18 @@
 - **Windows** — `AllPet-Setup-<版本>.exe`
 - **Linux** — `AllPet-<版本>.AppImage` 或 `allpet-desktop_<版本>_amd64.deb`
 
-安装包内已包含 Swift 核心与 4 个内置宠物，无需安装 Node.js / Swift，也无需额外下载宠物。（macOS 版本暂未签名，首次打开需右键 →「打开」。）
+安装包包含 Swift 核心、运行时与 5 个内置宠物，无需安装 Node.js / Swift。v1.4.0 修复旧版 macOS ZIP 遗漏资源的问题。macOS 包使用 ad-hoc 签名，尚无 Developer ID 签名或 Apple 公证，首次启动可能被 Gatekeeper 阻止；请从可信的 Release 下载，并按系统“隐私与安全性”中的提示确认打开。
 
 ### 选择正确安装包（供用户与 AI 直接判断）
 
-**当前稳定版：v1.3.0。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
+**当前稳定版：v1.4.0。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
 
 | 设备 | 架构 / 适用型号 | 直接下载 | 适用场景 |
 | --- | --- | --- | --- |
-| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.3.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0-arm64-mac.zip) | Apple M 系列芯片的 Mac |
-| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.3.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-Setup-1.3.0.exe) | 常见 Intel / AMD Windows 电脑 |
-| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.3.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0.AppImage) | 大多数 x64 Linux，免安装便携使用 |
-| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.3.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/allpet-desktop_1.3.0_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
+| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.4.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0-arm64-mac.zip) | Apple M 系列芯片的 Mac |
+| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.4.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-Setup-1.4.0.exe) | 常见 Intel / AMD Windows 电脑 |
+| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.4.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0.AppImage) | 大多数 x64 Linux，免安装便携使用 |
+| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.4.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/allpet-desktop_1.4.0_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
 
 **当前未提供预编译包：** Intel Mac（`x86_64`）、Windows on ARM、Linux ARM（`aarch64`）。这些环境请从源码构建，或欢迎贡献对应打包支持。
 
@@ -51,7 +53,7 @@
 
 - **`main` 分支 = 最新开发源码。** 能自行构建的用户可在修复合入后立即执行 `git pull --ff-only`，重新构建/重启即可跟进，不必等待下一个安装包。
 - **`vX.Y.Z` 标签 / GitHub Release = 稳定预编译安装包。** 通过 DMG / EXE / AppImage / DEB 安装的用户，运行的是打包时包含的代码；后续提交不会自动进入已经安装的程序。
-- **代码修复要让安装包用户生效，就必须再构建一个新版本。** 普通修复可合并积累后发布补丁版（例如 `v1.3.1`）；严重兼容性或安全问题应尽快单独打包。仅 README/说明文档变化不需要重新打包。
+- **代码修复要让安装包用户生效，就必须再构建一个新版本。** 普通修复可合并积累后发布补丁版（例如 `v1.4.1`）；严重兼容性或安全问题应尽快单独打包。仅 README/说明文档变化不需要重新打包。
 - **目前尚未启用应用内自动更新。** 安装包用户需要关注 [GitHub Releases](https://github.com/haverainlilili/all-pet/releases)，有新版本时重新下载安装。
 
 需要直接跟进最新提交时，可[下载 `main` 源码 ZIP](https://github.com/haverainlilili/all-pet/archive/refs/heads/main.zip)，或在已有仓库中运行：
@@ -85,7 +87,7 @@ cd all-pet
 
 ## 更换宠物
 
-AllPet 内置 4 个开箱即用宠物（Boba、Tiko、团团和米粒、Hoops）；其余默认宠物首次点击时下载。
+AllPet 内置 5 个开箱即用宠物（Boba、Tiko、团团和米粒、Hoops、西瓜）；其余默认宠物首次点击时下载。
 
 ### 方法一：在菜单中选择（最简单）
 
@@ -148,7 +150,7 @@ npm ci
 npm start
 ```
 
-在系统托盘中打开 **宠物管理…**，即可图形化地切换 / 安装 / 导入 / 删除宠物（含缩略图与默认宠物一键下载）。
+在系统托盘中打开 **宠物管理…**，即可图形化地切换 / 安装 / 删除标准宠物包（本地多格式导入仅 macOS）（含缩略图与默认宠物一键下载）。
 
 ## 制作你自己的宠物（宠物生成标准包）
 
@@ -161,29 +163,34 @@ python3 make_demo.py        # 生成一只示例宠物并跑通整套脚本
 
 完整流程见 [`宠物生成标准包/README.md`](./宠物生成标准包/README.md)（依赖：Python 3.9+ 与 Pillow）。
 
-## 任务气泡
+## 任务气泡与点击表现
 
-气泡有三层：
+1. 收起态显示概况；点击后显示平台列表。
+2. 选择九个平台之一；有多个任务时进入会话列表，单任务时直接尝试唤起。
+3. 点击具体任务：完成/失败卡片立即移除并保存确认状态，然后尝试定位；正在运行、思考或等待的卡片继续保留。
 
-1. **收起**：显示平台概况；
-2. **平台**：选择 Codex、Claude、DSH 或 Grok；
-3. **会话**：选择具体会话并唤起原任务。
+标题显示稳定会话名，副标题显示当前动作与进度。点击 × 可关闭通知；未确认的终态最多保留 24 小时。新一轮真实活动会重新显示。仅凭短 ID 不判断是假任务；有明确来源证据的内部子代理会被过滤。
 
-标题只显示稳定的**会话名称**，当前动作和进度显示在副标题中。
+菜单 **气泡显示平台** 支持逐个平台、全部显示和全部隐藏；只改变气泡可见性，保留后台监控和历史。macOS 菜单在勾选后保持展开，Esc 或点击外部关闭。Windows/Linux 采用系统托盘菜单行为。
 
-- 点击窗口外部回到收起状态；
-- 每个任务气泡右上角可以关闭；
-- 完成或失败任务在成功唤起后自动消失；
-- 用户自己手动打开已完成任务时，对应气泡也会消失。
+| 手动进入原任务后的自动消泡 | macOS Electron 能力 |
+|---|---|
+| Codex | 同账号/本地主机的未读→已读回执，或前台唯一任务标题匹配；标题检测需要辅助功能权限 |
+| Claude | Desktop 前台精确会话地址/焦点时间；CLI 需原终端绑定 |
+| DSH | 前台浏览器当前标签页的精确 sessionId；需要浏览器自动化权限 |
+| Grok、pi | 前台 Terminal/iTerm 的有效原 TTY；pi 默认日志缺少 TTY 时无法自动确认 |
+| Cursor、WorkBuddy、Qoder、Z Code | 尚未实现可靠的手动查看识别；可点击气泡或 × 确认 |
 
-## 唤起与强唤起
+macOS 每 500 ms 独立调度各平台检测，权限、定位证据或前台身份不确定时保留通知。该间隔不是所有环境下“2 秒内消泡”的保证；Windows/Linux 尚无同等手动查看检测。详见 [验收记录](./docs/平台行为验收.md)。
 
-- **唤起**：程序仍在运行，只聚焦此前打开的原任务。
-- **强唤起**：程序已经关闭；经用户确认后重新打开程序，并定位到原任务。
+## 返回原任务
 
-Claude 强唤起会让用户选择 **Claude Desktop / Claude CLI / 取消**。Desktop 只打开已有 `/epitaxy/<local-id>` 原任务，不使用会创建副本的 `claude://resume`；打开失败后会回到选择界面。
+- Codex Desktop 尝试任务深链；系统接受深链不代表已验证页面显示。
+- Claude Desktop 激活已有应用，必要时由用户在侧栏选择；不会通过导入/恢复创建副本。
+- DSH 尝试定位原会话；终端任务在能力与绑定允许时复用原标签页。原生 macOS 的 CLI 强唤起需用户确认。
+- Cursor、WorkBuddy、Qoder、Z Code 目前主要打开应用，由用户选择会话；pi 不会自动启动重复任务。
 
-终端类任务优先复用原 Terminal / iTerm 标签页；没有用户确认时不会新建终端或执行 resume。
+气泡消失表示这条通知已确认，不表示任务定位一定成功。具体差异见 [平台接入说明](./docs/平台接入说明.md)。
 
 ## 状态从哪里来
 
@@ -194,9 +201,16 @@ AllPet 读取各平台已经保存在本机的会话日志，不需要账号密�
 | Codex | `~/.codex/sessions` |
 | Claude Code | `~/.claude/projects` |
 | DSH | `~/.dsh/sessions` |
-| Grok | `~/.grok/logs/unified.jsonl`、`active_sessions.json` |
+| Grok | `~/.grok/logs/unified.jsonl`、`~/.grok/active_sessions.json` |
+| Cursor | `~/.cursor/projects` |
+| WorkBuddy | `~/.workbuddy/projects` |
+| Qoder | `~/.qoder/projects` |
+| pi | `~/.pi/agent/sessions` |
+| Z Code | `~/.zcode/cli/db/db.sqlite` |
 
 日志中的任务事件优先决定状态；没有明确事件时，再根据最近写入时间判断运行、等待或空闲。扫描、缓存和 zstd 解压都在后台进行，不影响宠物动画。
+
+Cursor/Qoder 可通过菜单安装观察 hooks，以补充完整生命周期；安装时合并、备份原有配置，不保存提示词正文。接入命令见 [平台接入说明](./docs/平台接入说明.md)。
 
 ## 配置
 
@@ -209,7 +223,8 @@ AllPet 读取各平台已经保存在本机的会话日志，不需要账号密�
     "scale": 0.5833333333,
     "anchor": "bottom-right",
     "bundlePath": null
-  }
+  },
+  "hiddenBubblePlatforms": []
 }
 ```
 
@@ -217,28 +232,27 @@ AllPet 读取各平台已经保存在本机的会话日志，不需要账号密�
 - `anchor`：`bottom-right`、`bottom-left`、`top-right` 或 `top-left`；
 - `bundlePath`：当前宠物目录；通常不需要手动修改，菜单和 `pet set` 会自动保存。
 
+- `hiddenBubblePlatforms`：隐藏的气泡平台键，例如 `["grok", "pi"]`；位于配置顶层。
+
 ## 打包安装包
 
-打一个 `v*` tag 即会构建三平台安装包并发布到 GitHub Releases：
+版本号位于 `desktop/package.json` 与 `desktop/package-lock.json`。先更新版本、文档并通过 CI，再推送对应的 `vX.Y.Z` tag（本版为 `v1.4.0`）。
 
-```bash
-git tag -a v1.3.0 -m "AllPet v1.3.0"
-git push origin v1.3.0
-```
+Release 工作流验证版本号，构建 Swift 核心和资源，运行行为/接入测试，再生成 macOS arm64 DMG/ZIP、Windows x64 EXE、Linux x64 AppImage/DEB。tag 构建上传到 Release 草稿；确认三平台成功、校验安装包与 SHA256SUMS 后再公开。手动触发只生成 Actions 产物。
 
-`Release` 工作流会先构建 Swift 核心、作为 Electron sidecar 内嵌，再在 macOS / Windows / Linux 上运行 electron-builder。也可以在 Actions 页面手动触发（只出产物、不发布 Release）。本地打包见 [`desktop/README.md`](./desktop/README.md)。
+本地构建与签名命令见 [desktop/README.md](./desktop/README.md)。当前没有自动更新，升级需下载新安装包。
 
 ## 常见问题
 
-### 点击任务无法定位
+### 点击任务无法定位，或手动查看后通知仍在
 
-在“系统设置 → 隐私与安全性 → 辅助功能”中允许 AllPet / Terminal 控制窗口。浏览器还需要允许 Apple Events / JavaScript 自动化。
+先核对上方能力表。需要窗口识别时，在“系统设置 → 隐私与安全性 → 辅助功能”中添加并开启当前安装的 AllPet；浏览器可能还需要 Apple Events / JavaScript 自动化。权限无法由应用代替用户授予。
 
-### DSH 只显示时间，没有任务内容
+如果升级后开关开启但仍无效，确认列表中的 AllPet 是当前安装路径；必要时移除旧条目再添加新包。诊断文件 `~/.config/all-pet/manual-view-status.json` 的 `updatedAt` 必须是新回执，`hostAccessibilityTrusted` 与 `accessibilityTrusted` 才能反映本次授权。无完成候选时旧诊断不会持续刷新。
 
-```bash
-brew install zstd
-```
+### DSH 只显示时间，没有内容
+
+Electron 包含 zstd 解码器；独立 AppKit/CLI 在缺少系统解码器时可安装 `zstd`（macOS：`brew install zstd`）。
 
 ### 查看问题
 

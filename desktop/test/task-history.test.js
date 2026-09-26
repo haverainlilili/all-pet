@@ -158,11 +158,12 @@ test('history and dismiss collections enforce AppKit 12 and 100 limits', () => {
 })
 
 test('platform dismiss includes live tasks and uses terminal versus hidden semantics', () => {
-  const value = state({ dsh: [{ id: 'dsh|done', phase: 'done', title: 'done' }] })
+  const value = state({ dsh: [{ id: 'dsh|done', phase: 'done', title: 'done' }, { id: 'dsh|failed', phase: 'failed', title: 'failed' }] })
   const live = { platform: 'dsh', phase: 'running', tasks: [task('active', 'running', 'active title')] }
   dismissPlatformHistory(value, 'dsh', live)
   assert.deepEqual(value.platforms.dsh, [])
   assert.ok(value.dismissed.includes('dsh|done'))
+  assert.ok(value.dismissed.includes('dsh|failed'))
   assert.equal(value.hidden['dsh|active'], 'active title')
 })
 
@@ -186,7 +187,7 @@ test('tray menu text matches AppKit action, grapheme, scale, and pet rows', () =
   assert.equal(Array.from(graphemePrefix(action, 28)).length, 28)
   assert.equal(platformStatusTitle({ label: 'Codex', phaseLabel: '运行中', task: { action } }), `Codex：运行中 · ${'😀'.repeat(28)}`)
   assert.deepEqual(platformMenuTitles([{ platform: 'dsh', phaseLabel: '运行中', task: { action: '执行测试' } }], ['claude']), [
-    'Codex：加载中…', 'Claude Code：已禁用', 'DSH：运行中 · 执行测试', 'Grok：加载中…'
+    'Codex：加载中…', 'Claude Code：已禁用', 'DSH：运行中 · 执行测试', 'Grok：加载中…', 'Cursor：加载中…', 'WorkBuddy：加载中…', 'Qoder：加载中…', 'pi：加载中…', 'Z Code：加载中…'
   ])
   assert.equal(scalePercentText(112 / 192), '100%')
   assert.equal(scalePercentText((112 / 192) + 0.05), '109%')

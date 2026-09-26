@@ -80,6 +80,11 @@ struct TrayTaskItem: Codable, Equatable, Sendable {
         if platform == .dsh, UUID(uuidString: identity) != nil { identity = "session-\(identity)" }
         return "\(platform.rawValue)|\(identity.isEmpty ? "current" : identity)"
     }
+
+    /// 各平台完成通知由点击直接确认，不依赖应用是否能精确聚焦原会话。
+    var acknowledgesCompletionOnClick: Bool {
+        phase == .done || phase == .failed
+    }
 }
 
 /// Codex 浮动通知风格：阶段 1 收起、阶段 2 平台、阶段 3 单平台全部任务。
@@ -98,6 +103,7 @@ final class TaskTrayView: NSView {
         case dismissTask(String)
         case dismissPlatform(PlatformKind)
         case back
+        case platformPage(Int)
     }
 
     private struct PlatformBubble {
@@ -134,6 +140,9 @@ final class TaskTrayView: NSView {
     private var rotationTimer: Timer?
     private var spinnerAngle: CGFloat = 0
     private var rotationIndex = 0
+    private var platformPageIndex = 0
+    private var platformPageCount: Int { max(1, (stage2PlatformGroups.count + 3) / 4) }
+    private var pageGroups: [PlatformGroup] { Array(stage2PlatformGroups.dropFirst(platformPageIndex * 4).prefix(4)) }
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -152,10 +161,10 @@ final class TaskTrayView: NSView {
                 height: CGFloat(rows) * 58 + CGFloat(max(0, rows - 1)) * 7 + 8 + collapsedStackReveal
             )
         case .platforms:
-            let groups = Array(stage2PlatformGroups.prefix(4))
+            let groups = pageGroups
             let cardsHeight = groups.reduce(CGFloat.zero) { $0 + $1.height }
             let gaps = CGFloat(max(0, groups.count - 1)) * 7
-            return NSSize(width: 324, height: 34 + max(58, cardsHeight) + gaps + 8)
+            return NSSize(width: 324, height: 34 + max(58, cardsHeight) + gaps + 8 + (platformPageCount > 1 ? 32 : 0))
         case let .tasks(platform):
             let count = max(1, min(tasksByPlatform[platform]?.count ?? 0, 6))
             return NSSize(width: 334, height: 38 + CGFloat(count) * 58 + CGFloat(max(0, count - 1)) * 7 + 8)
@@ -182,6 +191,7 @@ final class TaskTrayView: NSView {
         let oldSize = preferredSize
         self.statuses = statuses.sorted { platformOrder($0.platform) < platformOrder($1.platform) }
         self.tasksByPlatform = tasksByPlatform
+        platformPageIndex = min(platformPageIndex, platformPageCount - 1)
         if case let .tasks(platform) = stage,
            !self.statuses.contains(where: { $0.platform == platform }) {
             stage = .platforms
@@ -275,6 +285,12 @@ final class TaskTrayView: NSView {
             setStage(.collapsed)
         case .back:
             setStage(.platforms)
+        case let .platformPage(delta):
+            let oldSize = preferredSize
+            platformPageIndex = max(0, min(platformPageCount - 1, platformPageIndex + delta))
+            hoveredTarget = nil
+            needsDisplay = true
+            notifySizeChange(from: oldSize)
         }
     }
 
@@ -363,7 +379,7 @@ final class TaskTrayView: NSView {
     private func drawStage2() {
         drawHeader(title: "平台任务", showsBack: false)
         var y: CGFloat = 34
-        for group in stage2PlatformGroups.prefix(4) {
+        for group in pageGroups {
             let rect = NSRect(x: 4, y: y, width: bounds.width - 8, height: group.height)
             drawPlatformGroup(group, in: rect)
             hitRegions.append((rect, .platform(group.status.platform)))
@@ -371,6 +387,17 @@ final class TaskTrayView: NSView {
                 drawDismissButton(in: rect, target: .dismissPlatform(group.status.platform))
             }
             y += group.height + 7
+        }
+        if platformPageCount > 1 {
+            palette.card.setFill()
+            NSBezierPath(roundedRect: NSRect(x: 60, y: y - 2, width: 206, height: 26), xRadius: 8, yRadius: 8).fill()
+            for (label, delta, x) in [("上一页", -1, CGFloat(66)), ("下一页", 1, CGFloat(206))] {
+                let rect = NSRect(x: x, y: y, width: 54, height: 26)
+                let enabled = (0..<platformPageCount).contains(platformPageIndex + delta)
+                drawText(label, in: rect, font: .systemFont(ofSize: 11), color: enabled ? palette.text : palette.tertiary, alignment: .center)
+                if enabled { hitRegions.append((rect, .platformPage(delta))) }
+            }
+            drawText("\(platformPageIndex + 1) / \(platformPageCount)", in: NSRect(x: 135, y: y, width: 54, height: 26), font: .systemFont(ofSize: 11), color: palette.secondary, alignment: .center)
         }
     }
 
@@ -729,6 +756,7 @@ final class TaskTrayView: NSView {
         guard next != stage else { return }
         let oldSize = preferredSize
         stage = next
+        if next == .collapsed { platformPageIndex = 0 }
         hoveredTarget = nil
         updateTimers()
         needsDisplay = true
@@ -792,6 +820,11 @@ final class TaskTrayView: NSView {
             return NSColor(calibratedRed: 0.80, green: 0.42, blue: 0.30, alpha: 1)
         case .dsh:
             return NSColor(calibratedRed: 0.30, green: 0.42, blue: 0.98, alpha: 1)
+        case .cursor: return .systemIndigo
+        case .workbuddy: return .systemTeal
+        case .qoder: return .systemPurple
+        case .pi: return .systemOrange
+        case .zcode: return .systemBlue
         case .grok:
             let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             return dark ? NSColor(white: 0.92, alpha: 1) : NSColor(white: 0.12, alpha: 1)

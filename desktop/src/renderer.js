@@ -112,13 +112,15 @@
 
   let bubbleStage = 'collapsed' // collapsed | platforms | tasks
   let selectedPlatform = null
+  let platformPageIndex = 0
   let rotationIndex = 0
   let rotationTimer = null
   let lastBubbleWidth = -1
   let lastBubbleHeight = -1
 
-  const PLATFORM_ORDER = ['codex', 'claude', 'dsh', 'grok']
+  const PLATFORM_ORDER = window.AllPetPlatforms.PLATFORMS.map(row => row.key)
   const PLATFORM_COLORS = {
+    ...Object.fromEntries(window.AllPetPlatforms.PLATFORMS.map(row => [row.key, row.color])),
     codex: '#0fa380',
     claude: '#cc6b4d',
     dsh: '#4d6bfa',
@@ -126,7 +128,7 @@
   }
 
   function labelOf(platform) {
-    return { codex: 'Codex', claude: 'Claude Code', dsh: 'DSH', grok: 'Grok' }[platform] || platform
+    return window.AllPetPlatforms.PLATFORMS.find(row => row.key === platform)?.label || platform
   }
 
   function phaseRank(phase) {
@@ -465,7 +467,27 @@
 
   function renderPlatforms(data) {
     bubble.appendChild(stageHeader(null))
-    for (const group of data.groups.slice(0, 4)) bubble.appendChild(platformGroup(group))
+    const page = window.AllPetPlatforms.platformPage(data.groups, platformPageIndex)
+    platformPageIndex = page.index
+    for (const group of page.groups) bubble.appendChild(platformGroup(group))
+    if (page.count > 1) {
+      const pager = document.createElement('div')
+      pager.className = 'bc-platform-pager'
+      for (const [label, delta] of [['上一页', -1], ['下一页', 1]]) {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.textContent = label
+        button.dataset.pageDelta = String(delta)
+        button.disabled = page.index + delta < 0 || page.index + delta >= page.count
+        pager.appendChild(button)
+        if (delta === -1) {
+          const count = document.createElement('span')
+          count.textContent = `${page.index + 1} / ${page.count}`
+          pager.appendChild(count)
+        }
+      }
+      bubble.appendChild(pager)
+    }
   }
 
   function renderTasks(data) {
@@ -573,6 +595,7 @@
   }
 
   function setStage(stage, platform) {
+    if (stage === 'collapsed') platformPageIndex = 0
     bubbleStage = stage
     selectedPlatform = stage === 'tasks' ? platform : null
     renderBubble()
@@ -587,7 +610,7 @@
     if (id && window.petAPI && window.petAPI.wakeTask) {
       try {
         const result = await window.petAPI.wakeTask(id)
-        if (result && result.succeeded) setStage('collapsed')
+        if (result && (result.succeeded || result.acknowledged)) setStage('collapsed')
       } catch (_) {}
       return
     }
@@ -610,6 +633,13 @@
   }
 
   bubble.addEventListener('click', (event) => {
+    const pager = event.target.closest('[data-page-delta]')
+    if (pager) {
+      event.stopPropagation()
+      platformPageIndex += Number(pager.dataset.pageDelta)
+      renderBubble()
+      return
+    }
     const dismiss = event.target.closest('[data-dismiss]')
     if (dismiss) {
       event.stopPropagation()

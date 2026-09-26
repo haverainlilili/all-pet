@@ -1,6 +1,6 @@
 // AllPet 跨平台桌宠（Electron 主进程）
 // 复用 Swift AllPetCore：以子进程跑 `allpet watch --json`，把 NDJSON 快照转发给渲染层。
-const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog, screen, protocol } = require('electron')
+const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain, dialog, screen, protocol, systemPreferences } = require('electron')
 protocol.registerSchemesAsPrivileged([{
   scheme: 'allpet-thumbnail',
   privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true }
@@ -12,8 +12,8 @@ const fs = require('fs')
 const os = require('os')
 const { pathToFileURL } = require('url')
 const {
-  failedExternalWakePlan, isTrustedMainFrame, pickLaunchCandidate, platformLabel,
-  platformLaunchSpec, rendererSnapshot, runCommandLauncher, wakePlanForTask
+  isTrustedMainFrame, pickLaunchCandidate, platformLabel,
+  performTaskWake, platformLaunchSpec, rendererSnapshot, runCommandLauncher
 } = require('./src/wake')
 const {
   attachRestartOnClose, catalogPetForBundle, chooseCurrentPet, createOperationGate, effectiveHome, expandHomePath, finishMutationRefresh, petCapabilities, petMutationTarget,
@@ -26,7 +26,10 @@ const { TRAY_PET_ICON_CACHE_VERSION, platformMenuTitles, scalePercentText, petTr
 const { createBoundedThumbnailDataURL } = require('./src/pet-thumbnail')
 const { reuseExistingDshTab } = require('./src/dsh-browser')
 const { menuBridgeState } = require('./src/menu-bridge')
+const { createManualViewMonitor, readCodexUnread } = require('./src/manual-view')
 const { cropTrayPetIcon } = require('./src/tray-icon')
+const { isExcludedCodexHistory } = require('./src/codex-session-metadata')
+const { PLATFORMS, bubblePlatformRows, hiddenBubblePlatforms, setBubblePlatformVisibility, filterBubbleSnapshot } = require('./src/platforms')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 const PET_MANAGER_URL = pathToFileURL(path.join(__dirname, 'src', 'pets.html')).href
@@ -62,6 +65,8 @@ let watchProc = null
 let watchRestartTimer = null
 let petRefreshRetryTimer = null
 let historyExpiryTimer = null
+let manualViewMonitor = null
+let manualViewStatus = {}
 let lifecycleCleaned = false
 let currentSnapshot = null
 let pet = null // { bundlePath, spritesheetPath, manifestId, displayName, atlas geometry }
@@ -217,28 +222,6 @@ function historyURL() {
   return path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'task-history.json')
 }
 
-function isDSHBackedCodexHistoryTask(task) {
-  if (!task || !task.sourcePath) return false
-  let handle
-  try {
-    if (!fs.statSync(task.sourcePath).isFile()) return false
-    handle = fs.openSync(task.sourcePath, 'r')
-    const buffer = Buffer.alloc(16_384)
-    const bytes = fs.readSync(handle, buffer, 0, buffer.length, 0)
-    const newline = buffer.subarray(0, bytes).indexOf(0x0A)
-    if (newline < 0) return false
-    const object = JSON.parse(buffer.subarray(0, newline).toString('utf8'))
-    const payload = object && object.payload && typeof object.payload === 'object' ? object.payload : {}
-    const originator = String(payload.originator || '').toLowerCase()
-    const threadSource = String(payload.thread_source || '').toLowerCase()
-    return originator.includes('dsh') || threadSource.includes('dsh')
-  } catch {
-    return false
-  } finally {
-    if (handle !== undefined) { try { fs.closeSync(handle) } catch {} }
-  }
-}
-
 function writeJSONAtomically(target, value) {
   const dir = path.dirname(target)
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -255,7 +238,7 @@ function writeJSONAtomically(target, value) {
 function loadHistory() {
   try {
     const data = JSON.parse(fs.readFileSync(historyURL(), 'utf8'))
-    const normalized = normalizeTaskHistory(data, Date.now(), { isDSHBackedCodex: isDSHBackedCodexHistoryTask })
+    const normalized = normalizeTaskHistory(data, Date.now(), { isExcludedCodexHistory })
     taskHistory = normalized.platforms
     dismissedTaskIDs = normalized.dismissed
     manuallyHiddenTaskTitles = normalized.hidden
@@ -302,6 +285,36 @@ function startHistoryExpiryTimer() {
     persistHistory()
     if (currentSnapshot) sendSnapshot(currentSnapshot)
   }, 60_000)
+}
+
+// Local health only: no task titles, transcript contents or account identifiers.
+function recordManualViewStatus(update) {
+  manualViewStatus = { ...manualViewStatus, ...update, hostAccessibilityTrusted: systemPreferences.isTrustedAccessibilityClient(false), updatedAt: new Date().toISOString() }
+  try { writeJSONAtomically(path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'manual-view-status.json'), manualViewStatus) } catch {}
+}
+
+function startManualViewMonitor() {
+  if (process.platform !== 'darwin') return
+  manualViewMonitor = createManualViewMonitor({
+    getState: mutableHistoryState,
+    hiddenPlatforms: () => [...hiddenBubblePlatforms(readBubbleConfig())],
+    readUnread: () => readCodexUnread(EFFECTIVE_HOME),
+    sendCheck: request => {
+      const child = nativeMenuBridgeProc
+      if (!child || child.stdin.destroyed || app.isQuitting) return false
+      try {
+        recordManualViewStatus({ requestID: request.requestID, requestedAt: Date.now(), candidateCount: request.tasks.length })
+        child.stdin.write(`${JSON.stringify(request)}\n`)
+        return true
+      } catch { return false }
+    },
+    onDismiss: state => {
+      adoptHistoryState(state)
+      persistHistory()
+      if (currentSnapshot) sendSnapshot(currentSnapshot)
+    }
+  })
+  manualViewMonitor.start()
 }
 
 function historyPayload() {
@@ -376,6 +389,12 @@ function sidecarEnvironment() {
       packaged: app.isPackaged, system: systemZstdAvailable(environment), executable: environment.ALLPET_ZSTD_EXECUTABLE || null,
       resourcesPath: process.resourcesPath
     }))
+  }
+  const sqliteReader = [path.join(process.resourcesPath, 'sqlite', 'sqlite-read.js'), path.join(__dirname, 'scripts', 'sqlite-read.js')]
+    .find(candidate => fs.existsSync(candidate))
+  if (sqliteReader) {
+    environment.ALLPET_SQLITE_EXECUTABLE = process.execPath
+    environment.ALLPET_SQLITE_SCRIPT = sqliteReader
   }
   return environment
 }
@@ -512,7 +531,7 @@ function createWindow(options = {}) {
 
   mainWindow.on('blur', () => {
     // 确定性截图必须保持指定阶段；正常运行时失焦收起到 Stage 1。
-    if (!process.env.ALLPET_SCREENSHOT_STAGE && mainWindow && !mainWindow.isDestroyed()) {
+    if (!process.env.ALLPET_SCREENSHOT_STAGE && !process.env.ALLPET_PLATFORM_UI_SMOKE && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('collapse-bubble')
     }
   })
@@ -566,7 +585,7 @@ function applyScale(delta) {
 
 function sendSnapshot(snap) {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('snapshot', { ...rendererSnapshot(snap), history: historyPayload() })
+    mainWindow.webContents.send('snapshot', filterBubbleSnapshot({ ...rendererSnapshot(snap), history: historyPayload() }, readBubbleConfig()))
   }
 }
 
@@ -710,58 +729,24 @@ async function presentWakeFallback(plan, task) {
 }
 
 async function wakeTask(taskID) {
-  const task = taskByID(taskID)
-  const plan = wakePlanForTask(task, process.platform)
-  if (plan.kind !== 'external' && plan.kind !== 'application') return presentWakeFallback(plan, task)
   if (wakeInFlight.has(taskID)) return wakeInFlight.get(taskID)
-
-  const request = (async () => {
-    try {
-      if (plan.kind === 'application') {
-        const opened = await runCommandLauncher(spawn, plan.command, plan.args)
-        return {
-          ...opened,
-          exact: false,
-          openedApp: opened.succeeded,
-          message: opened.succeeded ? plan.message : opened.message
-        }
-      }
-      let reused = false
-      if (task && task.platform === 'dsh' && process.platform === 'darwin') {
-        const result = await reuseExistingDshTab(spawn, plan.url, process.platform)
-        if (result.status === 'reused') reused = true
-        else if (result.status === 'blocked' || result.status === 'error') {
-          return presentWakeFallback({
-            kind: 'fallback', platform: 'dsh', canOpenPlatform: false,
-            message: `${result.message || '无法控制已有 DSH 标签页'}。为避免重复窗口，未打开新页面。`
-          }, task)
-        }
-      }
-      if (!reused) await shell.openExternal(plan.url)
-      if (task && (task.phase === 'done' || task.phase === 'failed')) {
-        const state = mutableHistoryState()
-        if (dismissTaskHistory(state, taskID)) {
-          adoptHistoryState(state)
-          persistHistory()
-          if (currentSnapshot) sendSnapshot(currentSnapshot)
-        }
-      }
-      return {
-        succeeded: true,
-        requested: true,
-        exact: reused,
-        openedApp: !reused,
-        message: reused ? '已复用现有 DSH 标签页并切换到原会话。' : '未发现已有 DSH 标签页，已打开原会话页面。'
-      }
-    } catch (err) {
-      return presentWakeFallback(
-        failedExternalWakePlan(task, String(err && err.message || err)),
-        task
-      )
-    } finally {
-      wakeInFlight.delete(taskID)
-    }
-  })()
+  const task = taskByID(taskID)
+  manualViewMonitor?.pause()
+  const request = performTaskWake(task, {
+    runtimePlatform: process.platform,
+    dismissTerminalTask: (clickedTask) => {
+      const state = mutableHistoryState()
+      if (!dismissTaskHistory(state, clickedTask.id)) return false
+      adoptHistoryState(state)
+      persistHistory()
+      if (currentSnapshot) sendSnapshot(currentSnapshot)
+      return true
+    },
+    launchApplication: (command, args) => runCommandLauncher(spawn, command, args),
+    openExternal: url => shell.openExternal(url),
+    reuseDSHTab: url => reuseExistingDshTab(spawn, url, process.platform),
+    presentFallback: presentWakeFallback
+  }).finally(() => wakeInFlight.delete(taskID))
   wakeInFlight.set(taskID, request)
   return request
 }
@@ -1200,6 +1185,7 @@ function nativeMenuState() {
     scalePercent: scalePercentText(readScale()),
     tooltip: petOperationState.busy ? `AllPet · 正在${petOperationState.label || '操作'}` : `AllPet · ${pet && pet.displayName || '无宠物'}`,
     statusIconPath: app.isPackaged ? path.join(process.resourcesPath, 'tray', 'icon.png') : path.join(__dirname, 'assets', 'icon.png'),
+    bubblePlatforms: bubblePlatformRows(readBubbleConfig()),
     platformTitles: platformMenuTitles(currentSnapshot && currentSnapshot.platforms, disabledPlatformKeys()),
     installedPets: petCatalog.map(item => ({
       label: String(item.displayName || item.id || '未命名宠物'),
@@ -1222,7 +1208,10 @@ function sendNativeMenuState() {
 async function handleNativeMenuAction(message) {
   const action = String(message && message.action || '')
   const value = message && message.value
-  if (action === 'toggle-visibility') togglePetVisibility()
+  if (action === 'bubble-platform-toggle') await changeBubbleVisibility(String(value))
+  else if (action === 'integration-install') await installPlatformIntegration(String(value))
+  else if (action === 'bubble-platform-all') await changeBubbleVisibility('all', value === 'show')
+  else if (action === 'toggle-visibility') togglePetVisibility()
   else if (action === 'scale-decrease') applyScale(-0.05)
   else if (action === 'scale-increase') applyScale(0.05)
   else if (action === 'pet-select' && value) await runTrayPetCommand('切换宠物', ['pet', 'set', String(value)])
@@ -1249,7 +1238,17 @@ function consumeNativeMenuBridgeOutput(chunk, onReady) {
     if (!line.trim()) continue
     try {
       const message = JSON.parse(line)
-      if (message.type === 'ready') onReady()
+      if (message.type === 'ready') {
+        recordManualViewStatus({ bridgeReady: true, accessibilityTrusted: message.manualViewAccessibility === true })
+        onReady()
+      } else if (message.type === 'view-result') {
+        recordManualViewStatus({ replyID: message.requestID, repliedAt: Date.now(),
+          replyLatencyMs: message.requestID === manualViewStatus.requestID ? Date.now() - manualViewStatus.requestedAt : null,
+          matchedCount: Array.isArray(message.viewedIDs) ? message.viewedIDs.length : 0,
+          ...(typeof message.accessibilityTrusted === 'boolean' ? { accessibilityTrusted: message.accessibilityTrusted } : {}),
+          nativeElapsedMs: message.elapsedMs ?? null })
+        manualViewMonitor?.receive(message)
+      } else if (message.type === 'error') recordManualViewStatus({ bridgeError: message.message })
       else if (message.type === 'action') handleNativeMenuAction(message).catch(err => console.error('[allpet] 原生菜单动作失败:', err && err.message || err))
     } catch {}
   }
@@ -1441,11 +1440,55 @@ function petTraySubmenu() {
   return submenu
 }
 
+async function installPlatformIntegration(key) {
+  if (!['cursor', 'qoder'].includes(key)) return
+  try {
+    const result = await runAllpet(['integrations', 'install', key])
+    if (result.code !== 0) throw new Error(result.err || result.out || '接入失败')
+    await dialog.showMessageBox({ type: 'info', title: '实时状态已接入', message: `${platformLabel(key)} 已接入`, detail: '已保留原有设置，并为原配置创建备份。接入仅记录本地任务状态，不更改权限审批。' + (key === 'qoder' ? '\n请重启 Qoder 后开始新一轮任务。' : '\n下一轮任务开始后生效；如未生效请重启 Cursor。'), buttons: ['知道了'] })
+  } catch (err) {
+    await dialog.showMessageBox({ type: 'error', title: '接入失败', message: `未能接入 ${platformLabel(key)}`, detail: String(err.message || err), buttons: ['知道了'] })
+  }
+}
+
+function readBubbleConfig() {
+  try { return JSON.parse(fs.readFileSync(configPath(), 'utf8')) } catch { return {} }
+}
+
+async function changeBubbleVisibility(key, visible) {
+  try {
+    // Read again at mutation time so scale/pet settings changed elsewhere are preserved.
+    const cfg = fs.existsSync(configPath()) ? JSON.parse(fs.readFileSync(configPath(), 'utf8')) : {}
+    const row = bubblePlatformRows(cfg).find(item => item.key === key)
+    const next = setBubblePlatformVisibility(cfg, key, visible === undefined ? !row?.visible : visible)
+    writeJSONAtomically(configPath(), next)
+    sendSnapshot(currentSnapshot || { platforms: [] })
+    updateTrayMenu()
+  } catch (err) {
+    await dialog.showMessageBox({ type: 'error', title: '保存失败', message: '未能保存气泡显示平台', detail: String(err.message || err), buttons: ['知道了'] })
+    updateTrayMenu()
+  }
+}
+
+function bubblePlatformSubmenu() {
+  return [
+    ...bubblePlatformRows(readBubbleConfig()).map(row => ({
+      label: row.label, type: 'checkbox', checked: row.visible,
+      click: () => changeBubbleVisibility(row.key)
+    })),
+    { type: 'separator' },
+    { label: '全部显示', click: () => changeBubbleVisibility('all', true) },
+    { label: '全部隐藏', click: () => changeBubbleVisibility('all', false) },
+    { type: 'separator' },
+    { label: '仅影响气泡显示，保留任务历史', enabled: false }
+  ]
+}
+
 function disabledPlatformKeys() {
   try {
     const cfg = JSON.parse(fs.readFileSync(configPath(), 'utf8'))
     const platforms = cfg && cfg.platforms && typeof cfg.platforms === 'object' ? cfg.platforms : {}
-    return ['codex', 'claude', 'dsh', 'grok'].filter(key => platforms[key] && platforms[key].enabled === false)
+    return PLATFORMS.map(row => row.key).filter(key => platforms[key] && platforms[key].enabled === false)
   } catch {
     return []
   }
@@ -1466,6 +1509,8 @@ function updateTrayMenu() {
     { label: '减小宠物 5%', enabled: Boolean(pet) && !busy, click: () => applyTrayScale(-0.05, 'scale-decrease') },
     { label: '增大宠物 5%', enabled: Boolean(pet) && !busy, click: () => applyTrayScale(0.05, 'scale-increase') },
     { label: '宠物', submenu: petTraySubmenu() },
+    { label: '气泡显示平台', submenu: bubblePlatformSubmenu() },
+    { label: '实时状态接入', submenu: ['cursor', 'qoder'].map(key => ({ label: `启用/修复 ${platformLabel(key)}`, click: () => installPlatformIntegration(key) })) },
     { type: 'separator' }
   ]
   for (const label of platformMenuTitles(snapshot && snapshot.platforms, disabledPlatformKeys())) {
@@ -1484,6 +1529,8 @@ function cleanupLifecycle() {
   if (lifecycleCleaned) return
   lifecycleCleaned = true
   app.isQuitting = true
+  manualViewMonitor?.stop()
+  manualViewMonitor = null
   if (watchRestartTimer) { clearTimeout(watchRestartTimer); watchRestartTimer = null }
   if (petRefreshRetryTimer) { clearTimeout(petRefreshRetryTimer); petRefreshRetryTimer = null }
   if (historyExpiryTimer) { clearInterval(historyExpiryTimer); historyExpiryTimer = null }
@@ -1590,9 +1637,10 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   petSurfaceAvailable = Boolean(pet)
   createWindow({ show: readPetEnabled() && petSurfaceAvailable })
   await createTray()
+  startManualViewMonitor()
   if (process.platform === 'darwin') refreshTrayPetIcons().catch(() => {})
   // 三阶段截图使用确定性 fixture，避免真实 watcher 快照覆盖测试数据。
-  if (!process.env.ALLPET_SCREENSHOT_STAGE) startWatch()
+  if (!process.env.ALLPET_SCREENSHOT_STAGE && !process.env.ALLPET_PLATFORM_UI_SMOKE) startWatch()
 
   if (process.platform === 'darwin' && process.env.ALLPET_TRAY_NATIVE_PREVIEW) {
     setTimeout(() => {
@@ -1762,6 +1810,57 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
         quit()
       }
     }, 5000)
+  }
+
+  // Isolated integration probe: real menu callbacks, persistence and renderer pagination.
+  if (process.env.ALLPET_PLATFORM_UI_SMOKE) {
+    setTimeout(async () => {
+      const target = process.env.ALLPET_PLATFORM_UI_SMOKE
+      const wait = () => new Promise(resolve => setTimeout(resolve, 120))
+      try {
+        const fixture = debugBubbleSnapshot()
+        for (const platform of PLATFORMS.slice(4)) {
+          const task = { id: `${platform.key}|ui-smoke`, platform: platform.key, sessionID: 'ui-smoke', sessionName: `${platform.label} 测试任务`, title: 'UI smoke', action: '正在处理任务', phase: 'running', updatedAt: Date.now() / 1000 - APPLE_REF_MS / 1000 }
+          fixture.platforms.push({ platform: platform.key, label: platform.label, phase: 'running', task, tasks: [task], activeSessions: 1 })
+          fixture.history.platforms[platform.key] = [task]
+        }
+        currentSnapshot = fixture
+        taskHistory = fixture.history.platforms
+        persistHistory()
+        const originalCount = Object.values(taskHistory).flat().length
+        mainWindow.webContents.send('debug-bubble', { snapshot: fixture, stage: 'platforms' })
+        await wait()
+        const pages = []
+        for (let page = 0; page < 3; page++) {
+          pages.push(await mainWindow.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.platform-group')).map(node => node.dataset.platform)`))
+          const fits = await mainWindow.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.platform-group, .bc-platform-pager')).every(node => { const r = node.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.right <= innerWidth })`)
+          if (!fits) throw new Error('Platform page escaped the viewport')
+          if (page === 1) fs.writeFileSync(target + '.png', (await mainWindow.webContents.capturePage()).toPNG())
+          if (page < 2) {
+            await mainWindow.webContents.executeJavaScript(`document.querySelector('[data-page-delta="1"]').click()`)
+            await wait()
+          }
+        }
+        if (JSON.stringify(pages.flat()) !== JSON.stringify(PLATFORMS.map(row => row.key))) throw new Error('Some platforms are unreachable')
+        await handleNativeMenuAction({ action: 'bubble-platform-all', value: 'hide' })
+        await wait()
+        const hidden = await mainWindow.webContents.executeJavaScript(`document.getElementById('bubble').classList.contains('hidden')`)
+        if (!hidden || readBubbleConfig().hiddenBubblePlatforms.length !== 9 || Object.values(taskHistory).flat().length !== originalCount) throw new Error('Hide-all discarded history or failed to hide')
+        await handleNativeMenuAction({ action: 'bubble-platform-toggle', value: 'pi' })
+        await wait()
+        const rows = nativeMenuState().bubblePlatforms
+        if (rows.filter(row => row.visible).map(row => row.key).join(',') !== 'pi') throw new Error('Native checkbox persistence differs')
+        await handleNativeMenuAction({ action: 'bubble-platform-all', value: 'show' })
+        await wait()
+        if (readBubbleConfig().hiddenBubblePlatforms.length || Object.values(taskHistory).flat().length !== originalCount) throw new Error('Show-all failed to restore')
+        fs.writeFileSync(target, JSON.stringify({ pages, allHidden: hidden, historyPreserved: true, checkboxPersistence: true, restored: true }, null, 2))
+        console.log('[allpet] Nine-platform UI verified:', JSON.stringify(pages))
+        quit()
+      } catch (error) {
+        console.error('[allpet] Nine-platform UI failed:', error)
+        cleanupLifecycle(); app.exit(1)
+      }
+    }, 1200)
   }
 
   // CI：验证托盘 show/hide 与缩放后拖动位置保持，不依赖人工点击。

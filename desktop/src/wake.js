@@ -2,12 +2,8 @@
 
 const { dshSessionURL } = require('./dsh-wake')
 
-const PLATFORM_LABELS = {
-  codex: 'Codex',
-  claude: 'Claude Code',
-  dsh: 'DSH',
-  grok: 'Grok'
-}
+const { PLATFORMS, PLATFORM_KEYS } = require('./platforms')
+const PLATFORM_LABELS = Object.fromEntries(PLATFORMS.map(row => [row.key, row.label]))
 
 function platformLabel(platform) {
   return PLATFORM_LABELS[platform] || platform || '平台'
@@ -22,8 +18,8 @@ function isCodexCLI(task) {
 }
 
 /**
- * 生成一次“安全唤醒”计划。只有来源明确的 Codex Desktop 才返回深链交接计划；
- * OS 接收深链不代表目标已显示，主进程仍须保留卡片。其余来源默认 fail-closed。
+ * 根据可验证的来源生成唤起计划；请求接受不等于原会话已显示。
+ * 终态通知的点击确认独立于定位结果。
  */
 function failedExternalWakePlan(task, errorMessage) {
   return {
@@ -76,8 +72,16 @@ function wakePlanForTask(task, runtimePlatform = process.platform) {
       command: '/usr/bin/open',
       args: ['-b', 'com.anthropic.claudefordesktop'],
       exact: false,
-      message: '已安全唤起 Claude Desktop；该应用没有公开的原会话深链，请在侧栏选择对应会话。任务卡片会继续保留。'
+      message: '已向 Claude Desktop 发送激活请求；该应用没有公开的原会话深链，请在侧栏选择对应会话。任务卡片会继续保留。'
     }
+  }
+
+  if (['cursor', 'workbuddy', 'qoder', 'zcode'].includes(platform)) {
+    const names = { cursor: 'Cursor', workbuddy: 'WorkBuddy', qoder: 'Qoder', zcode: 'ZCode' }
+    const message = `已请求打开 ${label}，请在会话列表选择对应会话；未验证原会话已显示。`
+    if (runtimePlatform === 'darwin') return { kind: 'application', platform, command: '/usr/bin/open', args: ['-a', names[platform]], exact: false, message }
+    return { kind: 'fallback', platform, canOpenPlatform: true,
+      message: `${label} 没有经过验证的原会话跳转接口，可选择打开平台后从会话列表查看。` }
   }
 
   const messages = {
@@ -86,6 +90,7 @@ function wakePlanForTask(task, runtimePlatform = process.platform) {
       : '缺少可验证的 Codex Desktop 来源或会话标识，未发送深链、未打开应用首页。',
     claude: 'Claude Desktop 没有公开的“聚焦现有会话”深链，Claude CLI 也无法跨平台安全聚焦此前终端。为避免创建会话副本，不会启动新的 Claude 进程，任务卡片会继续保留。',
     dsh: '缺少可定位的 DSH 会话标识，未打开可能显示其它会话的首页。',
+    pi: '未能定位原 pi 终端标签页，请在现有终端中查看该会话；不会自动重跑任务。',
     grok: 'Electron 无法跨平台安全聚焦此前的 Grok 终端标签页。为避免创建重复任务，不会启动新的 Grok 进程，任务卡片会继续保留。'
   }
 
@@ -94,6 +99,81 @@ function wakePlanForTask(task, runtimePlatform = process.platform) {
     platform,
     canOpenPlatform: false,
     message: messages[platform] || `无法安全定位到原 ${label} 任务，任务卡片会继续保留。`
+  }
+}
+
+function withTaskAcknowledgement(result, acknowledged) {
+  if (!acknowledged) return result
+  const acknowledgement = '已确认该任务通知，气泡已移除。'
+  const message = String(result.message || '')
+    .replace(/，?任务卡片(?:会继续保留|已保留)。/g, value => value.startsWith('，') ? '。' : '')
+  return {
+    ...result,
+    acknowledged: true,
+    message: message.includes(acknowledgement) ? message : `${message}${acknowledgement}`
+  }
+}
+
+/**
+ * 点击任一平台终态通知即确认已读，确认与能否聚焦原会话相互独立。
+ * 必须在第一个异步操作之前确认，避免唤起结束后误删同一会话的新一轮任务。
+ * 唤起结果不会重复确认，避免误清除同会话的新一轮任务。
+ */
+async function performTaskWake(task, {
+  runtimePlatform = process.platform,
+  dismissTerminalTask,
+  launchApplication,
+  openExternal,
+  reuseDSHTab,
+  presentFallback
+}) {
+  const terminal = task && (task.phase === 'done' || task.phase === 'failed')
+  const acknowledged = Boolean(task && PLATFORM_KEYS.has(task.platform) && terminal && dismissTerminalTask(task))
+  const fallback = async plan => withTaskAcknowledgement(
+    await presentFallback(withTaskAcknowledgement(plan, acknowledged), task), acknowledged
+  )
+  const plan = wakePlanForTask(task, runtimePlatform)
+  if (plan.kind !== 'external' && plan.kind !== 'application') return fallback(plan)
+
+  try {
+    if (plan.kind === 'application') {
+      const opened = await launchApplication(plan.command, plan.args)
+      if (!opened.succeeded) {
+        return fallback({
+          kind: 'fallback', platform: task.platform, canOpenPlatform: false,
+          message: `无法唤起 ${platformLabel(task.platform)}：${opened.message || '启动请求失败'}。任务卡片已保留。`
+        })
+      }
+      return withTaskAcknowledgement({
+        ...opened,
+        exact: false,
+        openedApp: opened.succeeded,
+        message: plan.message
+      }, acknowledged)
+    }
+
+    let reused = false
+    if (task.platform === 'dsh' && runtimePlatform === 'darwin') {
+      const result = await reuseDSHTab(plan.url)
+      if (result.status === 'reused') reused = true
+      else if (result.status === 'blocked' || result.status === 'error') {
+        return fallback({
+          kind: 'fallback', platform: 'dsh', canOpenPlatform: false,
+          message: `${result.message || '无法控制已有 DSH 标签页'}。为避免重复窗口，未打开新页面。`
+        })
+      }
+    }
+    if (!reused) await openExternal(plan.url)
+    if (terminal && !acknowledged) dismissTerminalTask(task)
+    return withTaskAcknowledgement({
+      succeeded: true,
+      requested: true,
+      exact: reused,
+      openedApp: !reused,
+      message: reused ? '已复用现有 DSH 标签页并切换到原会话。' : '已发送原会话跳转请求。'
+    }, acknowledged)
+  } catch (err) {
+    return fallback(failedExternalWakePlan(task, String(err && err.message || err)))
   }
 }
 
@@ -217,6 +297,17 @@ function platformLaunchSpec(platform, runtimePlatform) {
     }
   }
 
+  const desktopNames = { cursor: 'Cursor', workbuddy: 'WorkBuddy', qoder: 'Qoder', zcode: 'ZCode' }
+  if (desktopNames[platform]) {
+    if (runtimePlatform === 'darwin') return { kind: 'command', command: '/usr/bin/open', args: ['-a', desktopNames[platform]] }
+    if (runtimePlatform === 'win32') return { kind: 'command', command: 'cmd.exe', args: ['/d', '/s', '/c', `start "" ${desktopNames[platform]}`] }
+    return { kind: 'command', command: platform, args: [] }
+  }
+  if (platform === 'pi') {
+    if (runtimePlatform === 'linux') return { kind: 'commandCandidates', candidates: linuxTerminalCandidates('pi') }
+    if (runtimePlatform === 'win32') return { kind: 'command', command: 'cmd.exe', args: ['/d', '/s', '/c', 'start "" pi'] }
+    return null
+  }
   const platformCommands = commands[platform]
   if (!platformCommands) return null
   const key = runtimePlatform === 'darwin' ? 'darwin' : runtimePlatform === 'win32' ? 'win32' : 'linux'
@@ -234,6 +325,7 @@ module.exports = {
   platformLabel,
   rendererSnapshot,
   platformLaunchSpec,
+  performTaskWake,
   runCommandLauncher,
   wakePlanForTask
 }

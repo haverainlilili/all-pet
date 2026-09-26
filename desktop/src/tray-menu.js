@@ -20,12 +20,8 @@ function platformStatusTitle(status) {
   return title
 }
 
-const PLATFORM_ROWS = [
-  { platform: 'codex', label: 'Codex' },
-  { platform: 'claude', label: 'Claude Code' },
-  { platform: 'dsh', label: 'DSH' },
-  { platform: 'grok', label: 'Grok' }
-]
+const { PLATFORMS } = require('./platforms')
+const PLATFORM_ROWS = PLATFORMS.map(row => ({ platform: row.key, label: row.label }))
 
 function platformMenuTitles(statuses, disabledPlatforms = []) {
   const list = Array.isArray(statuses) ? statuses : []

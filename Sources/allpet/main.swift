@@ -42,7 +42,7 @@ func printHelp() {
       ./allpet restart         重新构建并重启桌面宠物（仅 macOS）
       ./allpet logs            持续查看 GUI 日志（仅 macOS）
       ./allpet init            生成默认配置 (~/.config/all-pet/config.json)
-      ./allpet status          打印四个平台(Codex/Claude Code/DSH/Grok)的一次快照
+      ./allpet status          打印九个平台的一次状态快照
       ./allpet watch           持续监控，任务/工具/状态变化时打印
       ./allpet pet list             列出已安装宠物、默认宠物、远程源与 GitHub 预设
       ./allpet pet install 名称     从默认宠物/预设/远程源一键安装为默认宠物（默认宠物如 hoops、奶龙、deepseek酱；预设 cc-haha / clawd-on-desk / lingchat；远程源 petdex / awesome-codex-pet）
@@ -50,7 +50,9 @@ func printHelp() {
       ./allpet pet set 名称          在已安装宠物间切换（按显示名/ID）
       ./allpet pet delete 名称      删除已安装宠物（删除当前宠物时回退到第一个）
       ./allpet pet import PATH      导入 cc-haha / clawd-on-desk / LingChat 本地宠物
-      ./allpet self-test            检查四平台任务解析器与气泡模型
+      ./allpet integrations install cursor|qoder
+                              安装本地只读状态观察 hooks，保留并备份现有配置
+      ./allpet self-test            检查九平台任务解析器与气泡模型
       ./allpet help                 显示本帮助
     """)
 }
@@ -98,7 +100,7 @@ func cmdInit() {
 }
 
 func cmdStatus() {
-    let monitor = AllPetMonitor(configuration: loadConfig())
+    let monitor = AllPetMonitor(configuration: loadConfig(), home: home())
     printSnapshot(monitor.snapshot())
 }
 
@@ -133,7 +135,7 @@ func snapshotKey(_ s: PetSnapshot) -> String {
 
 func cmdWatch() {
     let config = loadConfig()
-    let monitor = AllPetMonitor(configuration: config)
+    let monitor = AllPetMonitor(configuration: config, home: home())
     let intervalMs = max(200, config.watch.pollIntervalMilliseconds)
     var lastKey: String? = nil
     print("AllPet watch 启动（\(intervalMs)ms 轮询，Ctrl-C 退出）")
@@ -246,13 +248,13 @@ private func emitJSON(_ s: PetSnapshot) {
 }
 
 func cmdStatusJSON() {
-    let monitor = AllPetMonitor(configuration: loadConfig())
+    let monitor = AllPetMonitor(configuration: loadConfig(), home: home())
     emitJSON(monitor.snapshot())
 }
 
 func cmdWatchJSON() {
     let config = loadConfig()
-    let monitor = AllPetMonitor(configuration: config)
+    let monitor = AllPetMonitor(configuration: config, home: home())
     let intervalMs = max(200, config.watch.pollIntervalMilliseconds)
     var lastKey: String? = nil
     while true {
@@ -454,6 +456,7 @@ func cmdPetDelete(_ target: String) {
     }
 }
 
+
 private struct PetListJSON: Encodable {
     struct Pet: Encodable {
         let id: String
@@ -605,6 +608,28 @@ case "status":
     if jsonRequested { cmdStatusJSON() } else { cmdStatus() }
 case "watch":
     if jsonRequested { cmdWatchJSON() } else { cmdWatch() }
+case "hook":
+    // Observer hooks must never interfere with the coding agent's permission flow.
+    do {
+        if args.count > 1, let platform = PlatformKind(rawValue: args[1]) {
+            var input = Data()
+            while input.count <= 1_048_576 {
+                guard let chunk = try FileHandle.standardInput.read(upToCount: min(65_536, 1_048_577 - input.count)), !chunk.isEmpty else { break }
+                input.append(chunk)
+            }
+            try AgentHookEvent.record(platform: platform, input: input, home: home())
+        }
+    } catch { fputs("AllPet hook: \(error.localizedDescription)\n", stderr) }
+    print("{}")
+case "integrations":
+    do {
+        guard args.count > 2, args[1] == "install", let platform = PlatformKind(rawValue: args[2]) else {
+            throw NSError(domain: "AllPet", code: 1, userInfo: [NSLocalizedDescriptionKey: "用法: allpet integrations install cursor|qoder"])
+        }
+        let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path
+        let target = try AgentHookEvent.install(platform: platform, executable: executable, home: home())
+        print("已接入实时状态：\(target.path)；Qoder 需要重启后生效。")
+    } catch { fputs("\(error.localizedDescription)\n", stderr); exit(EXIT_FAILURE) }
 case "self-test": cmdSelfTest()
 case "selection-self-test": cmdSelectionSelfTest()
 case "menu-bridge":

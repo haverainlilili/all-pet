@@ -6,7 +6,7 @@ import Darwin
 import Foundation
 import AllPetCore
 
-/// “唤起状态”：只回到任务本身的浏览器、终端或会话深链；绝不退回应用首页。
+/// 优先定位原任务；平台没有可验证的定位接口时，只打开应用并明确说明边界。
 final class TaskLauncher: @unchecked Sendable {
     struct Result {
         var succeeded: Bool
@@ -64,6 +64,7 @@ final class TaskLauncher: @unchecked Sendable {
         case .claude: result = openClaude(task)
         case .dsh: result = openDSH(task)
         case .grok: result = openGrok(task)
+        case .cursor, .workbuddy, .qoder, .pi, .zcode: result = openAdditionalPlatformTask(task)
         }
         if !result.succeeded { recentWakeAt.removeValue(forKey: task.canonicalID) }
         return result
@@ -93,6 +94,7 @@ final class TaskLauncher: @unchecked Sendable {
             return strongWakeDSH(task)
         case .grok:
             return strongWakeGrok(task)
+        case .cursor, .workbuddy, .qoder, .pi, .zcode: return openAdditionalPlatformTask(task)
         }
     }
 
@@ -107,6 +109,9 @@ final class TaskLauncher: @unchecked Sendable {
             return dshPageIsOpen()
         case .grok:
             return terminalProcessRunning(processNames: ["grok"])
+        case .pi: return terminalProcessRunning(processNames: ["pi"])
+        case .cursor, .workbuddy, .qoder, .zcode:
+            return NSWorkspace.shared.runningApplications.contains { $0.localizedName?.lowercased() == additionalAppName(platform).lowercased() }
         }
     }
 
@@ -127,6 +132,8 @@ final class TaskLauncher: @unchecked Sendable {
             return focusExistingBrowserPage(containing: ["http://127.0.0.1:3080/", "http://localhost:3080/"])
         case .grok:
             return focusAnyTerminal(processNames: ["grok"])
+        case .pi: return focusAnyTerminal(processNames: ["pi"])
+        case .cursor, .workbuddy, .qoder, .zcode: return openAdditionalApp(platform)
         }
     }
 
@@ -144,6 +151,8 @@ final class TaskLauncher: @unchecked Sendable {
             return NSWorkspace.shared.open(url)
         case .grok:
             return launchTerminalExecutable([grokExecutable], identifier: "grok-open")
+        case .pi: return launchTerminalExecutable(["/opt/homebrew/bin/pi", "/usr/local/bin/pi", home.appendingPathComponent(".local/bin/pi").path], identifier: "pi-open")
+        case .cursor, .workbuddy, .qoder, .zcode: return openAdditionalApp(platform)
         }
     }
 
@@ -156,9 +165,42 @@ final class TaskLauncher: @unchecked Sendable {
             return isClaudeDesktopTask(task) ? isClaudeDesktopFocusedSinceBaseline(task) : isTerminalTabSelected(task)
         case .dsh:
             return isDSHSessionCurrent(task)
-        case .grok:
+        case .grok, .pi:
             return isTerminalTabSelected(task)
+        case .cursor, .workbuddy, .qoder, .zcode: return false
         }
+    }
+
+    private func additionalAppName(_ platform: PlatformKind) -> String {
+        switch platform {
+        case .cursor: return "Cursor"
+        case .workbuddy: return "WorkBuddy"
+        case .qoder: return "Qoder"
+        case .zcode: return "ZCode"
+        default: return platform.label
+        }
+    }
+
+    private func openAdditionalApp(_ platform: PlatformKind) -> Bool {
+        let name = additionalAppName(platform)
+        if let app = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName?.lowercased() == name.lowercased() }) {
+            return app.activate()
+        }
+        let candidates = [URL(fileURLWithPath: "/Applications"), home.appendingPathComponent("Applications")]
+        guard let url = candidates.map({ $0.appendingPathComponent("\(name).app") }).first(where: { FileManager.default.fileExists(atPath: $0.path) }) else { return false }
+        return NSWorkspace.shared.open(url)
+    }
+
+    private func openAdditionalPlatformTask(_ task: TrayTaskItem) -> Result {
+        if task.platform == .pi {
+            let target = focusExistingTerminal(for: task, processNames: ["pi"])
+            if let binding = target.binding { return Result(succeeded: true, message: nil, terminalTTY: binding.tty, terminalBinding: binding) }
+            return Result(succeeded: false, message: "未能定位原 pi 终端标签页。请在现有终端中查看该会话；不会自动重跑任务。")
+        }
+        let opened = openAdditionalApp(task.platform)
+        return Result(succeeded: false,
+            message: opened ? "已打开 \(task.platform.label)，请在会话列表选择「\(task.sessionDisplayName)」。该平台未提供经过验证的原会话跳转接口。" : "未找到 \(task.platform.label) 应用，请先安装或打开该平台。",
+            openedApp: opened)
     }
 
     private func openCodex(_ task: TrayTaskItem) -> Result {
@@ -191,7 +233,7 @@ final class TaskLauncher: @unchecked Sendable {
             if let url = components.url, NSWorkspace.shared.open(url) {
                 return Result(succeeded: true, message: nil)
             }
-            return Result(succeeded: false, message: "无法向 Codex 发送原会话深链；任务气泡已保留")
+            return Result(succeeded: false, message: "无法向 Codex 发送原会话深链")
         }
         return Result(succeeded: false, message: "缺少可定位的 Codex 会话，未打开应用首页")
     }
@@ -333,7 +375,7 @@ final class TaskLauncher: @unchecked Sendable {
         components.path = "/\(sessionID)"
         guard let url = components.url, NSWorkspace.shared.open(url),
               waitForApplicationRunning(bundleID: "com.openai.codex", timeout: 12) else {
-            return Result(succeeded: false, message: "Codex 未能通过原会话深链启动；任务气泡已保留")
+            return Result(succeeded: false, message: "Codex 未能通过原会话深链启动")
         }
         return Result(succeeded: true, message: nil)
     }
@@ -353,7 +395,7 @@ final class TaskLauncher: @unchecked Sendable {
             }
             NSWorkspace.shared.open(app)
             guard waitForApplicationRunning(bundleID: "com.anthropic.claudefordesktop", timeout: 12) else {
-                return Result(succeeded: false, message: "Claude Desktop 未能启动；任务气泡已保留")
+                return Result(succeeded: false, message: "Claude Desktop 未能启动")
             }
         }
         // Claude Desktop 没有「聚焦现有会话」的对外深链（epitaxy 是 silent no-op，resume 会 fork 副本），
@@ -471,11 +513,10 @@ final class TaskLauncher: @unchecked Sendable {
 
     private func isClaudeDesktopFocusedSinceBaseline(_ task: TrayTaskItem) -> Bool {
         guard let record = claudeDesktopRecord(for: task) else { return false }
+        if isClaudeDesktopSessionVisible(record.sessionID) { return true }
         let key = task.canonicalID
-        // 只把「当前焦点会话」视为已查看：应用启动时自动回落到上一个会话，
-        // 会短暂顶高那个会话的 lastFocusedAt，但那并非用户主动查看，不能误判。
-        guard let mostRecent = ClaudeDesktopSessionLookup.mostRecentlyFocusedSession(roots: claudeDesktopSessionRoots),
-              mostRecent.sessionID == record.sessionID else { return false }
+        // Capture every completed task before it is selected. Capturing only the
+        // most recent session loses the first navigation into a different task.
         claudeBaselineLock.lock()
         defer { claudeBaselineLock.unlock() }
         // 刚点过该气泡唤起：会话本来就是当前会话时，Claude Desktop 不会再刷新
@@ -484,17 +525,48 @@ final class TaskLauncher: @unchecked Sendable {
         if let wakeAt = claudeDesktopWakeAt[key] {
             if Date().timeIntervalSince(wakeAt) > claudeDesktopWakeViewWindow {
                 claudeDesktopWakeAt.removeValue(forKey: key)
-            } else if isApplicationActive(bundleID: "com.anthropic.claudefordesktop") {
+            } else if isApplicationActive(bundleID: "com.anthropic.claudefordesktop"),
+                      ClaudeDesktopSessionLookup.mostRecentlyFocusedSession(roots: claudeDesktopSessionRoots)?.sessionID == record.sessionID {
                 claudeDesktopWakeAt.removeValue(forKey: key)
                 claudeDesktopFocusBaseline.removeValue(forKey: key)
                 return true
             }
         }
         let current = record.lastFocusedAt
-        if let baseline = claudeDesktopFocusBaseline[key] {
-            return current > baseline + 1
+        let baseline = claudeDesktopFocusBaseline[key]
+        if baseline == nil { claudeDesktopFocusBaseline[key] = current }
+        guard isApplicationActive(bundleID: "com.anthropic.claudefordesktop"),
+              let mostRecent = ClaudeDesktopSessionLookup.mostRecentlyFocusedSession(roots: claudeDesktopSessionRoots),
+              mostRecent.sessionID == record.sessionID else { return false }
+        return baseline.map { current > $0 + 1 } ?? false
+    }
+
+    private func isClaudeDesktopSessionVisible(_ sessionID: String) -> Bool {
+        guard AXIsProcessTrusted(),
+              let app = activeApplication(bundleID: "com.anthropic.claudefordesktop") else { return false }
+        let root = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(root, 0.25)
+        AXUIElementSetAttributeValue(root, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        guard let windows = axValue(root, attribute: kAXWindowsAttribute) as? [AXUIElement] else { return false }
+        func containsSession(_ element: AXUIElement, depth: Int, visited: inout Int) -> Bool {
+            guard depth < 14, visited < 160 else { return false }
+            visited += 1
+            if (axValue(element, attribute: kAXRoleAttribute) as? String) == "AXWebArea" {
+                let value = axValue(element, attribute: kAXURLAttribute)
+                let url = (value as? URL) ?? (value as? String).flatMap(URL.init(string:))
+                if let url, url.scheme == "app", url.host == "localhost",
+                   url.pathComponents == ["/", "epitaxy", sessionID] { return true }
+            }
+            guard let children = axValue(element, attribute: kAXChildrenAttribute) as? [AXUIElement] else { return false }
+            for child in children where containsSession(child, depth: depth + 1, visited: &visited) { return true }
+            return false
         }
-        claudeDesktopFocusBaseline[key] = current
+        for window in windows {
+            guard (axValue(window, attribute: kAXMainAttribute) as? NSNumber)?.boolValue == true ||
+                  (axValue(window, attribute: kAXFocusedAttribute) as? NSNumber)?.boolValue == true else { continue }
+            var visited = 0
+            if containsSession(window, depth: 0, visited: &visited) { return true }
+        }
         return false
     }
 
@@ -526,7 +598,8 @@ final class TaskLauncher: @unchecked Sendable {
     }
 
     private func isTerminalTabSelected(_ task: TrayTaskItem) -> Bool {
-        guard let tty = task.terminalTTY, !tty.isEmpty else { return false }
+        if let binding = task.terminalBinding, !TerminalBindingResolver.isValid(binding) { return false }
+        guard let tty = task.terminalBinding?.tty ?? task.terminalTTY, !tty.isEmpty else { return false }
         let expected = normalizeTTY(tty)
         if isApplicationActive(bundleID: "com.apple.Terminal"),
            let selected = selectedTerminalTTY() {
@@ -550,7 +623,7 @@ final class TaskLauncher: @unchecked Sendable {
         end if
         return "MISS"
         """
-        let result = runAppleScript(source)
+        let result = runViewAppleScript(source)
         return result == nil || result == "MISS" ? nil : result
     }
 
@@ -565,23 +638,23 @@ final class TaskLauncher: @unchecked Sendable {
         end if
         return "MISS"
         """
-        let result = runAppleScript(source)
+        let result = runViewAppleScript(source)
         return result == nil || result == "MISS" ? nil : result
     }
 
     private func isDSHSessionCurrent(_ task: TrayTaskItem) -> Bool {
         guard let sessionID = task.sessionID, !sessionID.isEmpty else { return false }
         let needles = ["http://127.0.0.1:3080/", "http://localhost:3080/"]
-        let source = "JSON.stringify(localStorage.getItem('dsh.sessions.current'))"
+        let source = "localStorage.getItem('dsh.sessions.current') || ''"
         if isApplicationActive(bundleID: "com.apple.Safari"),
            let value = readSafariJavaScript(origins: needles, source: source),
-           value.contains(sessionID) {
+           ManualViewEvidence.dshSelection(value, matches: sessionID) {
             return true
         }
         for bundleID in ["com.google.Chrome", "com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser"] {
             guard isApplicationActive(bundleID: bundleID),
                   let value = readChromiumJavaScript(bundleID: bundleID, origins: needles, source: source),
-                  value.contains(sessionID) else { continue }
+                  ManualViewEvidence.dshSelection(value, matches: sessionID) else { continue }
             return true
         }
         return false
@@ -592,7 +665,8 @@ final class TaskLauncher: @unchecked Sendable {
         let script = """
         if application id \(appleScriptLiteral(bundleID)) is running then
             tell application id \(appleScriptLiteral(bundleID))
-                repeat with w in windows
+                if (count of windows) > 0 then
+                    set w to front window
                     try
                         set activeIndex to active tab index of w
                         set u to URL of tab activeIndex of w as text
@@ -602,12 +676,12 @@ final class TaskLauncher: @unchecked Sendable {
                             end try
                         end if
                     end try
-                end repeat
+                end if
             end tell
         end if
         return "MISS"
         """
-        let result = runAppleScript(script)
+        let result = runViewAppleScript(script)
         return result == nil || result == "MISS" ? nil : result
     }
 
@@ -616,7 +690,8 @@ final class TaskLauncher: @unchecked Sendable {
         let script = """
         if application id "com.apple.Safari" is running then
             tell application id "com.apple.Safari"
-                repeat with w in windows
+                if (count of windows) > 0 then
+                    set w to front window
                     try
                         set u to URL of current tab of w as text
                         if \(condition) then
@@ -625,24 +700,37 @@ final class TaskLauncher: @unchecked Sendable {
                             end try
                         end if
                     end try
-                end repeat
+                end if
             end tell
         end if
         return "MISS"
         """
-        let result = runAppleScript(script)
+        let result = runViewAppleScript(script)
         return result == nil || result == "MISS" ? nil : result
     }
 
+    private func activeApplication(bundleID: String) -> NSRunningApplication? {
+        let read = { () -> NSRunningApplication? in
+            guard let app = NSWorkspace.shared.frontmostApplication, app.bundleIdentifier == bundleID else { return nil }
+            return app
+        }
+        // AppKit updates activation state on its main run loop. A worker thread's
+        // NSRunningApplication snapshot can retain the old isActive value.
+        return Thread.isMainThread ? read() : DispatchQueue.main.sync(execute: read)
+    }
+
     private func isApplicationActive(bundleID: String) -> Bool {
-        NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).contains { $0.isActive }
+        activeApplication(bundleID: bundleID) != nil
     }
 
     private func isCodexDesktopThreadFocused(_ task: TrayTaskItem) -> Bool {
-        guard let sessionName = task.sessionName.map({ normalizedAXText($0) }), !sessionName.isEmpty else { return false }
-        guard let application = NSRunningApplication.runningApplications(withBundleIdentifier: "com.openai.codex")
-                .first(where: { $0.isActive }) else { return false }
+        guard AXIsProcessTrusted(), let sessionID = task.sessionID else { return false }
+        let latestName = CodexSessionNameLookup.name(for: sessionID, transcriptPath: task.sourcePath, home: home) ?? task.sessionName
+        guard let sessionName = latestName.map({ normalizedAXText($0) }), !sessionName.isEmpty,
+              CodexSessionNameLookup.isUnique(sessionName, for: sessionID, transcriptPath: task.sourcePath, home: home) else { return false }
+        guard let application = activeApplication(bundleID: "com.openai.codex") else { return false }
         let root = AXUIElementCreateApplication(application.processIdentifier)
+        AXUIElementSetMessagingTimeout(root, 0.25)
         // Electron 应用只有在客户端开启这些标记后才会构建完整无障碍树；
         // 不设置的话重启 Codex 后 AllPet 只能看到两个顶层节点，永远匹配不到会话标题。
         AXUIElementSetAttributeValue(root, "AXManualAccessibility" as CFString, kCFBooleanTrue)
@@ -1213,7 +1301,7 @@ final class TaskLauncher: @unchecked Sendable {
     ) -> TerminalFocusAttempt {
         let rows = processRows().filter { $0.tty != "??" && $0.tty != "?" && !$0.tty.isEmpty }
         let sourcePIDs: Set<Int32>
-        if task.platform == .codex || task.platform == .claude,
+        if task.platform == .codex || task.platform == .claude || task.platform == .pi,
            let sourcePath = task.sourcePath, !sourcePath.isEmpty {
             sourcePIDs = processIDsHolding(path: sourcePath)
         } else {
@@ -1514,7 +1602,7 @@ final class TaskLauncher: @unchecked Sendable {
                 )
             }
         }
-        return Result(succeeded: false, message: "已发送打开请求，但未确认目标会话成功启动；任务气泡已保留")
+        return Result(succeeded: false, message: "已发送打开请求，但未确认目标会话成功启动")
     }
 
     private func matchingTerminalProcesses(
@@ -1644,6 +1732,25 @@ final class TaskLauncher: @unchecked Sendable {
         } catch {
             return nil
         }
+    }
+
+    private func runViewAppleScript(_ source: String) -> String? {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", "with timeout of 1 seconds\n" + source + "\nend timeout"]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            let deadline = Date().addingTimeInterval(1.2)
+            while process.isRunning && Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
+            if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch { return nil }
     }
 
     private func runAppleScript(_ source: String) -> String? {

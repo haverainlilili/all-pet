@@ -1,31 +1,26 @@
 # AllPet 产品需求文档（现状版 PRD）
 
-> 本文档描述 AllPet **当前代码已经实现的产品能力**，并将已发布能力、`main` 已实现但尚未发包的能力、平台限制及后续建议明确分开。它是产品评审基线，不是营销文案。
+> 本文以 v1.4.0 为产品基线。完整点击、悬停、拖动及取消行为见 [功能设计说明](功能设计说明.md)，逐平台实测边界见 [平台行为验收](平台行为验收.md)。
 
 ## 0. 文档信息
 
 | 项目 | 内容 |
-| --- | --- |
+|---|---|
 | 产品名称 | AllPet |
-| PRD 版本 | v1.0（现状版） |
-| 文档日期 | 2026-09-22 |
-| 当前源码基线 | `main` @ `dfbc267` |
-| 当前稳定安装包 | v1.3.0 @ `d07e2ed` |
-| 产品阶段 | 可公开使用的开源产品；macOS 成熟度最高，Windows/Linux 为可用但仍需社区验证的跨平台版本 |
-| 文档状态 | 待产品负责人评审 |
+| PRD / 发布基线 | v1.4.0 |
+| 日期 | 2026-09-26 |
+| 安装包 | macOS arm64、Windows x64、Linux x64 |
+| 产品阶段 | 开源桌面工具；macOS 覆盖最完整，其他系统与第三方客户端仍有能力差异 |
 
-### 0.1 状态标记
+✅ 表示已实现并纳入本版本；⚠️ 表示部分实现或平台依赖；❌ 表示未实现。构建通过与真实平台操作验收分别记录，不互相替代。
 
-- ✅ **已发布**：v1.3.0 稳定安装包已包含。
-- 🟡 **已合入 main，未发包**：源码可用，但 v1.3.0 安装包尚未包含。
-- ⚠️ **部分实现/平台依赖**：功能受操作系统、第三方应用或权限限制。
-- ❌ **未实现**：当前代码不存在，仅可列入后续路线。
+### 0.1 本版变化
 
-### 0.2 当前版本差异
-
-`main` 相比 v1.3.0 多出一项重要修复：
-
-- 🟡 DSH 并发顶层会话会全部进入 `tasks`，最多展示 5 个；v1.3.0 安装包仍可能只显示一个 DSH 会话。该修复建议随下一补丁版发布。
+- 新增 Cursor、WorkBuddy、Qoder、pi coding agent、智谱 Z Code，总计九平台。
+- 平台气泡显示设置持久化；macOS 菜单支持连续勾选。
+- 九平台 done/failed 点击即确认，定位失败不恢复；过滤有明确来源的内部子代理。
+- macOS Electron 补齐分平台手动查看检测，但并非九平台全部支持。
+- 包含 v1.3.0 之后的 DSH 多会话、资源完整性、宠物缩略图与唤起修复。
 
 ---
 
@@ -33,11 +28,11 @@
 
 ### 1.1 一句话定位
 
-**AllPet 是一个常驻桌面的 AI 编码任务状态中心，用桌面宠物和任务气泡同时监控 Codex、Claude Code / Desktop、DeepSeek Harness（DSH）和 Grok，并帮助用户快速返回原任务。**
+**AllPet 是一个常驻桌面的 AI 编码任务状态中心，用桌面宠物和任务气泡同时监控 Codex、Claude Code / Desktop、DeepSeek Harness（DSH）、Grok、Cursor、WorkBuddy、Qoder、pi 和 Z Code，并帮助用户快速返回原任务。**
 
 ### 1.2 核心价值
 
-1. **一个入口看多个 AI 工具**：不必轮流打开四个平台确认任务是否仍在运行。
+1. **一个入口看多个 AI 工具**：不必轮流打开九个平台确认任务是否仍在运行。
 2. **把不可见的后台状态变成可感知动画**：运行、等待、完成、失败分别对应宠物动作。
 3. **任务完成后可回到原会话**：macOS 尽可能定位到具体应用、终端标签或会话；其它平台至少打开对应平台。
 4. **低打扰常驻**：宠物窗口透明、置顶、无传统主窗口；气泡仅在有任务或历史卡片时出现。
@@ -48,9 +43,9 @@
 | 形态 | 平台 | 作用 | 当前成熟度 |
 | --- | --- | --- | --- |
 | 原生 AppKit 桌宠 | macOS 14+，从源码运行 | 完整动画、三层气泡、菜单栏宠物管理、尽力精确唤起 | 最高；**不是当前 Release 安装包的 GUI** |
-| Electron 桌宠 | macOS / Windows / Linux | 跨平台动画、三层气泡、托盘和宠物管理 | v1.3.0 三平台安装包实际提供的 GUI；存在平台差异 |
+| Electron 桌宠 | macOS / Windows / Linux | 跨平台动画、三层气泡、托盘和宠物管理 | v1.4.0 三平台安装包实际提供的 GUI；存在平台差异 |
 | Swift CLI / sidecar | macOS / Windows / Linux | `status`、`watch`、JSON sidecar、宠物命令 | 核心监控跨平台；`self-test` 仅 macOS |
-| GitHub Releases | macOS arm64 / Windows x64 / Linux x64 | Electron GUI + 内嵌 Swift sidecar 的预编译安装包 | v1.3.0 已发布 |
+| GitHub Releases | macOS arm64 / Windows x64 / Linux x64 | Electron GUI + 内嵌 Swift sidecar 的预编译安装包 | v1.4.0 发布目标 |
 
 ---
 
@@ -75,7 +70,7 @@ AllPet 用“本地日志监控 + 统一状态模型 + 桌宠动画 + 持久任�
 
 | 编号 | 目标 | 验收口径 |
 | --- | --- | --- |
-| G1 | 同时监控四个平台 | Codex、Claude、DSH、Grok 均能产生统一快照 |
+| G1 | 同时监控九个平台 | Codex、Claude、DSH、Grok 均能产生统一快照 |
 | G2 | 低延迟反映任务状态 | 默认 1 秒轮询；正常日志更新后约 1–2 秒反映到 UI |
 | G3 | 不遗漏近期并发任务 | 支持的平台应输出 `tasks`，单平台最多取 5 个近期任务 |
 | G4 | 完成任务可回看 | 完成/失败卡片持久化，24 小时内或手动处理前保留 |
@@ -173,6 +168,11 @@ Aggregator
 - `claude` → Claude Code（含 Claude Desktop 来源）
 - `dsh` → DeepSeek Harness
 - `grok` → Grok
+- `cursor` → Cursor
+- `workbuddy` → WorkBuddy
+- `qoder` → Qoder
+- `pi` → pi coding agent
+- `zcode` → 智谱 Z Code
 
 ### 6.2 任务字段
 
@@ -229,7 +229,7 @@ failed > running/thinking > waiting > done > idle
 
 ## 7. 功能需求
 
-### FR-01 四平台状态监控
+### FR-01 九平台状态监控
 
 #### FR-01.1 Codex
 
@@ -267,7 +267,7 @@ failed > running/thinking > waiting > done > idle
 | 识别内容 | 标题、用户任务、工具、Todo、turn 状态、错误、cwd |
 | 会话名称 | `storages/session_projcache/sessions/<id>.json` 优先 |
 | 过滤 | 只监控父目录名以 `session-` 开头的顶层会话，排除子代理日志 |
-| 多会话 | 🟡 `main` 已支持主会话 + 近期其它会话，最多 5 个；v1.3.0 尚未包含 |
+| 多会话 | ✅ 主会话 + 近期其它会话，最多 5 个；v1.4.0 已包含 |
 | 主任务优先 | `DSH_SESSION_JSONL` 指定的当前 DSH 会话优先 |
 
 **验收：** 当扫描器统计到 3 个近期顶层会话时，`activeSessions=3` 且 `tasks.count=3`；每项保留独立 phase。
@@ -285,6 +285,10 @@ failed > running/thinking > waiting > done > idle
 **验收：** 有有效 active session 时展示选中会话；无任务活动时显示空闲而不是把后台认证错误显示为任务失败。
 
 ---
+
+#### FR-01.5 新增五平台
+
+Cursor/Qoder 读取本地 transcript 并可安装观察 hooks；WorkBuddy/pi 读取原生 JSONL；Z Code 只读 SQLite 并跟踪 WAL 更新。各平台进入相同状态、历史和展示开关流程。路径、安装命令、原生格式与定位限制见 [平台接入说明](平台接入说明.md)。
 
 ### FR-02 宠物动画与窗口
 
@@ -330,7 +334,7 @@ failed > running/thinking > waiting > done > idle
 
 #### 7.3.2 Stage 2：平台态（macOS 原生基准）
 
-- 最多展示 Codex、Claude、DSH、Grok 四个平台；
+- 最多展示 Codex、Claude、DSH、Grok 九个平台；
 - 每个平台显示最多 5 条任务名称，超出显示 `+N`；
 - 无任务平台显示“暂无会话 · 点击打开”；
 - 一条任务时直接唤起；多条任务进入 Stage 3。
@@ -375,15 +379,16 @@ failed > running/thinking > waiting > done > idle
 - 完成/失败任务进入持久历史；
 - 自动保留 24 小时；Electron 使用独立 wall-clock timer，不依赖 sidecar 产生新快照；
 - 用户可点击 `×` 提前删除；
-- macOS 可检测用户是否已手动查看完成任务，并自动消失；
-- ⚠️ Electron 当前没有对应平台的精确“已查看”检测，主要依赖 `×` 和 24 小时 TTL。
+- macOS 按平台检测手动查看：Codex、Claude、DSH、Grok、pi 需满足精确会话或有效原终端绑定条件；Cursor、WorkBuddy、Qoder、Z Code 尚无可靠识别，不能宣称九平台手动查看均可自动消泡。pi 默认日志缺少终端绑定时也不能自动确认。实际验收和权限限制见《平台行为验收》；
+- 九个平台的完成/失败通知点击即确认并持久移除，与能否精确聚焦原会话独立；原生和 Electron 均适用，活动中的任务不因点击被确认。
+- Electron macOS 已补齐 Codex：每 0.5 秒独立检查前台唯一任务标题，并识别本地同账号/主机的“未读→已读”变化；确认后持久化清除同一轮次的 done 通知。首次未读缺失不视为已读，隐藏平台与非 done 不清理；Claude、DSH、Grok、pi 也已接入独立检测通道，但需满足各自证据条件；另外四个平台及 Windows/Linux 尚无同等检测。
 
 #### 7.4.3 活跃任务清理
 
 - 平台变为空闲时清除 running/thinking/waiting 历史，只保留终态；
 - 会话切换时清理不再活跃的旧进行中记录；
 - 已隐藏的活跃任务重新出现活动时可解除隐藏；已隐藏终态保持隐藏；
-- ⚠️ macOS 仅 `done` 的 dismissed ID 会持久化。`failed` 与进行中的手动隐藏在内存中，重启后可能重新出现。
+- macOS 的 `done` 和 `failed` dismissed ID 均持久化；进行中的手动隐藏仍只保存在内存中。重新观察到同会话非终态活动时撤销旧终态确认，下一轮任务可再次展示。
 
 ---
 
@@ -400,13 +405,13 @@ failed > running/thinking > waiting > done > idle
 | DSH | 聚焦已有 DSH 浏览器页并选择 session | 打开 `127.0.0.1:3080` 后尝试选择 | 依赖本地 DSH 页面、浏览器自动化和会话仍存在 |
 | Grok CLI | 聚焦原终端/tab | `grok --cwd ... --resume <sessionID>` | 依赖本地可执行文件和终端权限 |
 
-安全原则：如果无法确认原会话，不应退回错误应用首页或创建会话副本；失败时保留任务气泡并向用户说明。
+安全原则：如果无法确认原会话，不应退回错误应用首页或创建会话副本；按真实结果向用户说明。九平台终态通知在点击时确认，不因唤起失败恢复；活跃任务保留。
 
 #### 7.5.2 Electron 唤起
 
 - 任务卡片与单任务平台卡只向主进程传 canonical task ID；路径、PID、终端绑定等 locator 不进入渲染层；
-- 只有来源明确为 Codex Desktop 且带 session ID 的任务才发送 `codex://threads/<sessionID>`；系统接收深链不等于已验证目标会话显示，因此卡片继续保留；
-- Codex/Claude/Grok CLI 与未知来源在无法验证精确目标时采取 fail-closed：保留卡片且不启动裸 CLI，避免创建重复会话；来源经 metadata 确认的 macOS Claude Desktop 任务只安全激活现有应用，不调用会导入/复制会话的 resume，目标未自动聚焦时保留卡片供用户在侧栏选择；DSH 任务卡使用 `#allpet-session=<encoded ID>` 交给已认证的系统浏览器；fragment 不发送到服务器，DSH 客户端只在目标存在于权威 session 列表时选择并清理该 fragment，浏览器认证 cookie 不会复制给 AllPet；
+- 只有来源明确为 Codex Desktop 且带 session ID 的任务才发送 `codex://threads/<sessionID>`；系统接收深链不等于已验证目标会话显示，终态卡片已由点击确认，活跃卡片继续保留；
+- Codex/Claude/Grok CLI 与未知来源在无法验证精确目标时不启动裸 CLI，避免创建重复会话；九平台 done/failed 点击后已确认移除，活跃卡片保留。来源经 metadata 确认的 macOS Claude Desktop 任务仅发送应用激活请求，不调用会导入/复制会话的 resume，用户可能仍需在侧栏选择；DSH 任务卡使用 `#allpet-session=<encoded ID>` 交给已认证的系统浏览器；fragment 不发送到服务器，DSH 客户端只在目标存在于权威 session 列表时选择并清理该 fragment，浏览器认证 cookie 不会复制给 AllPet；
 - 无具体任务的 DSH 平台打开继续使用 Electron `shell.openExternal`；具体任务卡使用同一系统浏览器的精确 session fragment handoff，不再打开可能落在其它会话的基页；
 - Windows/Linux 的显式 CLI 平台打开使用可见终端适配器；Linux 会依次探测多种终端，启动器非零退出/缺失时显示失败，成功也只标记 request accepted 而不宣称应用已显示；
 - sidecar JSON 传递完整 locator 元数据，`watch --json` 变更 key 纳入全部任务与 `activeSessions`，次级会话变化可及时送达。
@@ -435,7 +440,7 @@ macOS 精确唤起可能需要：
 
 从源码运行时，首次发现宠物会物化到 `~/.config/all-pet/pets/`；写入标记后不再强制补回用户主动删除的内置宠物。
 
-> ❌ **v1.3.0 Release 历史缺陷：** `AllPet-1.3.0-arm64-mac.zip` 的 sidecar 只有 `allpet`，遗漏承载内置宠物的 SwiftPM 资源。✅ main 已修复后续打包：按平台保留 `AllPet_AllPetCore.bundle`（macOS）或 `.resources`（Windows/Linux）的原名，sidecar 使用静态 Swift stdlib 构建（Windows 同时复制相邻 Swift/Foundation runtime DLL 闭包），并在空 HOME、无 Swift toolchain PATH 下验证资源发现；Linux CI 还会启动 electron-builder 的实际 unpacked 应用。该修复尚未回填已发布的 v1.3.0。
+> ❌ **v1.3.0 Release 历史缺陷：** `AllPet-1.3.0-arm64-mac.zip` 的 sidecar 只有 `allpet`，遗漏承载内置宠物的 SwiftPM 资源。✅ main 已修复后续打包：按平台保留 `AllPet_AllPetCore.bundle`（macOS）或 `.resources`（Windows/Linux）的原名，sidecar 使用静态 Swift stdlib 构建（Windows 同时复制相邻 Swift/Foundation runtime DLL 闭包），并在空 HOME、无 Swift toolchain PATH 下验证资源发现；Linux CI 还会启动 electron-builder 的实际 unpacked 应用。该修复随 v1.4.0 发布，旧 v1.3.0 资产不会被修改。
 
 #### 7.6.2 管理操作
 
@@ -487,7 +492,7 @@ macOS 精确唤起可能需要：
 - 显示/隐藏宠物；
 - 大小 `− / 百分比 / ＋`，连续点击不关闭菜单；
 - 宠物子菜单：切换、删除、下载、GitHub 安装、本地导入；
-- 四个平台当前状态摘要；
+- 九个平台当前状态摘要；
 - 打开配置；
 - 退出。
 
@@ -495,7 +500,7 @@ macOS 精确唤起可能需要：
 
 - 显示/隐藏宠物；macOS 点击菜单栏图标只打开原生菜单，不再意外切换宠物可见性；Windows/Linux 点击托盘图标继续切换可见性；
 - 打开宠物管理窗口、打开配置；
-- 按 AppKit 顺序显示大小百分比、宠物子菜单、四个平台状态、配置与退出；平台状态包含最多 28 个字符的当前动作，禁用的平台明确显示“已禁用”而非永久“加载中…”；
+- 按 AppKit 顺序显示大小百分比、宠物子菜单、九个平台状态、配置与退出；平台状态包含最多 28 个字符的当前动作，禁用的平台明确显示“已禁用”而非永久“加载中…”；
 - 宠物子菜单可直接切换/删除已安装宠物、安装未安装默认宠物、进入 GitHub 安装或本地导入入口，并进入完整管理器或刷新目录；删除确认显示规范化 bundle 路径；
 - macOS 由 AppKit 原生菜单桥接承载状态栏菜单，使用 `NSMenuItem.view` 原位更新 − / 百分比 / ＋；点击 ±5% 时菜单保持打开、不再关闭重开，Windows/Linux 原生托盘不变，管理窗口也提供大小调整；
 - macOS 原生“宠物 ›”子菜单在每只宠物左侧显示小形象；图标按 sidecar 验证过的 cell 几何使用 `nativeImage.crop` 明确裁切 atlas 左上角 `(0,0)` 的完整 idle 首帧，`sips` 仅在 Electron 无法解码 WebP 等格式时负责转成临时 PNG、不参与裁切；最终仅把 `menu-v4` 的 ≤20×20 小 PNG 持久缓存交给菜单桥接，菜单打开时不读取或解码完整 atlas；
@@ -520,6 +525,8 @@ macOS 精确唤起可能需要：
 配置缺失或损坏时回退默认值；缺失的平台键自动补齐默认路径。
 
 ---
+
+气泡显示平台设置：顶层 `hiddenBubblePlatforms` 保存被隐藏平台；不停止监控或删除历史。macOS 原生菜单勾选及全部显示/隐藏后保持展开，Esc/外部点击关闭。
 
 ### FR-08 CLI 与自动化接口
 
@@ -584,7 +591,7 @@ macOS 精确唤起可能需要：
 1. 从源码启动原生 AppKit GUI，或安装 Electron Release；
 2. AppKit 与 Electron 首次发现宠物时都会物化内置宠物；打包版必须携带对应平台原名的 SwiftPM 资源目录；
 3. AppKit 与 Electron 在无配置或 `bundlePath` 失效时选择发现顺序中的第一只有效宠物并原子写入配置；`~` 路径按 AppKit/CLI 语义展开；
-4. 启动四平台监控；
+4. 启动九平台监控；
 5. 有可用宠物时显示 idle 动画；平台产生活动后切换动画并显示气泡；
 6. macOS 原生用户按需授权辅助功能/自动化权限。
 
@@ -629,8 +636,8 @@ macOS 精确唤起可能需要：
 - 配置损坏时使用默认值；
 - 日志缺失时平台进入 idle，不应导致全局崩溃；
 - 单个平台失败不影响其它平台快照；
-- 任务定位失败时保留气泡；
-- 内建 `self-test` 当前在 macOS 为 98 项；三平台另运行 17 项宠物选择、操作闸门、持久化、窗口夹紧、降低动态效果、Windows zstd 命令发现及 decoder 参数契约测试，macOS 直接验证 AppKit fresh/stale/disabled 窗口生命周期、无宠物后同进程安装恢复、idle/no-task 僵尸清理、刷新解锁和越界气泡夹紧；Windows/Linux 构建覆盖 `status --json` 与 release sidecar 冒烟。Electron 在三平台运行 55 项 Node 测试（含旧历史 canonical migration/防御过滤、`ALLPET_HOME`、可信 pet catalog、wall-clock 24 小时 TTL、可见任务动画、动态降低动态效果、托盘文案、交互、图集与安全唤起），Linux 另跑 xvfb 三阶段、真实 reduced-motion、管理器缩略图边界、独立 HOME/history migration、clean-PATH 实际 DSH zstd transcript 和生命周期截图。
+- 定位失败不恢复已点击确认的 done/failed；活跃任务和缺少手动查看证据的通知保留；
+- 发布验证包含 Swift 核心与选择契约、Electron Node 行为、九平台格式/只读 SQLite/WAL 集成、AppKit 生命周期、查看桥接、空 HOME sidecar 与 Linux xvfb；实际结果与计数见 [发布说明](releases/v1.4.0.md)。
 
 ### 9.3 隐私与安全
 
@@ -656,11 +663,11 @@ macOS 精确唤起可能需要：
 
 | 能力 | macOS 原生 | macOS Electron | Windows Electron | Linux Electron |
 | --- | --- | --- | --- | --- |
-| 四平台监控 | ✅ | ✅ | ✅ | ✅ |
+| 九平台监控 | ✅ | ✅ | ✅ | ✅ |
 | 动画与三层气泡 | ✅ 完整 | ✅ 展示与交互对齐 | ✅ 展示与交互对齐 | ✅ 展示与交互对齐 |
-| Codex/Claude/DSH 多会话展示 | ✅（DSH 修复在 main） | ✅ 全任务变更 key | ✅ 全任务变更 key | ✅ 全任务变更 key |
+| Codex/Claude/DSH 多会话展示 | ✅（v1.4.0 含 DSH 修复） | ✅ 全任务变更 key | ✅ 全任务变更 key | ✅ 全任务变更 key |
 | 精确任务唤起 | ✅ 尽力实现 | ⚠️ Codex Desktop 深链尝试（未验证）；其余安全降级 | ⚠️ Codex 深链尝试；CLI/DSH 安全降级 | ⚠️ Codex 深链尝试；CLI/DSH 安全降级 |
-| 完成任务“已查看”自动消失 | ✅ | ⚠️ 无精确检测 | ⚠️ 无精确检测 | ⚠️ 无精确检测 |
+| 完成任务“已查看”自动消失 | ⚠️ 按平台与定位证据，非九平台全支持 | ⚠️ Codex/Claude/DSH/Grok/pi 条件支持，见验收表 | ⚠️ 无精确检测 | ⚠️ 无精确检测 |
 | 24h 完成卡 TTL | ✅ | ✅ | ✅ | ✅ |
 | 拖动/悬停动画 | ✅ | ✅ | ✅ | ✅ |
 | 所有工作区可见 | ✅ | ✅ | 不适用 | ⚠️ 依赖桌面环境 |
@@ -677,15 +684,15 @@ macOS 精确唤起可能需要：
 
 ### 11.1 P0/P1 已知差距
 
-1. **v1.3.0 不含 DSH 多会话修复**：需发布 v1.3.1 才能覆盖安装包用户。
-2. **Electron 精确唤起仍受平台限制**：Codex Desktop 可发送会话深链但无法验证最终页面；CLI 终端 tab、DSH 浏览器 session 仍缺少可移植的精确聚焦 API，因此保留卡片并 fail-closed。
+1. **手动查看检测覆盖不足**：Cursor/WorkBuddy/Qoder/Z Code 尚未实现；pi 缺少 TTY 时不能自动确认。
+2. **Electron 精确唤起仍受平台限制**：Codex Desktop 可发送会话深链但无法验证最终页面；CLI 终端 tab、DSH 浏览器 session 仍缺少可移植的精确聚焦 API，因此按实际结果提示；点击已确认的终态不会恢复。
 3. **Claude Desktop 无公开现有会话深链**：不能保证自动切到目标会话；禁止使用会 fork 副本的 resume 路径。
 4. **Grok 详细多会话不足**：只输出一个选中任务，`activeSessions` 与气泡任务数可能不同。
 5. **Windows/Linux 本地宠物转换尚未实现**：Electron 已禁用并解释该入口；标准宠物包远程安装仍可用。
 6. **独立 AppKit/CLI 仍依赖外部 zstd**：Electron 优先使用系统 `zstdcat`/`zstd` 以兼容真实 DSH concatenated frames；仅在系统不存在时启用随包 Node fallback；脱离 Electron 启动的原生 AppKit/CLI 仍需外部解码器。
-7. **v1.3.0 Release 资源遗漏**：已发布 ZIP 无法补救；main 的后续打包已复制平台对应 `.bundle/.resources`、采用自包含 sidecar 并增加空 HOME/实际 unpacked 应用校验。
-8. **未签名与无自动更新**：macOS 未公证/签名，Windows 也未配置代码签名；提高首次安装和升级成本。
-9. **上游日志格式风险**：四个平台升级后字段或目录变化可能使解析失效。
+7. **旧安装包不会自动更新**：v1.4.0 修复资源遗漏；v1.3.0 用户需重新下载安装。
+8. **发布签名和公证缺失**：macOS 为 ad-hoc 签名，无 Developer ID/公证；Windows 未配置代码签名，系统可能提示。
+9. **上游日志格式风险**：九个平台升级后字段或目录变化可能使解析失效。
 
 ### 11.2 数据准确性风险
 
@@ -701,8 +708,8 @@ macOS 精确唤起可能需要：
 
 ### P0：可靠性与发布
 
-1. ✅ main 已修复后续 Release 资源、自包含 sidecar、空 HOME 与 unpacked 应用校验；仍需在下一次正式发布前确认三平台产物；
-2. 发布后续版本，包含 DSH 多会话与本轮 Electron 对齐修复；
+1. ✅ main 已修复后续 Release 资源、自包含 sidecar、空 HOME 与 unpacked 应用校验；随 v1.4.0 纳入三平台打包验收；
+2. ✅ v1.4.0 包含 DSH 多会话与本轮 Electron 对齐修复；
 3. ✅ Electron show/hide、单实例与托盘常驻生命周期已对齐；
 4. 补充 Grok 多会话详细任务输出；
 5. ✅ Electron 安装包已内置 DSH zstd 解码并以 clean PATH 实际 transcript 验收；独立 AppKit/CLI 依赖检测仍可继续增强；
@@ -713,7 +720,7 @@ macOS 精确唤起可能需要：
 
 1. Windows/Linux 任务级唤起；
 2. Windows/Linux 本地宠物导入/图集转换；
-3. Electron 完成任务“已查看”检测或明确替代交互；
+3. 继续补齐 Cursor/WorkBuddy/Qoder/Z Code、缺少终端绑定的 pi 及 Windows/Linux 的手动查看检测；
 4. macOS 签名、公证；
 5. 应用内版本检测与可控更新；
 6. Intel Mac / Windows ARM / Linux ARM 打包支持；
@@ -747,7 +754,7 @@ macOS 精确唤起可能需要：
 
 - [ ] Swift release 构建通过；
 - [ ] macOS `allpet self-test` 全部通过；Windows/Linux 至少 `status --json` 冒烟通过；
-- [ ] `status --json` 在四个平台字段完整；
+- [ ] `status --json` 在九个平台字段完整；
 - [ ] 并发 Codex/Claude/DSH 会话可进入 `tasks`；
 - [ ] macOS 宠物动画、三层气泡、点击唤起手测通过；
 - [ ] Electron macOS/Windows/Linux JS 语法和启动冒烟通过；
@@ -776,7 +783,7 @@ macOS 精确唤起可能需要：
 | 模块 | 位置 |
 | --- | --- |
 | 统一配置与路径 | `Sources/AllPetCore/Configuration.swift` |
-| 四平台监控协调 | `Sources/AllPetCore/AllPetMonitor.swift` |
+| 九平台监控协调 | `Sources/AllPetCore/AllPetMonitor.swift` |
 | 状态聚合 | `Sources/AllPetCore/Aggregator.swift` |
 | 平台状态与任务模型 | `Sources/AllPetCore/PlatformState.swift` |
 | Codex/Claude/DSH/Grok 监控 | `Sources/AllPetCore/*Monitor.swift` |

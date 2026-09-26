@@ -1,52 +1,67 @@
-# AllPet 跨平台桌宠（Electron 壳）
+# AllPet Electron 桌宠 v1.4.0
 
-复用 Swift `AllPetCore` 的监控能力：Electron 主进程以子进程跑 `allpet watch --json`，把 NDJSON 快照转发给渲染层，驱动精灵动画与状态气泡。macOS / Windows / Linux 共用同一套 Web 前端。
+Electron 通过 `allpet watch --json` 复用 Swift AllPetCore，macOS/Windows/Linux 共用动画、气泡与宠物管理。九平台接入与用户点击行为见 [功能设计说明](../docs/功能设计说明.md)；手动查看能力见 [验收表](../docs/平台行为验收.md)。
 
-## 运行
+## 开发运行
+
+在仓库根目录执行。需要 Swift（CI 为 6.2.4）和 Node.js 24；Node SQLite 用于 Z Code 验收，发布包内由 Electron 提供运行时。
 
 ```bash
-# 1. 先构建 Swift 核心（release 带 JSON 输出）
-cd .. && ./allpet restart    # 或 swift build -c release
-
-# 2. 安装并启动 Electron 壳
+swift build -c release --static-swift-stdlib
 cd desktop
-npm install
+npm ci
 npm start
 ```
 
-`main.js` 会自动定位 `../.build/release/allpet`（其次 debug、PATH），无需手动配置。
+开发启动优先发现仓库 release/debug sidecar；打包启动使用应用内 sidecar。应用数据位于 `~/.config/all-pet/`，隔离测试用 `ALLPET_HOME`。
 
 ## 结构
 
-- `main.js` —— 主进程：窗口/托盘/子进程监控/唤起
-- `preload.js` —— contextBridge 暴露 `petAPI`（onPet/onSnapshot/onWatchError）
-- `src/renderer.html` + `renderer.js` + `style.css` —— 宠物窗口：canvas 精灵动画 + 气泡
-- `assets/icon.png` —— 托盘图标
+- `main.js`：窗口、托盘、监控、历史与 IPC。
+- `src/renderer.*`、`style.css`：动画、三层气泡和平台分页。
+- `src/platforms.js`、`task-history.js`：九平台定义、可见性与通知生命周期。
+- `src/manual-view.js`、`menu-bridge.js`：macOS 每 500 ms 分平台查看检查。
+- `src/wake.js`：按来源尝试定位，缺少精确能力时提示限制。
+- `scripts/sqlite-read.js`、`zstdcat.js`：随包只读数据解码器。
 
-## 说明
+## 验证
 
-- 精灵动画的行号与帧时长与 `Sources/AllPetCore/PetAnimation.swift` 保持一致；图集列数、行数和 cell 尺寸从已验证的宠物元数据动态读取。
-- 精确任务唤起采用 fail-closed：仅来源明确的 Codex Desktop 会话尝试深链；Claude/Grok/CLI 不复制任务，DSH 只在用户明确选择时打开基页。
-- 调试截图：`ALLPET_SCREENSHOT=/tmp/shot.png npm start`，启动 5s 后截图退出。
-
-## 打包安装包
-
-打包会先把 Swift 核心（`allpet`）放进 `sidecar/`，再用 electron-builder 出对应平台安装包：
+在仓库根目录执行；`ALLPET_BINARY` 应指向已构建可执行文件，Windows 后缀为 `.exe`。
 
 ```bash
-# 1. 构建自包含 Swift sidecar
-swift build -c release --static-swift-stdlib
-
-# 2. 按当前平台复制二进制、SwiftPM 资源和 Windows runtime DLL，并验证闭包
-node desktop/scripts/prepare-sidecar.js
-node desktop/scripts/verify-sidecar.js
-
-# 3. 打包（macOS 出 dmg+zip / Linux 出 AppImage+deb / Windows 出 nsis exe）
-cd desktop
-npm ci
-npx electron-builder --publish never
+(cd desktop && npm test)
+ALLPET_BINARY="$PWD/.build/release/allpet" node desktop/scripts/verify-platform-integrations.js
+# 以下仅 macOS
+.build/release/allpet self-test
+.build/release/allpet selection-self-test
+ALLPET_BINARY="$PWD/.build/release/allpet" node desktop/scripts/verify-appkit-lifecycle.js
+ALLPET_BINARY="$PWD/.build/release/allpet" node desktop/scripts/verify-manual-view-bridge.js
 ```
 
-产物在 `desktop/dist/`。应用图标来自 `desktop/build/icon.png`（1024×1024，打包时自动转 icns/ico）。
+这些脚本使用临时数据。原生格式夹具通过不代表第三方客户端导航已经实测。
 
-CI 里打 tag（`v*`）会自动触发三平台打包并发布 GitHub Release；也可在 Actions 手动触发 `Release` 工作流只出产物不发布。
+## 打包
+
+```bash
+# 仓库根目录
+swift build -c release --static-swift-stdlib
+node desktop/scripts/prepare-sidecar.js
+task_verify_home=$(mktemp -d)
+ALLPET_CLEAN_PATH=1 node desktop/scripts/verify-sidecar.js desktop/sidecar "$task_verify_home"
+cd desktop
+npm ci
+# macOS：对新包执行 ad-hoc 签名，避免重命名 Electron 后签名失效
+npx electron-builder --mac dmg zip --publish never --config.mac.identity=- --config.mac.hardenedRuntime=false
+# Windows/Linux：在目标系统执行
+# npx electron-builder --publish never
+```
+
+产物位于 `desktop/dist/`。sidecar 包含 Swift 可执行文件、SwiftPM 资源及 Windows 所需 runtime DLL；额外附带 SQLite/zstd 读取器和托盘图标。macOS ad-hoc 签名只证明代码完整性，不等于 Developer ID 签名或公证；更新后辅助功能可能需要用户重新确认。
+
+macOS 可检查 `codesign --verify --deep --strict desktop/dist/mac-arm64/AllPet.app`，再运行隔离回执检查：
+
+```bash
+ALLPET_APP_BINARY="$PWD/dist/mac-arm64/AllPet.app/Contents/MacOS/AllPet" node scripts/verify-manual-view.js
+```
+
+Release 工作流在匹配版本号的 tag 上向 GitHub Release 草稿上传产物，手动触发只保存 Actions 产物。三平台 CI/打包全部通过、检查安装包与 SHA256SUMS 后才公开草稿。应用没有自动更新功能。

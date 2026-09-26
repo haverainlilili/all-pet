@@ -11,9 +11,61 @@
     "waitingWindowSeconds": 120
   },
   "platforms": {
-    "codex": { "enabled": true, "paths": ["~/.codex/sessions"] },
-    "claude": { "enabled": true, "paths": ["~/.claude/projects"] },
-    "dsh": { "enabled": true, "paths": ["~/.dsh/sessions"] },
-    "grok": { "enabled": true, "paths": ["~/.grok/logs/unified.jsonl", "~/.grok/active_sessions.json"] }
-  }
+    "codex": {
+      "enabled": true,
+      "paths": [
+        "~/.codex/sessions"
+      ]
+    },
+    "claude": {
+      "enabled": true,
+      "paths": [
+        "~/.claude/projects"
+      ]
+    },
+    "dsh": {
+      "enabled": true,
+      "paths": [
+        "~/.dsh/sessions"
+      ]
+    },
+    "grok": {
+      "enabled": true,
+      "paths": [
+        "~/.grok/logs/unified.jsonl",
+        "~/.grok/active_sessions.json"
+      ]
+    },
+    "cursor": {
+      "enabled": true,
+      "paths": [
+        "~/.cursor/projects"
+      ]
+    },
+    "workbuddy": {
+      "enabled": true,
+      "paths": [
+        "~/.workbuddy/projects"
+      ]
+    },
+    "qoder": {
+      "enabled": true,
+      "paths": [
+        "~/.qoder/projects"
+      ]
+    },
+    "pi": {
+      "enabled": true,
+      "paths": [
+        "~/.pi/agent/sessions"
+      ]
+    },
+    "zcode": {
+      "enabled": true,
+      "paths": [
+        "~/.zcode/cli/db/db.sqlite"
+      ]
+    }
+  },
+  "hiddenBubblePlatforms": []
 }

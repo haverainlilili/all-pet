@@ -25,6 +25,15 @@ public enum AllPetSelfTest {
             if !condition() { failures.append(name) }
         }
 
+        PlatformIntegrationSelfTest.run { condition, name in expect(condition, name) }
+        expect(ManualViewEvidence.dshSelection(#"{"sessionId":"abc"}"#, matches: "abc"), "DSH object selection matches exactly")
+        expect(ManualViewEvidence.dshSelection(#""abc""#, matches: "abc"), "DSH JSON string selection matches exactly")
+        expect(ManualViewEvidence.dshSelection("abc", matches: "abc"), "DSH legacy string selection matches exactly")
+        expect(!ManualViewEvidence.dshSelection(#"{"sessionId":"abc-extra"}"#, matches: "abc"), "DSH never substring-matches another session")
+        expect(!ManualViewEvidence.dshSelection(#"{"other":"abc"}"#, matches: "abc"), "DSH ignores unrelated fields")
+        expect(!ManualViewEvidence.dshSelection("{broken abc", matches: "abc"), "DSH malformed selection is not read evidence")
+
+
         let codex = TaskExtractors.codex(from: """
         {"type":"event_msg","payload":{"type":"task_started"}}
         {"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"修复一键启动"}]}}
@@ -370,9 +379,38 @@ public enum AllPetSelfTest {
             try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-2)], ofItemAtPath: dshBacked.path)
             try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-1)], ofItemAtPath: partial.path)
             try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: subagent.path)
-            let status = CodexMonitor(roots: [codexOriginFixture.path]).snapshot(config: watch, now: now)
-            expect(status.task?.sessionID == "genuine-codex" && status.activeSessions == 1, "Codex excludes DSH, partial and subagent origins")
+            let internalSources: [[String: Any]] = [
+                ["source": ["subagent": ["thread_spawn": ["parent_thread_id": "parent"]]]],
+                ["originator": "Codex Desktop", "thread_source": "guardian_review", "source": ["subagent": ["other": "guardian"]]],
+                ["thread_source": "guardian_review"],
+                ["source": "subagent"],
+                ["source": ["type": "subagent.thread_spawn"]],
+                ["source": "dsh-provider"]
+            ]
+            for (index, source) in internalSources.enumerated() {
+                var payload = source
+                payload["id"] = "internal-\(index)"
+                // Exercise metadata well beyond both former 16 KiB and 64 KiB caps.
+                if index == 0 { payload["instructions"] = String(repeating: "x", count: 90_000) }
+                var data = try JSONSerialization.data(withJSONObject: ["type": "session_meta", "payload": payload])
+                data.append(0x0A)
+                let file = codexOriginFixture.appendingPathComponent("internal-\(index).jsonl")
+                try data.write(to: file)
+                expect(CodexSessionMetadata.isExcluded(path: file.path), "Codex internal metadata excluded: \(index)")
+            }
+            expect(!CodexSessionMetadata.isExcluded(path: genuine.path), "Unnamed genuine Codex remains eligible")
+            expect(!CodexSessionMetadata.isExcluded(path: partial.path), "Incomplete metadata does not remove stored history")
+            expect(!CodexSessionMetadata.isExcluded(path: codexOriginFixture.appendingPathComponent("missing.jsonl").path), "Missing metadata does not remove stored history")
+            expect(!CodexSessionMetadata.isExcluded(payload: ["source": "vscode", "thread_source": "user", "parent_thread_id": "fork-parent"]), "User fork parent link alone is not internal")
+            let symlink = codexOriginFixture.appendingPathComponent("symlink.jsonl")
+            try FileManager.default.createSymbolicLink(atPath: symlink.path, withDestinationPath: subagent.path)
+            expect(!CodexSessionMetadata.isExcluded(path: symlink.path), "Metadata reader does not follow symlinks")
+            let originMonitor = CodexMonitor(roots: [codexOriginFixture.path])
+            let status = originMonitor.snapshot(config: watch, now: now)
+            expect(status.task?.sessionID == "genuine-codex" && status.activeSessions == 1, "Codex excludes DSH, partial, subagent and guardian origins")
             expect(status.task?.launchOrigin == "codex-desktop", "Codex Desktop origin is persisted for wake routing")
+            try Data((#"{"type":"session_meta","payload":{"id":"partial-now-guardian","thread_source":"guardian_review"}}"# + "\n").utf8).write(to: partial)
+            expect(originMonitor.snapshot(config: watch, now: Date()).activeSessions == 1, "Partial metadata is reclassified when completed")
             let cli = codexOriginFixture.appendingPathComponent("cli.jsonl")
             try Data((#"{"type":"session_meta","payload":{"session_id":"cli-codex","originator":"codex_cli_rs","source":"cli"}}"# + "\n").utf8).write(to: cli)
             expect(CodexTranscriptIdentityLookup.read(path: cli.path).launchOrigin == "codex-cli",

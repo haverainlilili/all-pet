@@ -25,7 +25,10 @@ jobs:
           update-sdk-modules: true
       - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
+
+      - name: 校验 tag 与安装包版本一致
+        run: node -e "const v=require('./desktop/package.json').version,r=process.env.GITHUB_REF;if(r.startsWith('refs/tags/')&&r!=='refs/tags/v'+v)throw new Error('Tag/package version mismatch')"
 
       - name: 安装 Linux 静态链接依赖
         if: runner.os == 'Linux'
@@ -52,18 +55,48 @@ jobs:
         run: npm ci
         working-directory: desktop
 
-      - name: 打包（tag 发布 Release，手动只出产物）
+      - name: Electron 行为回归
+        run: npm test
+        working-directory: desktop
+
+      - name: 九平台原生格式及 SQLite WAL 验收
+        run: node desktop/scripts/verify-platform-integrations.js
+
+      - name: macOS 核心与查看桥接回归
+        if: runner.os == 'macOS'
+        run: |
+          .build/release/allpet self-test
+          .build/release/allpet selection-self-test
+          ALLPET_BINARY="$PWD/.build/release/allpet" node desktop/scripts/verify-manual-view-bridge.js
+
+      - name: 打包（tag 上传 Release 草稿，手动只出产物）
         shell: bash
         run: |
+          args=(--publish never)
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            npx electron-builder --publish always
-          else
-            npx electron-builder --publish never
+            args=(--publish always)
           fi
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            args+=(--arm64 --config.mac.identity=- --config.mac.hardenedRuntime=false)
+          else
+            args+=(--x64)
+          fi
+          npx electron-builder "${args[@]}"
         working-directory: desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: macOS 成品签名、资源和回执检查
+        if: runner.os == 'macOS'
+        shell: bash
+        working-directory: desktop
+        run: |
+          apps=(dist/mac*/AllPet.app)
+          test "${#apps[@]}" -eq 1
+          codesign --verify --deep --strict "${apps[0]}"
+          test -d "${apps[0]}/Contents/Resources/sidecar/AllPet_AllPetCore.bundle"
+          ALLPET_APP_BINARY="$PWD/${apps[0]}/Contents/MacOS/AllPet" node scripts/verify-manual-view.js
 
       - name: 上传产物（兜底）
         uses: actions/upload-artifact@v5

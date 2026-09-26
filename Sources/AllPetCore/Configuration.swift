@@ -46,11 +46,18 @@ public struct AllPetConfiguration: Codable, Sendable {
     public var pet: PetDisplayConfig
     public var watch: WatchConfig
     public var platforms: [String: PlatformConfig]
+    /// Only controls bubble visibility; monitoring and retained history remain enabled.
+    public var hiddenBubblePlatforms: [String]?
 
-    public init(pet: PetDisplayConfig = .init(), watch: WatchConfig = .init(), platforms: [String: PlatformConfig] = [:]) {
+    public init(pet: PetDisplayConfig = .init(), watch: WatchConfig = .init(), platforms: [String: PlatformConfig] = [:], hiddenBubblePlatforms: [String]? = nil) {
         self.pet = pet
         self.watch = watch
         self.platforms = platforms
+        self.hiddenBubblePlatforms = hiddenBubblePlatforms
+    }
+
+    public func showsBubbles(for kind: PlatformKind) -> Bool {
+        !(hiddenBubblePlatforms ?? []).contains(kind.rawValue)
     }
 
     public func platformConfig(for kind: PlatformKind) -> PlatformConfig {
@@ -62,6 +69,11 @@ public struct AllPetConfiguration: Codable, Sendable {
         case .codex: [home.appendingPathComponent(".codex/sessions").path]
         case .claude: [home.appendingPathComponent(".claude/projects").path]
         case .dsh: [home.appendingPathComponent(".dsh/sessions").path]
+        case .cursor: [home.appendingPathComponent(".cursor/projects").path]
+        case .workbuddy: [home.appendingPathComponent(".workbuddy/projects").path]
+        case .qoder: [home.appendingPathComponent(".qoder/projects").path]
+        case .pi: [home.appendingPathComponent(".pi/agent/sessions").path]
+        case .zcode: [home.appendingPathComponent(".zcode/cli/db/db.sqlite").path]
         case .grok: [
             home.appendingPathComponent(".grok/logs/unified.jsonl").path,
             home.appendingPathComponent(".grok/active_sessions.json").path

@@ -24,7 +24,7 @@ function sessionDisplayName(item) {
   return '未命名会话'
 }
 
-const PLATFORM_KEYS = new Set(['codex', 'claude', 'dsh', 'grok'])
+const { PLATFORM_KEYS } = require('./platforms')
 const PHASE_KEYS = new Set(['idle', 'waiting', 'thinking', 'running', 'done', 'failed'])
 const STRING_FIELDS = [
   'title', 'sessionName', 'action', 'progress', 'sessionID', 'sourcePath',
@@ -84,13 +84,15 @@ function normalizeTaskHistory(raw, nowMilliseconds = Date.now(), options = {}) {
   const sourcePlatforms = source.platforms && typeof source.platforms === 'object' && !Array.isArray(source.platforms)
     ? source.platforms : {}
   const platforms = {}
+  const isExcludedCodexHistory = typeof options.isExcludedCodexHistory === 'function'
+    ? options.isExcludedCodexHistory : options.isDSHBackedCodex
   for (const platform of PLATFORM_KEYS) {
     const byID = new Map()
     const inputs = Array.isArray(sourcePlatforms[platform]) ? sourcePlatforms[platform] : []
     for (const input of inputs) {
       let task = sanitizedHistoryTask(platform, input)
       if (!task || isSyntheticHistoryTask(task) || isDSHSubagentHistoryTask(task)) continue
-      if (platform === 'codex' && typeof options.isDSHBackedCodex === 'function' && options.isDSHBackedCodex(task)) continue
+      if (platform === 'codex' && typeof isExcludedCodexHistory === 'function' && isExcludedCodexHistory(task)) continue
       const previous = byID.get(task.id)
       if (previous) {
         const previousDate = Number.isFinite(previous.updatedAt) ? previous.updatedAt : -Infinity
@@ -268,7 +270,7 @@ function dismissPlatformHistory(state, platform, liveStatus) {
   const key = String(platform || '')
   function remember(id, title, phase) {
     if (!id) return
-    if (phase === 'done') {
+    if (phase === 'done' || phase === 'failed') {
       if (!state.dismissed.includes(id)) state.dismissed.push(id)
     } else {
       state.hidden[id] = title || ''

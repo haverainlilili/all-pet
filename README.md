@@ -1,31 +1,31 @@
 # AllPet 🐾
 
-**One desktop pet that watches all your AI coding agents — Codex, Claude Code / Desktop, DeepSeek Harness (DSH), and Grok — with a cross-platform status / watch CLI.**
+**One desktop pet that watches all your AI coding agents — Codex, Claude Code / Desktop, DeepSeek Harness (DSH), Grok, Cursor, WorkBuddy, Qoder, pi and Z Code — with a cross-platform status / watch CLI.**
 
 > The native pet GUI is macOS; the cross-platform Electron shell (`desktop/`) shows the pet plus a graphical pet manager on macOS, Linux, and Windows. Core monitoring and the `status` / `watch` CLI build and run everywhere.
 
-The pet switches animation based on what your agents are doing — idle, running, waiting, done, failed — and each task bubble lets you jump straight back into the originating session.
+The pet switches animation based on what your agents are doing — idle, running, waiting, done, failed — and task bubbles attempt to open the originating session or application, with platform-specific navigation limits.
 
 [中文文档](./README.zh-CN.md) · English
 
+[Detailed functional design (中文)](./docs/功能设计说明.md) — current implementation, interaction rules, platform differences, and verification record.
+
 ---
 
-## Why one pet for all these platforms?
+## What's new in v1.4.0
 
-What you actually use every day is not "a model" — it's a **harness × model** combination. The harness decides what context the model sees, which tools it gets, and when it retries or wraps up. The same model behind a different harness can produce very different results:
+Five new providers, persistent per-platform bubble visibility, immediate acknowledgement of completed notifications, and macOS manual-view detection improvements.
 
-- The same **Claude Sonnet 4.6** scores ~71% on SWE-bench Verified inside Claude Code, but only ~52% behind the Continue shell. ([TensorFeed](https://tensorfeed.ai/harnesses))
-- The same **Claude Opus 4.5** scores 45.9% under the unified SEAL scaffold, and 55.4% back in its own Claude Code. ([arXiv 2605.23950](https://arxiv.org/html/2605.23950))
-- The same **Grok 4** scores 58.6% under a generic SWE-agent, and 72–75% with xAI's own scaffold. ([arXiv 2605.23950](https://arxiv.org/html/2605.23950))
+[Changelog](./CHANGELOG.md) · [Provider setup](./docs/平台接入说明.md) · [Behavior and validation limits](./docs/平台行为验收.md)
 
-The pattern is consistent: **each model is strongest inside its own harness.** So "Claude in Claude Code, GPT in Codex, Grok in Grok" is the everyday reality — which is exactly why AllPet watches Codex, Claude Code, DSH, and Grok at the same time.
+AllPet brings progress and completion notifications from several coding tools into one desktop view.
 
 ## Features
 
-- **One pet, four platforms** — natively reads Codex, Claude Code / Desktop, DSH, and Grok task state from your local session logs (no accounts, no API keys).
+- **One pet, nine platforms** — reads local state for Codex, Claude, DSH, Grok, Cursor, WorkBuddy, Qoder, pi and Z Code. Cursor/Qoder include opt-in observer hooks for complete lifecycle events.
 - **Live state animation** — the pet switches between idle / running / waiting / done / failed as tasks progress.
 - **Task bubbles** — three levels (summary → platform → session); each platform uses its own brand colors.
-- **Safe task wake** — verified Codex Desktop sessions use a deep-link handoff; unsupported CLI/Claude/Grok targets fail closed instead of duplicating work, and DSH can explicitly open its base page.
+- **Safe task wake** — verified Codex Desktop sessions use a deep-link handoff; unsupported CLI/Claude/Grok targets fail closed instead of duplicating work, and DSH task links carry the exact session ID.
 - **Cross-platform CLI** — `status` / `watch` build on macOS, Linux, and Windows; the AppKit-dependent full `self-test` currently runs on macOS.
 - **Cross-platform desktop shell** — an Electron shell (`desktop/`) shows the pet and a graphical pet manager on Windows, Linux, and macOS; local multi-format conversion is currently macOS-only, while standard package install/switch/delete works across platforms.
 - **Bring your own pet** — install standard packages from GitHub on every supported OS; macOS can additionally import and normalize local Codex / OpenPets / cc-haha / clawd-on-desk / LingChat / single-image pets.
@@ -41,18 +41,18 @@ Grab the latest from [GitHub Releases](https://github.com/haverainlilili/all-pet
 - **Windows** — `AllPet-Setup-<version>.exe`
 - **Linux** — `AllPet-<version>.AppImage` or `allpet-desktop_<version>_amd64.deb`
 
-Current-source packaging bundles the Swift core, runtime closure, and built-in pet resources, so no Node.js or Swift installation is needed. The published v1.3.0 macOS ZIP has a known missing-resource defect that is fixed on `main` but not retroactively; macOS builds are currently unsigned, so use right-click → Open on first launch.
+Installers bundle the Swift core, runtime and five built-in pets; no Node.js or Swift installation is required. v1.4.0 fixes the missing resources in the old macOS ZIP. macOS packages are ad-hoc signed, without Developer ID signing or Apple notarization. Gatekeeper may block the first launch; use a trusted Release download and follow macOS Privacy & Security prompts.
 
 ### Choose the correct installer — humans and AI agents
 
-**Latest stable release: v1.3.0.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
+**Latest stable release: v1.4.0.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
 
 | User device | Architecture / supported models | Download | Choose this when |
 | --- | --- | --- | --- |
-| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.3.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0-arm64-mac.zip) | Mac with an Apple M-series chip |
-| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.3.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-Setup-1.3.0.exe) | Typical Intel / AMD Windows PC |
-| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.3.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/AllPet-1.3.0.AppImage) | Portable install on most x64 Linux distributions |
-| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.3.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.3.0/allpet-desktop_1.3.0_amd64.deb) | Debian / Ubuntu and compatible distributions |
+| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.4.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0-arm64-mac.zip) | Mac with an Apple M-series chip |
+| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.4.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-Setup-1.4.0.exe) | Typical Intel / AMD Windows PC |
+| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.4.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/AllPet-1.4.0.AppImage) | Portable install on most x64 Linux distributions |
+| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.4.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.4.0/allpet-desktop_1.4.0_amd64.deb) | Debian / Ubuntu and compatible distributions |
 
 **Not packaged yet:** Intel Mac (`x86_64`), Windows on ARM, and Linux ARM (`aarch64`) do not currently have ready-made installers. Build from source or contribute a package build.
 
@@ -66,7 +66,7 @@ Not every commit needs a new installer release:
 
 - **`main` branch = newest development source.** Source users can follow every merged fix immediately with `git pull --ff-only`, then rebuild/restart the app.
 - **`vX.Y.Z` tag / GitHub Release = stable prebuilt installers.** People using DMG / EXE / AppImage / DEB keep running the code bundled in that installer; later commits do not enter an already-installed app automatically.
-- **Code changes require a new build to affect installer users.** Routine fixes can be collected into a patch release such as `v1.3.1`; urgent compatibility/security fixes should be packaged promptly. README-only changes do not require repackaging.
+- **Code changes require a new build to affect installer users.** Routine fixes can be collected into a patch release such as `v1.4.1`; urgent compatibility/security fixes should be packaged promptly. README-only changes do not require repackaging.
 - **No automatic updater is enabled yet.** Installer users should watch [GitHub Releases](https://github.com/haverainlilili/all-pet/releases) and download the next version when published.
 
 Latest source: [download `main` as ZIP](https://github.com/haverainlilili/all-pet/archive/refs/heads/main.zip), or update a clone:
@@ -85,7 +85,7 @@ Electron 壳在三个平台共享气泡、拖拽、缩放和标准宠物包管�
 - **透明窗口**：Windows / macOS 原生支持；Linux 需要桌面合成器（compositor，Wayland 或带合成器的 X11），无合成器时宠物背景会显示为黑色。
 - **托盘图标**：Windows / macOS 原生支持；Linux 的 GNOME 默认无系统托盘，需安装 AppIndicator 扩展（KDE / XFCE 等桌面自带）。
 - **全空间置顶**：仅 macOS / Linux 支持「所有工作区可见」，Windows 无此概念（自动跳过）。
-- **任务唤醒**：仅来源明确的 Codex Desktop 会话尝试 `codex://` 深链；CLI、Claude 和 Grok 在没有安全精确定位能力时 fail-closed，DSH 只提供明确选择的基页打开，不宣称已聚焦原会话。
+- **任务唤醒**：仅来源明确的 Codex Desktop 会话尝试 `codex://` 深链；CLI、Claude 和 Grok 在没有安全精确定位能力时 fail-closed，DSH 任务链接携带精确 session ID，但不把浏览器接受链接当作页面已定位的证明。
 - **本地导入**：AppKit/ImageIO 多格式转换目前仅 macOS 可用；Windows/Linux 入口会明确禁用，但仍可安装标准宠物包。
 - **原生 GUI**：仅 macOS 提供 AppKit GUI；Windows/Linux 使用 Electron 壳 + Swift core sidecar。两者的可移植行为对齐，原生托盘自定义视图、Spaces 和精确终端会话聚焦仍按平台降级（见 `docs/macOS-behavior.md`）。
 
@@ -111,7 +111,7 @@ The first launch builds automatically; afterwards just run `./allpet` again.
 
 ## Changing the pet
 
-AllPet ships with 4 built-in pets out of the box (Boba, Tiko, 团团和米粒, Hoops). Other default pets download on first click.
+AllPet ships with 5 built-in pets (Boba, Tiko, 团团和米粒, Hoops, 西瓜). Other default pets download on first click.
 
 ### Option 1: menu (easiest)
 
@@ -173,29 +173,31 @@ python3 make_demo.py        # 生成一只示例宠物并跑通整套脚本
 
 See [`宠物生成标准包/README.md`](./宠物生成标准包/README.md) for the full workflow (requirements: Python 3.9+ with Pillow).
 
-## Task bubbles
+## Task bubbles and click behavior
 
-A bubble has three levels:
+1. Click the collapsed summary to view platforms.
+2. Select one of nine platforms; multiple tasks open a session list, while a single task attempts navigation directly.
+3. Click a completed/failed task to acknowledge it immediately and persist that decision, then attempt navigation. Running/thinking/waiting tasks remain visible.
 
-1. **Collapsed** — platform overview;
-2. **Platform** — choose Codex, Claude, DSH, or Grok;
-3. **Session** — choose a specific session and wake the original task.
+Titles show stable session names; subtitles show current actions and progress. The × button closes a notification. Unacknowledged terminal tasks expire after 24 hours; new task activity can appear again. Internal subagents are filtered using explicit source evidence, not merely short IDs.
 
-The title shows the stable **session name**; the current action and progress appear in the subtitle.
+The tray's platform visibility controls hide individual or all platforms while preserving monitoring and history. On macOS, checkboxes keep the menu open for consecutive changes; Esc or an outside click closes it. Windows/Linux use native tray menu behavior.
 
-- Click outside the window to collapse;
-- Close button in the top-right of every bubble;
-- Done or failed tasks disappear after being woken;
-- A bubble also disappears when you open a finished task manually.
+| Manual viewing of a completed task | macOS Electron support |
+|---|---|
+| Codex | Same-account/local-host unread→read receipt, or a unique foreground task title; title detection needs Accessibility |
+| Claude | Exact foreground Desktop conversation address/focus timestamp, or a valid original CLI terminal binding |
+| DSH | Exact sessionId in the frontmost browser tab; browser automation permission required |
+| Grok / pi | Valid original TTY selected in foreground Terminal/iTerm; default pi logs without TTY cannot qualify |
+| Cursor / WorkBuddy / Qoder / Z Code | Reliable detection not implemented; acknowledge with a bubble click or × |
 
-## Wake & strong-wake
+Checks run independently every 500 ms on macOS. Missing permissions or uncertain identity retain notifications; this is not an unconditional two-second guarantee. Windows/Linux do not yet have equivalent manual-view detection. See the [validation record](./docs/平台行为验收.md).
 
-- **Wake** — the app is still running; just focus the already-open original task.
-- **Strong-wake** — the app was closed; after you confirm, it reopens the app and navigates to the original task.
+## Returning to a task
 
-Claude Desktop has no public deep link for selecting an arbitrary existing conversation. A verified Desktop-owned task safely activates the existing Claude app without importing or duplicating a session; when the target is not already focused, choose its title in the sidebar. Claude CLI resume remains an explicit, validated strong-wake operation rather than an automatic fallback.
+Codex Desktop uses a task deep link, but acceptance does not prove the target page is visible. Claude Desktop activates the existing app; select the task in its sidebar when needed. DSH attempts the original session. Terminal targets reuse existing tabs where supported; native macOS CLI resume requires confirmation.
 
-Terminal tasks prefer to reuse the original Terminal / iTerm tab; nothing new is opened or resumed without your confirmation.
+Cursor, WorkBuddy, Qoder and Z Code currently open the application for manual session selection. pi never automatically starts a duplicate task. A dismissed bubble means the notification was acknowledged, not that navigation succeeded. See [provider-specific limits](./docs/平台接入说明.md).
 
 ## Where the state comes from
 
@@ -206,9 +208,16 @@ AllPet reads session logs already stored locally by each platform — no passwor
 | Codex | `~/.codex/sessions` |
 | Claude Code | `~/.claude/projects` |
 | DSH | `~/.dsh/sessions` |
-| Grok | `~/.grok/logs/unified.jsonl`, `active_sessions.json` |
+| Grok | `~/.grok/logs/unified.jsonl`, `~/.grok/active_sessions.json` |
+| Cursor | `~/.cursor/projects` |
+| WorkBuddy | `~/.workbuddy/projects` |
+| Qoder | `~/.qoder/projects` |
+| pi | `~/.pi/agent/sessions` |
+| Z Code | `~/.zcode/cli/db/db.sqlite` |
 
 Explicit task events in the logs win; when there is no clear event, AllPet falls back to recent-write time to infer running / waiting / idle. Scanning, caching, and zstd decompression all run in the background so the pet animation never stutters.
+
+Cursor/Qoder provide opt-in observer hooks for lifecycle events. Installation merges and backs up existing configuration without storing prompt text. See [setup commands](./docs/平台接入说明.md).
 
 ## Configuration
 
@@ -221,7 +230,8 @@ Config file: `~/.config/all-pet/config.json` (see [`config.example.json`](./conf
     "scale": 0.5833333333,
     "anchor": "bottom-right",
     "bundlePath": null
-  }
+  },
+  "hiddenBubblePlatforms": []
 }
 ```
 
@@ -229,32 +239,27 @@ Config file: `~/.config/all-pet/config.json` (see [`config.example.json`](./conf
 - `anchor` — `bottom-right`, `bottom-left`, `top-right`, or `top-left`;
 - `bundlePath` — current pet directory; usually you don't need to set it — the menu and `pet set` save it automatically.
 
+- `hiddenBubblePlatforms` — top-level list of hidden provider keys, e.g. `["grok", "pi"]`.
+
 ## Packaging installers
 
-当前版本 **v1.3.0**。版本号记录在 [`desktop/package.json`](./desktop/package.json) 的 `version` 字段（`desktop/package-lock.json` 需同步）。
+Update the version in `desktop/package.json` and `desktop/package-lock.json`, update documentation, and pass CI before pushing a matching `vX.Y.Z` tag (`v1.4.0` for this release).
 
-发新版时先 bump 版本号并提交，再打 tag 触发三平台打包并发布到 GitHub Releases：
+The Release workflow checks the tag, builds the Swift core and resources, runs behavior/provider checks, and packages macOS arm64 DMG/ZIP, Windows x64 EXE, and Linux x64 AppImage/DEB. Tag builds upload to a draft Release. Verify all three builds, installer contents and SHA256SUMS before publishing. Manual workflow runs only produce Actions artifacts.
 
-```bash
-# 1. 修改 desktop/package.json 与 desktop/package-lock.json 的 version
-# 2. 提交后打 tag 并推送
-git tag -a v1.3.0 -m "AllPet v1.3.0"
-git push origin v1.3.0
-```
-
-`Release` workflow 会构建 Swift 核心、嵌入 Electron sidecar，再在 macOS / Windows / Linux 上运行 `electron-builder`，产出 `dmg`/`zip`、`exe`、`AppImage`/`deb`。打包完成后 Release 默认为草稿（draft），用 `gh release edit v1.3.0 --draft=false` 正式发布；也可在 Actions 页手动触发（仅出产物、不建 Release）。本地打包见 [`desktop/README.md`](./desktop/README.md)。
+See [desktop build instructions](./desktop/README.md). Automatic updates are not enabled.
 
 ## FAQ
 
-### Clicking a task doesn't focus it
+### Navigation or manual acknowledgement does not work
 
-Allow AllPet / Terminal to control windows in "System Settings → Privacy & Security → Accessibility". Browsers additionally need Apple Events / JavaScript automation.
+Check the support table first. For window detection, add the currently installed AllPet in macOS System Settings → Privacy & Security → Accessibility. Browsers may also require Apple Events / JavaScript automation.
 
-### DSH only shows times, no task content
+After an upgrade, a stale permission entry may reference an older app. Remove that entry and add the current installation if needed. In `~/.config/all-pet/manual-view-status.json`, check a fresh `updatedAt` together with `hostAccessibilityTrusted` and `accessibilityTrusted`; an old diagnostic is not evidence of current authorization. Without completed candidates, diagnostics may not refresh continuously.
 
-```bash
-brew install zstd
-```
+### DSH has no task content
+
+Electron includes a zstd decoder. Standalone AppKit/CLI users may need a system decoder (`brew install zstd` on macOS).
 
 ### Debugging
 

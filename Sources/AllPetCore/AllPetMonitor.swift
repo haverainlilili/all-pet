@@ -20,6 +20,8 @@ public struct AllPetMonitor {
             case .claude: built[kind] = ClaudeMonitor(roots: paths)
             case .dsh: built[kind] = DSHMonitor(roots: paths)
             case .grok: built[kind] = GrokMonitor(paths: paths)
+            case .cursor, .workbuddy, .qoder, .pi: built[kind] = TranscriptPlatformMonitor(platform: kind, roots: paths + [home.appendingPathComponent(".config/all-pet/events/\(kind.rawValue)").path])
+            case .zcode: built[kind] = ZCodeMonitor(paths: paths)
             }
         }
         self.monitors = built

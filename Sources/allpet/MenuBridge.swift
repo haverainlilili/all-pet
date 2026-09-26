@@ -2,11 +2,18 @@
 import AppKit
 import Foundation
 import Darwin
+import AllPetCore
+import ApplicationServices
+
+private struct MenuBridgeEnvelope: Decodable { let type: String }
+private struct MenuBridgeViewCheck: Decodable, Sendable { let requestID: String; let tasks: [TrayTaskItem] }
 
 private struct MenuBridgePet: Decodable { let label: String; let target: String?; let source: String?; let current: Bool?; let iconPath: String? }
+private struct MenuBridgePlatform: Decodable { let key: String; let label: String; let visible: Bool }
 private struct MenuBridgeState: Decodable {
     let type: String; let visible: Bool; let hasPet: Bool; let busy: Bool; let busyLabel: String?
     let scalePercent: String; let tooltip: String; let statusIconPath: String?; let platformTitles: [String]
+    let bubblePlatforms: [MenuBridgePlatform]?
     let installedPets: [MenuBridgePet]; let defaultPets: [MenuBridgePet]
 }
 
@@ -17,9 +24,14 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
     private let sizeControl = PetSizeControlView()
     private var inputBuffer = Data()
     private var latestState: MenuBridgeState?
+    private var bubblePlatformMenuItems: [String: NSMenuItem] = [:]
     private var menuIsOpen = false
     private var needsRebuild = false
+    private var accessibilityMenuItem: NSMenuItem?
     private var parentTimer: Timer?
+    private var viewCheckInFlight = Set<PlatformKind>()
+    private var claudeViewRevisions: [String: TrayTaskItem] = [:]
+    private let taskLauncher = TaskLauncher(home: home())
 
     func run() {
         let app = NSApplication.shared
@@ -34,13 +46,15 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
                 DispatchQueue.main.async { NSApp.terminate(nil) }
                 return
             }
-            DispatchQueue.main.async { self?.consume(data) }
+            // Apply incoming checkbox states even while the menu tracking loop is active.
+            RunLoop.main.perform(inModes: [.default, .eventTracking]) { self?.consume(data) }
+            CFRunLoopWakeUp(CFRunLoopGetMain())
         }
         parentTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             guard let self else { return }
             if getppid() == 1 || getppid() != self.initialParentPID { NSApp.terminate(nil) }
         }
-        emit(["type": "ready", "protocolVersion": 1])
+        emit(["type": "ready", "protocolVersion": 1, "manualViewAccessibility": AXIsProcessTrusted()])
         app.run()
     }
 
@@ -51,9 +65,43 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
             inputBuffer.removeSubrange(...newline)
             guard !line.isEmpty else { continue }
             do {
-                let state = try JSONDecoder().decode(MenuBridgeState.self, from: line)
-                if state.type == "state" { apply(state) }
+                let decoder = JSONDecoder()
+                let envelope = try decoder.decode(MenuBridgeEnvelope.self, from: line)
+                if envelope.type == "view-check" {
+                    checkViewedTasks(try decoder.decode(MenuBridgeViewCheck.self, from: line))
+                } else if envelope.type == "state" {
+                    apply(try decoder.decode(MenuBridgeState.self, from: line))
+                }
             } catch { emit(["type": "error", "message": "invalid state: \(error.localizedDescription)"]) }
+        }
+    }
+
+    private func checkViewedTasks(_ request: MenuBridgeViewCheck) {
+        guard let platform = request.tasks.first?.platform,
+              [.codex, .claude, .dsh, .grok, .pi].contains(platform),
+              !viewCheckInFlight.contains(platform) else { return }
+        let tasks = Array(request.tasks.filter { $0.platform == platform && $0.phase == .done }.prefix(12))
+        viewCheckInFlight.insert(platform)
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let startedAt = Date()
+            let trusted = AXIsProcessTrusted()
+            if platform == .claude {
+                let current = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+                for (id, task) in current where self.claudeViewRevisions[id] != task {
+                    self.taskLauncher.clearClaudeFocusBaseline(for: task.canonicalID)
+                }
+                self.claudeViewRevisions = current
+            }
+            let viewed = tasks.filter { self.taskLauncher.isManuallyViewed($0) }.map(\.id)
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            DispatchQueue.main.async {
+                self.viewCheckInFlight.remove(platform)
+                self.updateAccessibilityMenuItem(trusted: trusted)
+                self.emit(["type": "view-result", "requestID": request.requestID, "viewedIDs": viewed,
+                           "accessibilityTrusted": trusted, "elapsedMs": elapsedMs, "platform": platform.rawValue,
+                           "claudeAppActive": NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.anthropic.claudefordesktop"])
+            }
         }
     }
 
@@ -68,6 +116,11 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
         }
         sizeControl.percentText = state.scalePercent
         sizeControl.isInteractionEnabled = state.hasPet && !state.busy
+        for row in state.bubblePlatforms ?? [] {
+            if let item = bubblePlatformMenuItems[row.key] {
+                PlatformVisibilityMenuView.update(item, checked: row.visible)
+            }
+        }
         if menuIsOpen { needsRebuild = true } else { rebuildMenu(state) }
     }
 
@@ -81,6 +134,36 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
         let sizeItem = NSMenuItem(); sizeItem.view = sizeControl; menu.addItem(sizeItem)
         let petsItem = NSMenuItem(title: "宠物", action: nil, keyEquivalent: "")
         petsItem.submenu = makePetsMenu(state); menu.addItem(petsItem); menu.addItem(.separator())
+        let platforms = NSMenuItem(title: "气泡显示平台", action: nil, keyEquivalent: "")
+        let choices = NSMenu()
+        bubblePlatformMenuItems.removeAll()
+        for row in state.bubblePlatforms ?? [] {
+            let item = NSMenuItem(title: row.label, action: nil, keyEquivalent: "")
+            item.state = row.visible ? .on : .off
+            item.view = PlatformVisibilityMenuView(title: row.label, checked: row.visible) { [weak self] in
+                self?.emitAction("bubble-platform-toggle", value: row.key)
+            }
+            bubblePlatformMenuItems[row.key] = item
+            choices.addItem(item)
+        }
+        choices.addItem(.separator())
+        for (title, value) in [("全部显示", "show"), ("全部隐藏", "hide")] {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.view = PlatformVisibilityMenuView(title: title) { [weak self] in
+                self?.emitAction("bubble-platform-all", value: value)
+            }
+            choices.addItem(item)
+        }
+        choices.addItem(.separator())
+        addItem("仅影响气泡显示，保留任务历史", action: nil, to: choices, enabled: false)
+        platforms.submenu = choices; menu.addItem(platforms)
+        let integration = NSMenuItem(title: "实时状态接入", action: nil, keyEquivalent: "")
+        let integrationMenu = NSMenu()
+        for (key, name) in [("cursor", "Cursor"), ("qoder", "Qoder")] {
+            let item = NSMenuItem(title: "启用/修复 \(name)", action: #selector(installIntegration(_:)), keyEquivalent: "")
+            item.target = self; item.representedObject = key; integrationMenu.addItem(item)
+        }
+        integration.submenu = integrationMenu; menu.addItem(integration)
         for title in state.platformTitles {
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: ""); item.isEnabled = false; menu.addItem(item)
         }
@@ -89,6 +172,11 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
             let item = NSMenuItem(title: "正在\(state.busyLabel ?? "处理宠物")…", action: nil, keyEquivalent: "")
             item.isEnabled = false; menu.addItem(item)
         }
+        let permission = NSMenuItem(title: "", action: #selector(openAccessibilitySettings), keyEquivalent: "")
+        permission.target = self
+        accessibilityMenuItem = permission
+        updateAccessibilityMenuItem(trusted: AXIsProcessTrusted())
+        menu.addItem(permission)
         addItem("打开配置", action: #selector(openConfig))
         addItem("退出", action: #selector(quit), keyEquivalent: "q")
         needsRebuild = false
@@ -129,12 +217,32 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
     }
 
     private func image(at path: String?) -> NSImage? { guard let path, !path.isEmpty else { return nil }; return NSImage(contentsOfFile: path) }
-    private func addItem(_ title: String, action: Selector, keyEquivalent: String = "", to targetMenu: NSMenu? = nil, enabled: Bool = true) {
+    private func addItem(_ title: String, action: Selector?, keyEquivalent: String = "", to targetMenu: NSMenu? = nil, enabled: Bool = true) {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent); item.target = self; item.isEnabled = enabled; (targetMenu ?? menu).addItem(item)
     }
-    func menuWillOpen(_ menu: NSMenu) { menuIsOpen = true }
+    func menuWillOpen(_ menu: NSMenu) {
+        menuIsOpen = true
+        updateAccessibilityMenuItem(trusted: AXIsProcessTrusted())
+    }
+    private func updateAccessibilityMenuItem(trusted: Bool) {
+        accessibilityMenuItem?.title = trusted
+            ? "Codex 自动确认：辅助功能权限已开启"
+            : "Codex 自动确认：开启辅助功能权限…"
+    }
+    @objc private func openAccessibilitySettings() {
+        // Only prompt after the user selects this menu action. Never grant permission automatically.
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+    }
     func menuDidClose(_ menu: NSMenu) { menuIsOpen = false; if needsRebuild, let latestState { rebuildMenu(latestState) } }
 
+    @objc private func installIntegration(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String else { return }
+        emitAction("integration-install", value: key)
+    }
     @objc private func togglePet() { emitAction("toggle-visibility") }
     @objc private func openConfig() { emitAction("open-config") }
     @objc private func openManager() { emitAction("open-manager") }
