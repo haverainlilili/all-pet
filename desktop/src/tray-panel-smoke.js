@@ -21,7 +21,10 @@ module.exports = async function verify({ show, window, state, readConfig, output
   const capture = async name => fs.writeFileSync(output.replace(/\.json$/, `-${name}.png`), (await panel.webContents.capturePage()).toPNG())
   await until(() => state().hasPet && state().installedPets.length >= 2, 'bundled pets loaded')
   await until(() => js('document.querySelectorAll("[data-page]").length === 3'), 'root menu')
-  await click('[data-page="platforms"]')
+  await js("document.querySelector('[data-page=\"platforms\"]').dispatchEvent(new MouseEvent('mouseenter'))")
+  await until(() => js("!document.getElementById('submenu').hidden"), 'hover opens submenu')
+  assert.equal(await js("document.getElementById('root').hidden"), false)
+  assert.ok(panel.getBounds().width > 500, 'cascading menu keeps root beside submenu')
   for (const platform of ['codex', 'pi']) {
     await click(`[data-action="bubble-platform-toggle"][data-value="${platform}"]`)
     await until(() => (readConfig().hiddenBubblePlatforms || []).includes(platform), `hide ${platform}`)
@@ -70,7 +73,7 @@ module.exports = async function verify({ show, window, state, readConfig, output
     outside.show(); outside.focus()
     await until(() => !panel.isVisible(), 'outside focus closes')
   } finally { outside.destroy() }
-  const result = { ok: true, continuousPlatformClicks: true, allPlatforms: true, continuousScale: true, petSelection: true, visibility: true, refresh: true,
+  const result = { ok: true, cascading: true, hoverOpens: true, continuousPlatformClicks: true, allPlatforms: true, continuousScale: true, petSelection: true, visibility: true, refresh: true,
     sameWindow: true, thumbnails: true, invalidActionRejected: true, escapeCloses: true, blurCloses: true,
     hiddenBubblePlatforms: readConfig().hiddenBubblePlatforms, selectedPet: next.label }
   fs.writeFileSync(output, JSON.stringify(result, null, 2) + '\n')

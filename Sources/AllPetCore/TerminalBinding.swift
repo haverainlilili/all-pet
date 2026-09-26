@@ -47,6 +47,10 @@ public enum TerminalBindingResolver {
         return true
     }
 
+    public static func startedAt(processID: Int32) -> Date? {
+        processInfo(processID).map { Date(timeIntervalSince1970: Double(startToken($0)) / 1_000_000) }
+    }
+
     private static func processInfo(_ pid: Int32) -> proc_bsdinfo? {
         var info = proc_bsdinfo()
         let size = MemoryLayout<proc_bsdinfo>.size
@@ -69,6 +73,9 @@ public enum TerminalBindingResolver {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
+            let timeout = DispatchWorkItem { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1, execute: timeout)
+            defer { timeout.cancel() }
             let data = output.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }

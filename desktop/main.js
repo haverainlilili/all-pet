@@ -26,7 +26,10 @@ const { TRAY_PET_ICON_CACHE_VERSION, platformMenuTitles, scalePercentText, petTr
 const { createBoundedThumbnailDataURL } = require('./src/pet-thumbnail')
 const { reuseExistingDshTab } = require('./src/dsh-browser')
 const { menuBridgeState } = require('./src/menu-bridge')
-const { trayPanelBounds, keepsTrayPanelOpen, validTrayPanelAction } = require('./src/tray-panel-model')
+const { trayPanelLayout, keepsTrayPanelOpen, validTrayPanelAction } = require('./src/tray-panel-model')
+const { createRPC } = require('./src/terminal/rpc')
+const { createTerminalService, applyBindings } = require('./src/terminal/service')
+const { cliTask } = require('./src/terminal/process')
 const { createManualViewMonitor, readCodexUnread } = require('./src/manual-view')
 const { cropTrayPetIcon } = require('./src/tray-icon')
 const { isExcludedCodexHistory } = require('./src/codex-session-metadata')
@@ -56,6 +59,7 @@ let trayMenu = null
 let trayPanelWindow = null
 let trayPanelLoad = null
 let trayPanelOpenRequest = 0
+let trayPanelExpanded = false
 let nativeMenuBridgeProc = null
 let nativeMenuBridgeBuffer = ''
 let nativeMenuBridgeFailed = false
@@ -71,6 +75,13 @@ let watchRestartTimer = null
 let petRefreshRetryTimer = null
 let historyExpiryTimer = null
 let manualViewMonitor = null
+let terminalService = null
+const nativeTerminalRPC = createRPC(message => {
+  if (!nativeMenuBridgeProc || nativeMenuBridgeProc.stdin.destroyed || app.isQuitting) return false
+  nativeMenuBridgeProc.stdin.write(JSON.stringify(message) + '\n')
+  return true
+})
+const pendingViewParts = new Map()
 let manualViewStatus = {}
 let lifecycleCleaned = false
 let currentSnapshot = null
@@ -294,24 +305,43 @@ function startHistoryExpiryTimer() {
 
 // Local health only: no task titles, transcript contents or account identifiers.
 function recordManualViewStatus(update) {
-  manualViewStatus = { ...manualViewStatus, ...update, hostAccessibilityTrusted: systemPreferences.isTrustedAccessibilityClient(false), updatedAt: new Date().toISOString() }
+  manualViewStatus = { ...manualViewStatus, ...update, hostAccessibilityTrusted: process.platform === 'darwin' ? systemPreferences.isTrustedAccessibilityClient(false) : null, updatedAt: new Date().toISOString() }
   try { writeJSONAtomically(path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'manual-view-status.json'), manualViewStatus) } catch {}
 }
 
 function startManualViewMonitor() {
-  if (process.platform !== 'darwin') return
+  if (!process.env.ALLPET_TRAY_PANEL_SMOKE && !shouldUseLegacyMacTray()) {
+    terminalService = createTerminalService({ home: EFFECTIVE_HOME, native: nativeTerminalRPC,
+      getTasks: () => Object.values(taskHistory).flat(), config: () => readBubbleConfig().terminal || {},
+      onBindings: (inspected, bindings) => {
+        if (applyBindings(Object.values(taskHistory).flat(), inspected, bindings)) persistHistory()
+      } })
+    terminalService.start()
+  }
   manualViewMonitor = createManualViewMonitor({
     getState: mutableHistoryState,
     hiddenPlatforms: () => [...hiddenBubblePlatforms(readBubbleConfig())],
     readUnread: () => readCodexUnread(EFFECTIVE_HOME),
     sendCheck: request => {
+      const terminalTasks = request.tasks.filter(cliTask)
+      const desktopTasks = process.platform === 'darwin' ? request.tasks.filter(task => !cliTask(task)) : []
       const child = nativeMenuBridgeProc
-      if (!child || child.stdin.destroyed || app.isQuitting) return false
-      try {
-        recordManualViewStatus({ requestID: request.requestID, requestedAt: Date.now(), candidateCount: request.tasks.length })
-        child.stdin.write(`${JSON.stringify(request)}\n`)
-        return true
-      } catch { return false }
+      const entry = { remaining: 0, viewedIDs: [], at: Date.now() }
+      for (const [id, value] of pendingViewParts) if (Date.now() - value.at > 5000) pendingViewParts.delete(id)
+      if (terminalTasks.length && terminalService) entry.remaining++
+      if (desktopTasks.length && child && !child.stdin.destroyed) entry.remaining++
+      if (!entry.remaining) return false
+      pendingViewParts.set(request.requestID, entry)
+      if (terminalTasks.length && terminalService) {
+        Promise.all(terminalTasks.map(async task => await terminalService.viewed(task) ? task.id : null))
+          .then(ids => receiveViewPart({ type: 'view-result', requestID: request.requestID, viewedIDs: ids.filter(Boolean) }))
+          .catch(() => receiveViewPart({ type: 'view-result', requestID: request.requestID, viewedIDs: [] }))
+      }
+      if (desktopTasks.length && child && !child.stdin.destroyed) {
+        try { child.stdin.write(JSON.stringify({ ...request, tasks: desktopTasks }) + '\n') }
+        catch { receiveViewPart({ type: 'view-result', requestID: request.requestID, viewedIDs: [] }) }
+      }
+      return true
     },
     onDismiss: state => {
       adoptHistoryState(state)
@@ -320,6 +350,16 @@ function startManualViewMonitor() {
     }
   })
   manualViewMonitor.start()
+}
+
+function receiveViewPart(message) {
+  const entry = pendingViewParts.get(message.requestID)
+  if (!entry) return
+  entry.viewedIDs.push(...(message.viewedIDs || []))
+  if (--entry.remaining === 0) {
+    pendingViewParts.delete(message.requestID)
+    manualViewMonitor?.receive({ type: 'view-result', requestID: message.requestID, viewedIDs: entry.viewedIDs })
+  }
 }
 
 function historyPayload() {
@@ -749,6 +789,7 @@ async function wakeTask(taskID) {
     },
     launchApplication: (command, args) => runCommandLauncher(spawn, command, args),
     openExternal: url => shell.openExternal(url),
+    focusTerminal: task => terminalService ? terminalService.focus(task) : Promise.resolve({ succeeded: false, message: '终端接入尚未就绪' }),
     reuseDSHTab: url => reuseExistingDshTab(spawn, url, process.platform),
     presentFallback: presentWakeFallback
   }).finally(() => wakeInFlight.delete(taskID))
@@ -849,6 +890,7 @@ function managerPetPayload(catalog) {
 function registerPetIpc() {
   ipcMain.handle('tray-panel:state', event => { requireTrayPanelFrame(event); return trayPanelState() })
   ipcMain.handle('tray-panel:close', event => { requireTrayPanelFrame(event); hideTrayPanel(); return { ok: true } })
+  ipcMain.handle('tray-panel:layout', (event, expanded) => { requireTrayPanelFrame(event); trayPanelExpanded = expanded === true; return positionTrayPanel() })
   ipcMain.handle('tray-panel:action', async (event, action, value) => {
     requireTrayPanelFrame(event)
     const state = trayPanelState()
@@ -1226,6 +1268,7 @@ async function handleNativeMenuAction(message) {
   const action = String(message && message.action || '')
   const value = message && message.value
   if (action === 'bubble-platform-toggle') await changeBubbleVisibility(String(value))
+  else if (action === 'terminal-setup') await shell.openPath(path.join(app.isPackaged ? path.join(process.resourcesPath, 'terminal-integrations') : path.join(__dirname, 'integrations'), 'README.md'))
   else if (action === 'integration-install') await installPlatformIntegration(String(value))
   else if (action === 'bubble-platform-all') await changeBubbleVisibility('all', value === 'show')
   else if (action === 'toggle-visibility') await togglePetVisibility()
@@ -1244,6 +1287,8 @@ async function handleNativeMenuAction(message) {
   else if (action === 'refresh-pets') {
     const result = await runSerializedPetRefresh(petOperationGate, () => refreshDesktopState({ fromMutation: true }))
     if (!result || !result.ok) await dialog.showMessageBox({ type: 'warning', title: '刷新失败', message: '无法刷新宠物状态', detail: String(result && result.error || '未知错误'), buttons: ['知道了'] })
+  } else if (action === 'open-accessibility' && process.platform === 'darwin') {
+    nativeMenuBridgeProc?.stdin.write(JSON.stringify({ type: 'permission-request' }) + '\n')
   } else if (action === 'open-config') await openConfig()
   else if (action === 'quit') quit()
 }
@@ -1258,13 +1303,15 @@ function consumeNativeMenuBridgeOutput(chunk, onReady) {
       if (message.type === 'ready') {
         recordManualViewStatus({ bridgeReady: true, accessibilityTrusted: message.manualViewAccessibility === true })
         onReady()
+      } else if (message.type === 'terminal-result') {
+        nativeTerminalRPC.receive(message)
       } else if (message.type === 'view-result') {
         recordManualViewStatus({ replyID: message.requestID, repliedAt: Date.now(),
           replyLatencyMs: message.requestID === manualViewStatus.requestID ? Date.now() - manualViewStatus.requestedAt : null,
           matchedCount: Array.isArray(message.viewedIDs) ? message.viewedIDs.length : 0,
           ...(typeof message.accessibilityTrusted === 'boolean' ? { accessibilityTrusted: message.accessibilityTrusted } : {}),
           nativeElapsedMs: message.elapsedMs ?? null })
-        manualViewMonitor?.receive(message)
+        receiveViewPart(message)
       } else if (message.type === 'error') recordManualViewStatus({ bridgeError: message.message })
       else if (message.type === 'action') handleNativeMenuAction(message).catch(err => console.error('[allpet] 原生菜单动作失败:', err && err.message || err))
     } catch {}
@@ -1276,13 +1323,14 @@ function shouldUseLegacyMacTray() {
 }
 
 function startNativeMenuBridge() {
-  if (process.platform !== 'darwin' || usesTrayPanel() || nativeMenuBridgeFailed || shouldUseLegacyMacTray()) return Promise.resolve(false)
+  if (process.platform !== 'darwin' || nativeMenuBridgeFailed || shouldUseLegacyMacTray() || process.env.ALLPET_TRAY_PANEL_SMOKE) return Promise.resolve(false)
+  if (nativeMenuBridgeProc) return Promise.resolve(true)
   return new Promise(resolve => {
     let settled = false
     let child
     const finish = value => { if (!settled) { settled = true; clearTimeout(timer); resolve(value) } }
     try {
-      child = spawn(allpetBinary(), ['menu-bridge'], { stdio: ['pipe', 'pipe', 'pipe'], env: sidecarEnvironment() })
+      child = spawn(allpetBinary(), ['menu-bridge'], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...sidecarEnvironment(), ALLPET_BRIDGE_HEADLESS: usesTrayPanel() ? '1' : '0' } })
     } catch (err) {
       console.error('[allpet] 启动原生菜单桥接失败:', err && err.message || err)
       resolve(false)
@@ -1299,11 +1347,12 @@ function startNativeMenuBridge() {
     child.once('error', err => { console.error('[allpet] 原生菜单桥接错误:', err && err.message || err); finish(false) })
     child.once('close', () => {
       const wasActive = nativeMenuBridgeProc === child
-      if (wasActive) nativeMenuBridgeProc = null
+      if (wasActive) { nativeMenuBridgeProc = null; nativeTerminalRPC.disconnect() }
       if (!app.isQuitting && wasActive) {
         nativeMenuBridgeFailed = true
-        console.error('[allpet] 原生菜单桥接已退出，回退 Electron 原生菜单')
-        setTimeout(() => createTray().catch(err => console.error('[allpet] 托盘回退失败:', err && err.message || err)), 250)
+        recordManualViewStatus({ bridgeReady: false })
+        console.error('[allpet] 系统桥接已退出，正在恢复')
+        setTimeout(() => { nativeMenuBridgeFailed = false; startNativeMenuBridge().catch(() => {}) }, 2000)
       }
       finish(false)
     })
@@ -1311,7 +1360,7 @@ function startNativeMenuBridge() {
 }
 
 function usesTrayPanel() {
-  return process.platform !== 'darwin' || Boolean(process.env.ALLPET_TRAY_PANEL_SMOKE || process.env.ALLPET_TRAY_PANEL_PREVIEW)
+  return !shouldUseLegacyMacTray()
 }
 
 function requireTrayPanelFrame(event) {
@@ -1321,6 +1370,7 @@ function requireTrayPanelFrame(event) {
 function trayPanelState() {
   const state = nativeMenuState()
   state.importLocal = petCapabilities(process.platform).importLocal
+  if (process.platform === 'darwin') state.accessibility = manualViewStatus.accessibilityTrusted === true
   state.installedPets = state.installedPets.map(row => {
     const entry = petCatalog.find(pet => petMutationTarget(pet) === row.target)
     return { label: row.label, target: row.target, current: row.current,
@@ -1347,7 +1397,7 @@ async function showTrayPanel() {
     const panel = new BrowserWindow({
       width: 304, height: 568, show: false, frame: false, resizable: false,
       minimizable: false, maximizable: false, fullscreenable: false,
-      skipTaskbar: true, alwaysOnTop: true, backgroundColor: '#28282c',
+      skipTaskbar: true, alwaysOnTop: true, transparent: true, hasShadow: false, backgroundColor: '#00000000',
       webPreferences: { preload: path.join(__dirname, 'src', 'tray-panel-preload.js'),
         contextIsolation: true, nodeIntegration: false, sandbox: true }
     })
@@ -1361,13 +1411,19 @@ async function showTrayPanel() {
   }
   await trayPanelLoad
   if (request !== trayPanelOpenRequest || app.isQuitting || !trayPanelWindow || trayPanelWindow.isDestroyed()) return
-  let anchor = tray?.getBounds()
-  if (!anchor || anchor.width < 1 || anchor.height < 1) anchor = { ...screen.getCursorScreenPoint(), width: 0, height: 0 }
-  const display = screen.getDisplayNearestPoint({ x: Math.round(anchor.x), y: Math.round(anchor.y) })
-  trayPanelWindow.setBounds(trayPanelBounds(anchor, display.workArea))
+  positionTrayPanel()
   sendTrayPanelState()
   trayPanelWindow.show()
   trayPanelWindow.focus()
+}
+
+function positionTrayPanel() {
+  let anchor = tray?.getBounds()
+  if (!anchor || anchor.width < 1 || anchor.height < 1) anchor = { ...screen.getCursorScreenPoint(), width: 0, height: 0 }
+  const display = screen.getDisplayNearestPoint({ x: Math.round(anchor.x), y: Math.round(anchor.y) })
+  const layout = trayPanelLayout(anchor, display.workArea, trayPanelExpanded)
+  trayPanelWindow?.setBounds(layout.bounds)
+  return layout
 }
 
 function toggleTrayPanel() {
@@ -1387,7 +1443,9 @@ function applyTrayScale(delta, action) {
 }
 
 async function createTray() {
-  if (await startNativeMenuBridge()) return
+  const bridge = await startNativeMenuBridge()
+  if (bridge && !usesTrayPanel()) return
+  if (tray) return
   const iconPath = path.join(__dirname, 'assets', 'icon.png')
   let icon
   if (fs.existsSync(iconPath)) {
@@ -1628,6 +1686,10 @@ function cleanupLifecycle() {
   app.isQuitting = true
   hideTrayPanel()
   if (trayPanelWindow && !trayPanelWindow.isDestroyed()) trayPanelWindow.destroy()
+  terminalService?.stop()
+  terminalService = null
+  nativeTerminalRPC.disconnect()
+  pendingViewParts.clear()
   manualViewMonitor?.stop()
   manualViewMonitor = null
   if (watchRestartTimer) { clearTimeout(watchRestartTimer); watchRestartTimer = null }

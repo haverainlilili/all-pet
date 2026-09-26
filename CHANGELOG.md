@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- 三平台 Electron 统一 Mac 风格级联菜单；连续平台切换、缩放与换宠物保持打开。
+- 接通原终端身份捕获、持久化、点击定位与 500 ms 查看检查；Mac 桥接无额外菜单图标。
+- 增加 Windows 控制台/UI Automation、Linux AT-SPI/X11、kitty、Konsole、tmux 适配器；随包提供编辑器 VSIX 和 WezTerm Lua 接入。
+- 拒绝失效进程、复用的 PID/TTY、新任务占用终端和延迟回复。配置与剩余限制见终端接入说明。
+
 ## v1.4.1 — 2026-09-26
 
 - 修复 Windows/Linux 点击菜单设置后立即关闭：托盘左/右键打开持续操作的菜单面板。平台勾选、全部显示/隐藏、大小调节、宠物切换和刷新保持打开。

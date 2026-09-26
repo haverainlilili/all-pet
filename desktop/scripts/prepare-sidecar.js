@@ -96,3 +96,5 @@ if (process.platform === 'win32') {
 }
 
 console.log(JSON.stringify({ binPath, executable: copiedExecutable, resource: path.basename(resource), runtimeDLLs }))
+
+require('./package-terminal-extension')

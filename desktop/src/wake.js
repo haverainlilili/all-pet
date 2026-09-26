@@ -1,5 +1,6 @@
 'use strict'
 
+const { cliTask } = require('./terminal/process')
 const { dshSessionURL } = require('./dsh-wake')
 
 const { PLATFORMS, PLATFORM_KEYS } = require('./platforms')
@@ -10,7 +11,7 @@ function platformLabel(platform) {
 }
 
 function isCodexCLI(task) {
-  return task && (
+  return task && task.launchOrigin !== 'codex-desktop' && (
     task.launchOrigin === 'codex-cli'
     || Boolean(task.terminalTTY)
     || Boolean(task.terminalBinding && task.terminalBinding.tty)
@@ -44,6 +45,8 @@ function wakePlanForTask(task, runtimePlatform = process.platform) {
   const label = platformLabel(platform)
   const sessionID = typeof task.sessionID === 'string' ? task.sessionID.trim() : ''
   const launchOrigin = typeof task.launchOrigin === 'string' ? task.launchOrigin.trim().toLowerCase() : ''
+
+  if (cliTask(task)) return { kind: 'terminal', platform, canOpenPlatform: false }
 
   if (platform === 'dsh' && sessionID) {
     return {
@@ -125,6 +128,7 @@ async function performTaskWake(task, {
   launchApplication,
   openExternal,
   reuseDSHTab,
+  focusTerminal,
   presentFallback
 }) {
   const terminal = task && (task.phase === 'done' || task.phase === 'failed')
@@ -133,9 +137,14 @@ async function performTaskWake(task, {
     await presentFallback(withTaskAcknowledgement(plan, acknowledged), task), acknowledged
   )
   const plan = wakePlanForTask(task, runtimePlatform)
-  if (plan.kind !== 'external' && plan.kind !== 'application') return fallback(plan)
+  if (plan.kind !== 'external' && plan.kind !== 'application' && plan.kind !== 'terminal') return fallback(plan)
 
   try {
+    if (plan.kind === 'terminal') {
+      const result = focusTerminal ? await focusTerminal(task) : { succeeded: false, message: '终端接入尚未就绪，不会启动新的终端进程，任务卡片会继续保留。' }
+      if (result.succeeded && result.exact) return withTaskAcknowledgement(result, acknowledged)
+      return fallback({ kind: 'fallback', platform: task.platform, canOpenPlatform: false, message: result.message })
+    }
     if (plan.kind === 'application') {
       const opened = await launchApplication(plan.command, plan.args)
       if (!opened.succeeded) {

@@ -8,6 +8,15 @@ import ApplicationServices
 private struct MenuBridgeEnvelope: Decodable { let type: String }
 private struct MenuBridgeViewCheck: Decodable, Sendable { let requestID: String; let tasks: [TrayTaskItem] }
 
+private struct TerminalBridgeRequest: Decodable, Sendable {
+    let requestID: String
+    let operation: String
+    let tasks: [TrayTaskItem]?
+    let binding: TerminalBinding?
+    let processID: Int32?
+    let tty: String?
+}
+
 private struct MenuBridgePet: Decodable { let label: String; let target: String?; let source: String?; let current: Bool?; let iconPath: String? }
 private struct MenuBridgePlatform: Decodable { let key: String; let label: String; let visible: Bool }
 private struct MenuBridgeState: Decodable {
@@ -19,7 +28,8 @@ private struct MenuBridgeState: Decodable {
 
 final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
     private let initialParentPID = getppid()
-    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private var statusItem: NSStatusItem?
+    private let headless = ProcessInfo.processInfo.environment["ALLPET_BRIDGE_HEADLESS"] == "1"
     private let menu = NSMenu()
     private let sizeControl = PetSizeControlView()
     private var inputBuffer = Data()
@@ -31,14 +41,16 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
     private var parentTimer: Timer?
     private var viewCheckInFlight = Set<PlatformKind>()
     private var claudeViewRevisions: [String: TrayTaskItem] = [:]
+    private let terminalQueue = DispatchQueue(label: "allpet.terminal-bridge", qos: .utility)
     private let taskLauncher = TaskLauncher(home: home())
 
     func run() {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
-        statusItem.button?.title = "🐾"
+        if !headless { statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength) }
+        statusItem?.button?.title = "🐾"
         menu.delegate = self
-        statusItem.menu = menu
+        statusItem?.menu = menu
         FileHandle.standardInput.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else {
@@ -67,12 +79,61 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
             do {
                 let decoder = JSONDecoder()
                 let envelope = try decoder.decode(MenuBridgeEnvelope.self, from: line)
-                if envelope.type == "view-check" {
+                if envelope.type == "terminal-request" {
+                    terminalRequest(try decoder.decode(TerminalBridgeRequest.self, from: line))
+                } else if envelope.type == "permission-request" {
+                    openAccessibilitySettings()
+                } else if envelope.type == "view-check" {
                     checkViewedTasks(try decoder.decode(MenuBridgeViewCheck.self, from: line))
                 } else if envelope.type == "state" {
                     apply(try decoder.decode(MenuBridgeState.self, from: line))
                 }
             } catch { emit(["type": "error", "message": "invalid state: \(error.localizedDescription)"]) }
+        }
+    }
+
+    private func terminalRequest(_ request: TerminalBridgeRequest) {
+        if request.operation == "foreground" {
+            let front = NSWorkspace.shared.frontmostApplication
+            emit(["type": "terminal-result", "requestID": request.requestID,
+                  "processID": front?.processIdentifier ?? 0, "bundleID": front?.bundleIdentifier ?? ""])
+            return
+        }
+        if request.operation == "activate" {
+            let allowed = Set(["net.kovidgoyal.kitty", "com.github.wez.wezterm", "org.alacritty", "com.mitchellh.ghostty"])
+            let target = request.processID.flatMap { NSRunningApplication(processIdentifier: $0) }
+            let ok = target.map { allowed.contains($0.bundleIdentifier ?? "") && $0.activate() } ?? false
+            emit(["type": "terminal-result", "requestID": request.requestID, "succeeded": ok])
+            return
+        }
+        let queue = request.operation == "bind" ? DispatchQueue.global(qos: .utility) : terminalQueue
+        queue.async { [weak self] in
+            guard let self else { return }
+            var reply: [String: Any] = ["type": "terminal-result", "requestID": request.requestID]
+            if request.operation == "binding-for-tty", let tty = request.tty,
+               let binding = self.taskLauncher.terminalBinding(forTTY: tty),
+               let data = try? JSONEncoder().encode(binding), let object = try? JSONSerialization.jsonObject(with: data) {
+                reply["binding"] = object
+            } else if request.operation == "bind" {
+                var bindings: [[String: Any]] = []
+                for task in (request.tasks ?? []).prefix(48) {
+                    guard let binding = self.taskLauncher.discoverTerminalBinding(for: task),
+                          let data = try? JSONEncoder().encode(binding),
+                          let object = try? JSONSerialization.jsonObject(with: data) else { continue }
+                    bindings.append(["id": task.id, "terminalBinding": object])
+                }
+                reply["bindings"] = bindings
+            } else if let binding = request.binding {
+                switch request.operation {
+                case "valid": reply["valid"] = TerminalBindingResolver.isValid(binding)
+                case "focus": reply["succeeded"] = self.taskLauncher.focusTerminalBinding(binding)
+                case "view": reply["viewed"] = self.taskLauncher.isTerminalBindingSelected(binding)
+                default: reply["error"] = "Unknown terminal operation"
+                }
+            }
+            // Serialize stdout writes with view/menu messages on the main runloop.
+            let output = reply
+            DispatchQueue.main.async { self.emit(output) }
         }
     }
 
@@ -107,12 +168,12 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
 
     private func apply(_ state: MenuBridgeState) {
         latestState = state
-        statusItem.button?.toolTip = state.tooltip
+        statusItem?.button?.toolTip = state.tooltip
         if let path = state.statusIconPath, let image = NSImage(contentsOfFile: path) {
             image.size = NSSize(width: 18, height: 18)
             image.isTemplate = false
-            statusItem.button?.title = ""
-            statusItem.button?.image = image
+            statusItem?.button?.title = ""
+            statusItem?.button?.image = image
         }
         sizeControl.percentText = state.scalePercent
         sizeControl.isInteractionEnabled = state.hasPet && !state.busy
@@ -121,7 +182,9 @@ final class ElectronMenuBridge: NSObject, NSMenuDelegate, @unchecked Sendable {
                 PlatformVisibilityMenuView.update(item, checked: row.visible)
             }
         }
-        if menuIsOpen { needsRebuild = true } else { rebuildMenu(state) }
+        if !headless {
+            if menuIsOpen { needsRebuild = true } else { rebuildMenu(state) }
+        }
     }
 
     private func rebuildMenu(_ state: MenuBridgeState) {

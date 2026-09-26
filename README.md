@@ -12,6 +12,16 @@ The pet switches animation based on what your agents are doing — idle, running
 
 ---
 
+
+## 开发版：统一菜单与终端定位（尚未发布）
+
+三平台 Electron 共用 Mac 风格级联菜单。悬停或点击打开子菜单；平台开关、全部显示/隐藏、大小和宠物切换持续保持打开；Esc、点击外部或打开另一个窗口时关闭。macOS 的系统识别桥接在后台运行，不再额外创建菜单栏图标。
+
+Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查看检查。各终端的条件与限制见 [终端接入说明](desktop/integrations/README.md)：VS Code/Cursor 需要扩展，WezTerm 需要 Lua 接入，kitty 需要本地控制 socket，Linux 部分路径依赖辅助功能或 X11。接口存在不等于所有版本均已实测，也不构成无条件两秒内确认的保证。
+
+下面 v1.4.1 的下载链接仍对应已发布的旧版本，不包含本节新增能力。
+
+
 ## What's new in v1.4.1
 
 Windows/Linux now use a persistent tray panel: left or right click opens it; provider checkboxes, inline size controls, and pet selection stay open for repeated clicks. Pet rows include thumbnails. Outside focus or Escape closes the panel. macOS keeps its native menu.
@@ -187,7 +197,7 @@ See [`宠物生成标准包/README.md`](./宠物生成标准包/README.md) for t
 
 Titles show stable session names; subtitles show current actions and progress. The × button closes a notification. Unacknowledged terminal tasks expire after 24 hours; new task activity can appear again. Internal subagents are filtered using explicit source evidence, not merely short IDs.
 
-The tray's platform visibility controls hide individual or all platforms while preserving monitoring and history. On macOS, checkboxes keep the menu open for consecutive changes; Esc or an outside click closes it. Windows/Linux use native tray menu behavior.
+The tray's platform visibility controls hide individual or all platforms while preserving monitoring and history. On macOS, checkboxes keep the menu open for consecutive changes; Esc or an outside click closes it. The development Electron build uses the same persistent cascading menu on all three systems.
 
 | Manual viewing of a completed task | macOS Electron support |
 |---|---|

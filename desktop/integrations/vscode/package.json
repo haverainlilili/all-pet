@@ -1,0 +1,37 @@
+{
+  "name": "allpet-terminal-bridge",
+  "displayName": "AllPet Terminal Bridge",
+  "description": "定位已有内置终端，并在手动查看完成任务时确认通知。不会读取终端内容。",
+  "version": "1.0.0",
+  "publisher": "allpet",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "main": "extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "allpet.confirmTerminalView",
+        "title": "AllPet: 已查看当前终端任务"
+      }
+    ],
+    "menus": {
+      "terminal/title": [
+        {
+          "command": "allpet.confirmTerminalView",
+          "group": "navigation"
+        }
+      ]
+    }
+  }
+}
