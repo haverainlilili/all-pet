@@ -23,7 +23,7 @@ async function main(){
   if(i===0){
    const task={id:'codex|fixture',platform:'codex',phase:'done',title:'fixture',action:'fixture',sessionID:'fixture',sourcePath:log,processID:pids[0],launchOrigin:'codex-cli',updatedAt:(Date.now()-978307200000)/1000}
    const result=await bridge.request('bind',{tasks:[task]});locator=result.bindings?.[0]?.terminalLocator
-   assert.ok(locator?.window&&locator.control?.length,'bound the exact Windows Terminal control')
+   assert.ok(locator?.window&&locator.control?.length,'bound the exact Windows Terminal control: '+JSON.stringify(result))
    terminalPID = (await bridge.request('valid',{locator})).windowProcessID
   }
  }

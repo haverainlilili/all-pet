@@ -11,6 +11,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows.Automation;
 public static class AllPetTerminal {
+ public static string Diagnostic = "none";
+ [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder name, int count);
  [DllImport("kernel32.dll")] static extern bool AttachConsole(uint pid);
  [DllImport("kernel32.dll")] static extern bool FreeConsole();
  [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
@@ -37,21 +39,25 @@ public static class AllPetTerminal {
  }
  public class Target { public string window; public int[] control; public int[] tab; }
  public static Target Capture(int pid) {
-  FreeConsole(); if (!AttachConsole((uint)pid)) return null;
+  Diagnostic = "capture";
+  FreeConsole(); if (!AttachConsole((uint)pid)) { Diagnostic = "attach-failed"; return null; }
   var old = new StringBuilder(32768); string marker = "AllPet-" + Guid.NewGuid().ToString("N"); bool changed = false;
   try {
    IntPtr handle = GetConsoleWindow();
    // A real conhost window is unique to this console. Pseudoconsole message-only HWNDs are never used.
-   if (handle != IntPtr.Zero && IsWindowVisible(handle)) return new Target { window = handle.ToInt64().ToString() };
+   var windowClass = new StringBuilder(256); GetClassName(handle, windowClass, 256);
+   Diagnostic = "console-class=" + windowClass.ToString() + ";visible=" + IsWindowVisible(handle);
+   if (handle != IntPtr.Zero && IsWindowVisible(handle) && windowClass.ToString() == "ConsoleWindowClass") return new Target { window = handle.ToInt64().ToString() };
    GetConsoleTitle(old, (uint)old.Capacity);
-   changed = SetConsoleTitle(marker); if (!changed) return null;
+   changed = SetConsoleTitle(marker); if (!changed) { Diagnostic += ";title-failed"; return null; }
    for (int attempt = 0; attempt < 6; attempt++) {
     System.Threading.Thread.Sleep(40);
     var found = new List<Target>();
     foreach (var app in Process.GetProcessesByName("WindowsTerminal")) {
-     IntPtr hwnd = app.MainWindowHandle; if (hwnd == IntPtr.Zero) continue;
+     IntPtr hwnd = app.MainWindowHandle; if (attempt == 0) Diagnostic += ";wt-hwnd=" + hwnd.ToInt64(); if (hwnd == IntPtr.Zero) continue;
      var root = AutomationElement.FromHandle(hwnd);
      var controls = root.FindAll(TreeScope.Descendants, new PropertyCondition(AutomationElement.ClassNameProperty, "TermControl"));
+     if (attempt == 0) Diagnostic += ";controls=" + controls.Count;
      foreach (AutomationElement control in controls) {
       if (control.Current.HelpText != marker && control.Current.Name != marker) continue;
       int[] tab = null;
@@ -128,7 +134,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
   $result = @{ type='terminal-result'; requestID=$r.requestID }
   if ($r.operation -eq 'bind') {
    $rows = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine)
-   $bindings = @()
+   $bindings = @(); $diagnostics = @()
    foreach ($task in @($r.tasks | Select-Object -First 48)) {
     $owners = @(); if ($task.sourcePath -and [IO.File]::Exists($task.sourcePath)) { $owners = @([AllPetTerminal]::Owners($task.sourcePath)) }
     $matches = @($rows | Where-Object {
@@ -141,6 +147,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
      }
      $agent -and $identity
     })
+    if ($env:ALLPET_TERMINAL_DIAGNOSTICS) { $diagnostics += @{ candidates=$matches.Count; pid=$task.processID; owners=@($owners).Count } }
     if ($matches.Count -ne 1) { continue }
     $agent = $matches[0]; $console = @([AllPetTerminal]::ConsolePIDs([int]$agent.ProcessId)); $anchor = $agent
     for ($i=0; $i -lt 32; $i++) {
@@ -150,11 +157,13 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     $start = [AllPetTerminal]::Birth([int]$anchor.ProcessId)
     if (!$start) { continue }
     $target = [AllPetTerminal]::Capture([int]$agent.ProcessId)
+    if ($env:ALLPET_TERMINAL_DIAGNOSTICS) { $diagnostics += @{ capture=[AllPetTerminal]::Diagnostic; console=@($console).Count; anchor=$anchor.ProcessId } }
     $locator = @{ version=1; os='win32'; pid=[int]$anchor.ProcessId; start=$start }
     if ($target) { $locator.window=$target.window; $locator.control=$target.control; $locator.tab=$target.tab }
     $bindings += @{ id=$task.id; terminalLocator=$locator }
    }
    $result.bindings = @($bindings)
+   if ($env:ALLPET_TERMINAL_DIAGNOSTICS) { $result.diagnostics = $diagnostics }
   } elseif ($r.locator) {
    $loc = $r.locator
    $valid = ([AllPetTerminal]::Birth([int]$loc.pid) -eq $loc.start)

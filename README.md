@@ -204,10 +204,10 @@ The tray's platform visibility controls hide individual or all platforms while p
 | Codex | Same-account/local-host unread→read receipt, or a unique foreground task title; title detection needs Accessibility |
 | Claude | Exact foreground Desktop conversation address/focus timestamp, or a valid original CLI terminal binding |
 | DSH | Exact sessionId in the frontmost browser tab; browser automation permission required |
-| Grok / pi | Valid original TTY selected in foreground Terminal/iTerm; default pi logs without TTY cannot qualify |
+| Grok / pi | Development build: captured terminal identity and exact foreground tab/pane; see the terminal adapter matrix |
 | Cursor / WorkBuddy / Qoder / Z Code | Reliable detection not implemented; acknowledge with a bubble click or × |
 
-Checks run independently every 500 ms on macOS. Missing permissions or uncertain identity retain notifications; this is not an unconditional two-second guarantee. Windows/Linux do not yet have equivalent manual-view detection. See the [validation record](./docs/平台行为验收.md).
+Checks run independently every 500 ms on macOS. Missing permissions or uncertain identity retain notifications; this is not an unconditional two-second guarantee. The development build also detects supported CLI terminals on Windows/Linux; GUI conversation detection remains platform-specific. See the [validation record](./docs/平台行为验收.md).
 
 ## Returning to a task
 
