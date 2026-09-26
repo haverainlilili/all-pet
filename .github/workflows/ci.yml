@@ -45,6 +45,9 @@ jobs:
         run: swift build -c release --static-swift-stdlib
       - name: 九平台原生格式 / Hook / SQLite WAL 验收
         run: node desktop/scripts/verify-platform-integrations.js
+      - name: 终端桥接协议与进程失效检查
+        if: runner.os != 'Linux'
+        run: node desktop/scripts/verify-terminal-bridge.js
       - name: macOS 原生查看桥接
         if: runner.os == 'macOS'
         run: ALLPET_BINARY="$PWD/.build/release/allpet" node desktop/scripts/verify-manual-view-bridge.js
@@ -144,7 +147,7 @@ jobs:
         working-directory: desktop
       - name: 安装无头依赖
         run: |
-          sudo apt-get install -y xvfb fonts-noto-cjk libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
+          sudo apt-get install -y dbus-x11 xfce4-terminal openbox xdotool python3-pyatspi xvfb fonts-noto-cjk libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
       - name: 构建解包 Electron 应用
         run: npm run dist:dir
         working-directory: desktop
@@ -154,6 +157,9 @@ jobs:
             env ELECTRON_DISABLE_SANDBOX=1 ALLPET_NO_SANDBOX=1 \
                 ALLPET_TRAY_PANEL_OUTPUT="$RUNNER_TEMP/tray-panel/menu.json" \
             node desktop/scripts/verify-tray-panel.js
+      - name: Linux 原终端定位与手动查看
+        run: |
+          xvfb-run -a dbus-run-session -- bash -c 'openbox >/tmp/allpet-openbox.log 2>&1 & node desktop/scripts/verify-terminal-linux.js'
       - name: 保存 Linux 菜单记录和截图
         if: always()
         uses: actions/upload-artifact@v5

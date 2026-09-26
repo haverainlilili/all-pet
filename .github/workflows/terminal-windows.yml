@@ -1,0 +1,34 @@
+name: Windows Terminal
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/src/terminal/**'
+      - 'desktop/scripts/verify-terminal-windows.js'
+      - '.github/workflows/terminal-windows.yml'
+permissions:
+  contents: read
+jobs:
+  terminal:
+    runs-on: windows-latest
+    timeout-minutes: 8
+    env:
+      ALLPET_TERMINAL_DIAGNOSTICS: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: 安装独立 Windows Terminal 验收环境
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'allpet-windows-terminal.zip'
+          $directory = Join-Path $env:RUNNER_TEMP 'allpet-windows-terminal'
+          Invoke-WebRequest 'https://github.com/microsoft/terminal/releases/download/v1.24.11911.0/Microsoft.WindowsTerminal_1.24.11911.0_x64.zip' -OutFile $archive
+          Expand-Archive $archive $directory
+          $binary = Get-ChildItem $directory -Recurse -Filter WindowsTerminal.exe | Select-Object -First 1
+          if (!$binary) { throw 'Windows Terminal executable missing' }
+          New-Item -ItemType File -Path (Join-Path $binary.DirectoryName '.portable') -Force | Out-Null
+          "ALLPET_WINDOWS_TERMINAL=$($binary.FullName)" >> $env:GITHUB_ENV
+      - name: Windows Terminal 真实标签页定位和查看
+        run: node desktop/scripts/verify-terminal-windows.js

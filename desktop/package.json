@@ -8,7 +8,10 @@
     "test": "node --test",
     "dist": "electron-builder",
     "dist:dir": "electron-builder --dir",
-    "dist:local:mac": "electron-builder --mac dir --config.mac.identity=- --config.mac.hardenedRuntime=false"
+    "dist:local:mac": "electron-builder --mac dir --config.mac.identity=- --config.mac.hardenedRuntime=false",
+    "prestart": "node scripts/package-terminal-extension.js",
+    "predist": "node scripts/package-terminal-extension.js",
+    "predist:dir": "node scripts/package-terminal-extension.js"
   },
   "repository": {
     "type": "git",
@@ -48,6 +51,13 @@
       {
         "from": "scripts/sqlite-read.js",
         "to": "sqlite/sqlite-read.js"
+      },
+      {
+        "from": "integrations",
+        "to": "terminal-integrations",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
@@ -77,6 +87,10 @@
         "provider": "github",
         "releaseType": "draft"
       }
+    ],
+    "asarUnpack": [
+      "src/terminal/*.ps1",
+      "src/terminal/*.py"
     ]
   },
   "devDependencies": {
