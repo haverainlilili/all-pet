@@ -161,6 +161,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
    $result.valid = $valid
    if ($valid) { $result.pids = @([AllPetTerminal]::ConsolePIDs([int]$loc.pid)) }
    if ($valid -and $loc.window) {
+    $result.windowProcessID = [AllPetTerminal]::WindowPID($loc.window)
     if ($r.operation -eq 'view') { $result.viewed = [AllPetTerminal]::View($loc.window, [int[]]$loc.control) }
     if ($r.operation -eq 'focus') { $result.succeeded = [AllPetTerminal]::Focus($loc.window, [int[]]$loc.control, [int[]]$loc.tab) }
    }
