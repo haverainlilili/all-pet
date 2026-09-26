@@ -48,6 +48,21 @@ jobs:
       - name: 终端桥接协议与进程失效检查
         if: runner.os != 'Linux'
         run: node desktop/scripts/verify-terminal-bridge.js
+      - name: 安装独立 Windows Terminal 验收环境
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'allpet-windows-terminal.zip'
+          $directory = Join-Path $env:RUNNER_TEMP 'allpet-windows-terminal'
+          Invoke-WebRequest 'https://github.com/microsoft/terminal/releases/download/v1.24.11911.0/Microsoft.WindowsTerminal_1.24.11911.0_x64.zip' -OutFile $archive
+          Expand-Archive $archive $directory
+          $binary = Get-ChildItem $directory -Recurse -Filter WindowsTerminal.exe | Select-Object -First 1
+          if (!$binary) { throw 'Windows Terminal executable missing' }
+          New-Item -ItemType File -Path (Join-Path $binary.DirectoryName '.portable') -Force | Out-Null
+          "ALLPET_WINDOWS_TERMINAL=$($binary.FullName)" >> $env:GITHUB_ENV
+      - name: Windows Terminal 真实标签页定位和查看
+        if: runner.os == 'Windows'
+        run: node desktop/scripts/verify-terminal-windows.js
       - name: macOS 原生查看桥接
         if: runner.os == 'macOS'
         run: ALLPET_BINARY="$PWD/.build/release/allpet" node desktop/scripts/verify-manual-view-bridge.js
