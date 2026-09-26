@@ -8,7 +8,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 module.exports = async function verify({ show, window, state, readConfig, output }) {
   const until = async (predicate, label) => {
     for (let i = 0; i < 100; i++) { if (await predicate()) return; await wait(100) }
-    const diagnostic = { label, state: state(), config: readConfig(), renderer: await js('({state, actionPending, text: document.body.innerText})') }
+    const diagnostic = { label, home: process.env.ALLPET_HOME, state: state(), config: readConfig(), renderer: await js('({state, actionPending, text: document.body.innerText})') }
     fs.writeFileSync(output.replace(/\.json$/, '-failure.json'), JSON.stringify(diagnostic, null, 2))
     await capture('failure')
     throw new Error(`Timed out: ${label}`)
@@ -19,6 +19,7 @@ module.exports = async function verify({ show, window, state, readConfig, output
   const click = selector => js(`document.querySelector(${JSON.stringify(selector)}).click()`)
   const visible = () => { assert.equal(window().id, panelID); assert.ok(panel.isVisible(), 'menu must remain open') }
   const capture = async name => fs.writeFileSync(output.replace(/\.json$/, `-${name}.png`), (await panel.webContents.capturePage()).toPNG())
+  await until(() => state().hasPet && state().installedPets.length >= 2, 'bundled pets loaded')
   await until(() => js('document.querySelectorAll("[data-page]").length === 3'), 'root menu')
   await click('[data-page="platforms"]')
   for (const platform of ['codex', 'pi']) {
