@@ -1,17 +1,17 @@
-# AllPet Electron 桌宠（开发版；稳定版 v1.4.1）
+# AllPet Electron 桌宠（v1.5.0）
 
-开发版支持四边收起：拖动宠物到屏幕可用区域边缘并松手，只留小头，全部气泡隐藏；点击小头或拖回屏幕内恢复。贴边位置保存在 `~/.config/all-pet/desktop-layout.json`，重启后保留；任务历史与已查看检测照常运行。
+支持四边收起：拖动宠物到屏幕可用区域边缘并松手，只留小头，全部气泡隐藏；点击小头或拖回屏幕内恢复。贴边位置保存在 `~/.config/all-pet/desktop-layout.json`，重启后保留；任务历史与已查看检测照常运行。
 
 Electron 通过 `allpet watch --json` 复用 Swift AllPetCore，macOS/Windows/Linux 共用动画、气泡与宠物管理。九平台接入与用户点击行为见 [功能设计说明](../docs/功能设计说明.md)；手动查看能力见 [验收表](../docs/平台行为验收.md)。
 
 
-## 开发版：统一菜单与终端定位（尚未发布）
+## v1.5.0：统一菜单与终端定位
 
 三平台 Electron 共用 Mac 风格级联菜单。悬停或点击打开子菜单；平台开关、全部显示/隐藏、大小和宠物切换持续保持打开；Esc、点击外部或打开另一个窗口时关闭。macOS 的系统识别桥接在后台运行，不再额外创建菜单栏图标。
 
 Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查看检查。各终端的条件与限制见 [终端接入说明](integrations/README.md)：VS Code/Cursor 需要扩展，WezTerm 需要 Lua 接入，kitty 需要本地控制 socket，Linux 部分路径依赖辅助功能或 X11。接口存在不等于所有版本均已实测，也不构成无条件两秒内确认的保证。
 
-下面 v1.4.1 的下载链接仍对应已发布的旧版本，不包含本节新增能力。
+本版安装包见 [GitHub Release](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.0)。
 
 
 ## 菜单与终端支持

@@ -9,7 +9,7 @@
 [完整功能设计说明](./docs/功能设计说明.md)：记录当前实现、交互规则、平台差异与验收结果。
 
 
-## 开发版：统一菜单与终端定位（尚未发布）
+## v1.5.0 更新：贴边收起、统一菜单与终端定位
 
 新增**贴边收起**：将宠物拖到屏幕可用区域任意一边并松手，只露出小头，所有任务气泡隐藏；新任务不会自动展开。点击小头或拖回屏幕内恢复，重启保留贴边位置。收起本身不清除或确认任务。
 
@@ -17,14 +17,8 @@
 
 Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查看检查。各终端的条件与限制见 [终端接入说明](desktop/integrations/README.md)：VS Code/Cursor 需要扩展，WezTerm 需要 Lua 接入，kitty 需要本地控制 socket，Linux 部分路径依赖辅助功能或 X11。接口存在不等于所有版本均已实测，也不构成无条件两秒内确认的保证。
 
-下面 v1.4.1 的下载链接仍对应已发布的旧版本，不包含本节新增能力。
+安装、验证及适用条件见 [v1.5.0 发布说明](docs/releases/v1.5.0.md)。
 
-
-## v1.4.1 更新
-
-修复 Windows/Linux 菜单点一下就关闭的问题：左键或右键托盘图标打开菜单面板，平台勾选、大小调节、宠物切换可连续操作；新增行内缩略图与大小控件。点击外部或按 Esc 关闭。macOS 继续使用原生菜单。
-
-Codex CLI 等终端工具可读取本地日志并展示任务；Electron 尚未完整实现原终端标签页定位与手动切回自动消泡，详见 [终端 CLI 支持范围](docs/终端CLI支持说明.md)。
 
 ### v1.4.0 功能基础
 
@@ -50,14 +44,14 @@ Codex CLI 等终端工具可读取本地日志并展示任务；Electron 尚未�
 
 ### 选择正确安装包（供用户与 AI 直接判断）
 
-**当前稳定版：v1.4.1。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
+**当前稳定版：v1.5.0。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
 
 | 设备 | 架构 / 适用型号 | 直接下载 | 适用场景 |
 | --- | --- | --- | --- |
-| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.4.1-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1-arm64-mac.zip) | Apple M 系列芯片的 Mac |
-| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.4.1.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-Setup-1.4.1.exe) | 常见 Intel / AMD Windows 电脑 |
-| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.4.1.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1.AppImage) | 大多数 x64 Linux，免安装便携使用 |
-| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.4.1_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/allpet-desktop_1.4.1_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
+| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.5.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0-arm64-mac.zip) | Apple M 系列芯片的 Mac |
+| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.5.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-Setup-1.5.0.exe) | 常见 Intel / AMD Windows 电脑 |
+| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.5.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0.AppImage) | 大多数 x64 Linux，免安装便携使用 |
+| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.5.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/allpet-desktop_1.5.0_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
 
 **当前未提供预编译包：** Intel Mac（`x86_64`）、Windows on ARM、Linux ARM（`aarch64`）。这些环境请从源码构建，或欢迎贡献对应打包支持。
 
@@ -189,17 +183,17 @@ python3 make_demo.py        # 生成一只示例宠物并跑通整套脚本
 
 标题显示稳定会话名，副标题显示当前动作与进度。点击 × 可关闭通知；未确认的终态最多保留 24 小时。新一轮真实活动会重新显示。仅凭短 ID 不判断是假任务；有明确来源证据的内部子代理会被过滤。
 
-菜单 **气泡显示平台** 支持逐个平台、全部显示和全部隐藏；只改变气泡可见性，保留后台监控和历史。macOS 菜单在勾选后保持展开，Esc 或点击外部关闭。开发版三平台共用持续级联菜单。
+菜单 **气泡显示平台** 支持逐个平台、全部显示和全部隐藏；只改变气泡可见性，保留后台监控和历史。macOS 菜单在勾选后保持展开，Esc 或点击外部关闭。三平台 Electron 共用持续级联菜单。
 
 | 手动进入原任务后的自动消泡 | macOS Electron 能力 |
 |---|---|
 | Codex | 同账号/本地主机的未读→已读回执，或前台唯一任务标题匹配；标题检测需要辅助功能权限 |
 | Claude | Desktop 前台精确会话地址/焦点时间；CLI 需原终端绑定 |
 | DSH | 前台浏览器当前标签页的精确 sessionId；需要浏览器自动化权限 |
-| Grok、pi | 开发版自动捕获原终端身份，再确认前台 tab/pane；条件见终端接入矩阵 |
+| Grok、pi | 自动捕获原终端身份，再确认前台 tab/pane；条件见终端接入矩阵 |
 | Cursor、WorkBuddy、Qoder、Z Code | 尚未实现可靠的手动查看识别；可点击气泡或 × 确认 |
 
-macOS 每 500 ms 独立调度各平台检测，权限、定位证据或前台身份不确定时保留通知。该间隔不是所有环境下“2 秒内消泡”的保证；开发版 Windows/Linux 的 CLI 通过终端适配器识别；GUI 会话识别仍按平台能力处理。详见 [验收记录](./docs/平台行为验收.md)。
+macOS 每 500 ms 独立调度各平台检测，权限、定位证据或前台身份不确定时保留通知。该间隔不是所有环境下“2 秒内消泡”的保证；Windows/Linux 的 CLI 通过终端适配器识别；GUI 会话识别仍按平台能力处理。详见 [验收记录](./docs/平台行为验收.md)。
 
 ## 返回原任务
 
@@ -254,7 +248,7 @@ Cursor/Qoder 可通过菜单安装观察 hooks，以补充完整生命周期；�
 
 ## 打包安装包
 
-版本号位于 `desktop/package.json` 与 `desktop/package-lock.json`。先更新版本、文档并通过 CI，再推送对应的 `vX.Y.Z` tag（本版为 `v1.4.0`）。
+版本号位于 `desktop/package.json` 与 `desktop/package-lock.json`。先更新版本、文档并通过 CI，再推送对应的 `vX.Y.Z` tag（本版为 `v1.5.0`）。
 
 Release 工作流验证版本号，构建 Swift 核心和资源，运行行为/接入测试，再生成 macOS arm64 DMG/ZIP、Windows x64 EXE、Linux x64 AppImage/DEB。tag 构建上传到 Release 草稿；确认三平台成功、校验安装包与 SHA256SUMS 后再公开。手动触发只生成 Actions 产物。
 
