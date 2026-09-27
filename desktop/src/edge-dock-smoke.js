@@ -23,12 +23,29 @@ module.exports = async function ({ window, display, sprite, state, snapshot, sca
     window.setBounds({ x: area.x + 350, y: area.y + 200, width: sprite().width, height: sprite().height })
     window.webContents.send('debug-bubble', { snapshot, stage: 'platforms' })
     await until(async () => !(await read()).bubbleHidden, 'fixture notifications visible')
-    await sleep(150)
+    // Wait for native bounds and renderer geometry to agree, not a fixed delay.
+    const settle = async () => {
+      let previous = '', stable = 0
+      await until(async () => {
+        const bounds = window.getBounds(), value = await read()
+        const key = JSON.stringify({ bounds, pet: value.petRect })
+        stable = key === previous && bounds.width === value.width && bounds.height === value.height ? stable + 1 : 0
+        previous = key
+        return stable >= 4
+      }, 'window and renderer geometry settled')
+    }
+    await settle()
+    // Reproduce OS animation throttling while retaining layout/measurement frames.
+    await window.webContents.executeJavaScript(`(() => {
+      const original = window.requestAnimationFrame.bind(window)
+      window.requestAnimationFrame = callback => callback.name === 'tick' ? 0 : original(callback)
+    })()`)
+    await sleep(100)
     // Electron's synthetic mouse input reports screenX/Y=0 on macOS. Exercise
     // drag coordinates through the renderer IPC, and use real Chromium mouse
     // input for clicking the head (which requires no screen-coordinate delta).
     const drag = async (x, y) => {
-      await sleep(120) // allow the previous renderer resize IPC to settle before choosing its screen coordinates
+      await settle()
       const bounds = state().dock ? window.getBounds() : spriteBounds(window.getBounds(), sprite())
       const from = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
       await window.webContents.executeJavaScript(`(async()=>{await petAPI.dragStart(${from.x},${from.y}); await petAPI.dragMove(${x},${y}); return petAPI.dragEnd()})()`)
@@ -46,13 +63,14 @@ module.exports = async function ({ window, display, sprite, state, snapshot, sca
       await window.webContents.executeJavaScript('petAPI.resizeForBubble(334, 500)')
       await sleep(100)
       let value = await read()
-      assert.equal(value.bubbleHidden, true); assert.equal(value.visiblePixels, true)
+      assert.equal(value.bubbleHidden, true); assert.equal(value.visiblePixels, true, 'head must paint without animation frames')
       assert.deepEqual(window.getBounds(), dockBounds(state().dock, sprite(), area))
       assert.equal(JSON.stringify(state().history), initialHistory, 'docking must not acknowledge task history')
       const filename = path.join(path.dirname(output), `edge-${edge}.png`)
       fs.writeFileSync(filename, (await window.webContents.capturePage()).toPNG())
       scale(0.05); await sleep(80)
       assert.equal((await read()).bubbleHidden, true); assert.equal((await read()).edge, edge)
+      assert.equal((await read()).visiblePixels, true, 'scaled head must paint without animation frames')
       scale(-0.05); await sleep(80)
       results.edges.push({ edge, bounds: window.getBounds(), screenshot: filename })
       if (edge === 'bottom') continue // retained for the second launch
@@ -65,7 +83,7 @@ module.exports = async function ({ window, display, sprite, state, snapshot, sca
       }
       await until(async () => !(await read()).edge && !(await read()).bubbleHidden, `${edge} restore full pet and bubbles`)
     }
-    results.newTasksStayHidden = true; results.historyPreserved = true; results.clickAndDragRestore = true
+    results.paintsWithoutAnimationFrames = true; results.newTasksStayHidden = true; results.historyPreserved = true; results.clickAndDragRestore = true
   }
   results.ok = true
   fs.writeFileSync(output, JSON.stringify(results, null, 2))

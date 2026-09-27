@@ -28,6 +28,9 @@
     canvas.style.height = size.height + 'px'
     canvas.width = presentation.edge ? Math.round(size.width * (window.devicePixelRatio || 1)) : cellW
     canvas.height = presentation.edge ? Math.round(size.height * (window.devicePixelRatio || 1)) : cellH
+    // Resizing clears the bitmap. Draw immediately even when macOS throttles
+    // animation frames for a covered or background window.
+    if (sprite) drawFrame(seq?.frames[frameIndex] || { row: 0, col: 0 })
   }
 
   const ANIMATIONS = {

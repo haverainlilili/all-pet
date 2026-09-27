@@ -665,7 +665,7 @@ function createWindow(options = {}) {
 
   mainWindow.on('blur', () => {
     // 确定性截图必须保持指定阶段；正常运行时失焦收起到 Stage 1。
-    if (!process.env.ALLPET_SCREENSHOT_STAGE && !process.env.ALLPET_PLATFORM_UI_SMOKE && mainWindow && !mainWindow.isDestroyed()) {
+    if (!process.env.ALLPET_SCREENSHOT_STAGE && !process.env.ALLPET_PLATFORM_UI_SMOKE && !process.env.ALLPET_EDGE_DOCK_SMOKE && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('collapse-bubble')
     }
   })
