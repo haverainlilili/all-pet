@@ -64,7 +64,13 @@ module.exports = async function ({ window, display, sprite, state, snapshot, sca
       await sleep(100)
       let value = await read()
       assert.equal(value.bubbleHidden, true); assert.equal(value.visiblePixels, true, 'head must paint without animation frames')
-      assert.deepEqual(window.getBounds(), dockBounds(state().dock, sprite(), area))
+      const actual = window.getBounds(), expected = dockBounds(state().dock, sprite(), display().workArea)
+      assert.equal(actual.width, expected.width); assert.equal(actual.height, expected.height)
+      // AppKit can round the NSRect/screen conversion by one DIP. Work-area
+      // metrics can also change after launch, so compare against the current area.
+      const tolerance = process.platform === 'darwin' ? 1 : 0
+      assert.ok(Math.abs(actual.x - expected.x) <= tolerance && Math.abs(actual.y - expected.y) <= tolerance,
+        `head must touch current work-area edge: ${JSON.stringify({ actual, expected })}`)
       assert.equal(JSON.stringify(state().history), initialHistory, 'docking must not acknowledge task history')
       const filename = path.join(path.dirname(output), `edge-${edge}.png`)
       fs.writeFileSync(filename, (await window.webContents.capturePage()).toPNG())
