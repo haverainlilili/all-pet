@@ -11,7 +11,7 @@ module.exports = async function ({ window, display, sprite, state, snapshot, sca
       visiblePixels: pixels.some((value,index) => index % 4 === 3 && value > 24),
       petRect: { x: pet.offsetLeft, y: pet.offsetTop, width: pet.clientWidth, height: pet.clientHeight } };
   })()`)
-  async function until(check, label) { for (let n = 0; n < 60; n++) { if (await check()) return; await sleep(50) }; throw Error(`${label}: ${JSON.stringify(await read())}; ${JSON.stringify(await window.webContents.executeJavaScript('window.edgeTestEvents || []'))}`) }
+  async function until(check, label) { for (let n = 0; n < 60; n++) { if (await check()) return; await sleep(50) }; throw Error(`${label}: ${JSON.stringify(await read())}`) }
   await until(async () => !window.webContents.isLoading() && (await read()).visiblePixels, 'pet image ready')
   const results = { ok: false, restoring, edges: [] }, initialHistory = JSON.stringify(state().history)
   if (restoring) {
@@ -28,6 +28,7 @@ module.exports = async function ({ window, display, sprite, state, snapshot, sca
     // drag coordinates through the renderer IPC, and use real Chromium mouse
     // input for clicking the head (which requires no screen-coordinate delta).
     const drag = async (x, y) => {
+      await sleep(120) // allow the previous renderer resize IPC to settle before choosing its screen coordinates
       const bounds = state().dock ? window.getBounds() : spriteBounds(window.getBounds(), sprite())
       const from = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 }
       await window.webContents.executeJavaScript(`(async()=>{await petAPI.dragStart(${from.x},${from.y}); await petAPI.dragMove(${x},${y}); return petAPI.dragEnd()})()`)

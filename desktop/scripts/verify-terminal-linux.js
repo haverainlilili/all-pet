@@ -14,7 +14,10 @@ async function main(){
   const source=path.join(home,`source${i}.jsonl`),pidfile=path.join(home,`pid${i}`)
   const command=[path.join(home,'codex'),source,pidfile].map(quote).join(' ')+'; exec bash --norc'
   children.push(spawn('xfce4-terminal',['--disable-server','--command',`bash --norc -c ${quote(command)}`],{stdio:'ignore'}))
-  for(let j=0;j<100&&!fs.existsSync(pidfile);j++) await wait(100)
+  // A cold CI desktop can take over 10 seconds to start its accessibility bus.
+  // This is fixture startup, outside the measured focus/view latency below.
+  for(let j=0;j<300&&!fs.existsSync(pidfile);j++) await wait(100)
+  assert.ok(fs.existsSync(pidfile),'fixture terminal shell started within 30 seconds')
   pids.push(Number(fs.readFileSync(pidfile,'utf8')))
  }
  tasks=[{id:'codex|fixture',platform:'codex',title:'fixture',action:'fixture',sessionID:'fixture',phase:'done',launchOrigin:'codex-cli',updatedAt:(Date.now()-978307200000)/1000,sourcePath:path.join(home,'source0.jsonl'),processID:pids[0]}]

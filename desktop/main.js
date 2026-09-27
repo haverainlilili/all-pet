@@ -188,7 +188,7 @@ function windowSizeForScale(scale, targetPet = pet) {
 function resizeWindowPreservingSprite(nextScale, previousScale = nextScale, nextPet = pet, previousPet = nextPet) {
   if (!mainWindow || mainWindow.isDestroyed()) return
   if (edgeDock && nextPet) { layoutDockedPet(nextScale, nextPet); return }
-  if (petDrag?.moved) return
+  if (petDrag) return
   const oldBounds = mainWindow.getBounds()
   const oldSprite = spriteSizeForScale(previousScale, previousPet)
   const nextSprite = spriteSizeForScale(nextScale, nextPet)
@@ -286,7 +286,11 @@ function endPetDrag() {
   const drag = petDrag
   petDrag = null
   if (!drag || !mainWindow || mainWindow.isDestroyed()) return { ok: true, docked: Boolean(edgeDock) }
-  if (!drag.moved) return { ok: true, docked: false, restored: restoreDockedPet() }
+  if (!drag.moved) {
+    const restored = restoreDockedPet()
+    if (!restored) sendPetPresentation()
+    return { ok: true, docked: false, restored }
+  }
   const display = screen.getDisplayNearestPoint({ x: Math.round(drag.last.x), y: Math.round(drag.last.y) })
   const area = display.workArea, rect = drag.rect
   const edge = edgeLayout.edgeForRect(rect, area)
@@ -1045,7 +1049,7 @@ function registerPetIpc() {
   ipcMain.handle('pets:resizeBubble', async (event, width, height) => {
     requireMainFrame(event)
     // A queued resize from before docking must never reopen the notification surface.
-    if (edgeDock || petDrag?.moved) return { ok: true }
+    if (edgeDock || petDrag) return { ok: true }
     const w = Math.max(0, Math.round(Number(width) || 0))
     const h = Math.max(0, Math.round(Number(height) || 0))
     if (w === bubbleWidth && h === bubbleHeight) return { ok: true }

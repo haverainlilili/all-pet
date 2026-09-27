@@ -818,11 +818,12 @@
     window.petAPI.onSnapshot(onSnapshot)
     window.petAPI.onScaleChanged((scale) => applyScale(scale))
     window.petAPI.onPresentation((state) => {
+      const wasDocked = Boolean(presentation.edge)
       presentation = state
       document.body.dataset.dockEdge = state.edge || ''
       document.body.dataset.petDragging = String(state.dragging)
       canvas.title = state.edge ? '点击小头或拖回屏幕内，恢复宠物和任务气泡' : ''
-      if (state.edge) { bubbleStage = 'collapsed'; selectedPlatform = null; setInteractionAnimation(null) }
+      if (state.edge || wasDocked) { bubbleStage = 'collapsed'; selectedPlatform = null; setInteractionAnimation(null) }
       lastBubbleWidth = -1; lastBubbleHeight = -1
       applyScale(currentScale)
       renderBubble()
