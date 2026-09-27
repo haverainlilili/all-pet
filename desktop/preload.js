@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('petAPI', {
   getScale: () => ipcRenderer.invoke('pets:getScale'),
   setScale: (delta) => ipcRenderer.invoke('pets:setScale', delta),
   onScaleChanged: (cb) => ipcRenderer.on('pet-scale', (_e, scale) => cb(scale)),
+  onPresentation: (cb) => ipcRenderer.on('pet-presentation', (_e, state) => cb(state)),
 
   // 气泡尺寸（渲染层 → 主进程，用于按 AppKit 三阶段宽高调整窗口）
   resizeForBubble: (width, height) => ipcRenderer.invoke('pets:resizeBubble', width, height),

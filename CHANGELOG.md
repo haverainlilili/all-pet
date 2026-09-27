@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- 新增 Electron 四边收起：拖至可用屏幕边缘松手后只显示小头，隐藏全部任务气泡；点击或拖出恢复，记住贴边屏幕和相对位置。新快照、异常提示、缩放不会自动展开；断开显示器时回到主屏对应边缘。
+
 - 三平台 Electron 统一 Mac 风格级联菜单；连续平台切换、缩放与换宠物保持打开。
 - 接通原终端身份捕获、持久化、点击定位与 500 ms 查看检查；Mac 桥接无额外菜单图标。
 - 增加 Windows 控制台/UI Automation、Linux AT-SPI/X11、kitty、Konsole、tmux 适配器；随包提供编辑器 VSIX 和 WezTerm Lua 接入。

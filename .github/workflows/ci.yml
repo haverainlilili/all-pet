@@ -107,6 +107,18 @@ jobs:
           name: tray-panel-${{ matrix.os }}
           path: ${{ runner.temp }}/tray-panel/
           if-no-files-found: ignore
+      - name: 四边收起、拖出恢复与重启保留
+        if: runner.os != 'Linux'
+        run: node desktop/scripts/verify-edge-dock.js
+        env:
+          ALLPET_EDGE_OUTPUT: ${{ runner.temp }}/edge-dock/result.json
+      - name: 保存贴边收起验收
+        if: always() && runner.os != 'Linux'
+        uses: actions/upload-artifact@v5
+        with:
+          name: edge-dock-${{ matrix.os }}
+          path: ${{ runner.temp }}/edge-dock/
+          if-no-files-found: ignore
       - name: macOS 原生菜单构造 / 点击回调 / 连续缩放 / 宠物缩略图
         if: runner.os == 'macOS'
         working-directory: desktop
@@ -160,6 +172,16 @@ jobs:
       - name: Linux 原终端定位与手动查看
         run: |
           xvfb-run -a dbus-run-session -- bash -c 'openbox >/tmp/allpet-openbox.log 2>&1 & node desktop/scripts/verify-terminal-linux.js'
+      - name: Linux 四边收起、拖出恢复与重启保留
+        run: |
+          xvfb-run -a dbus-run-session -- bash -c 'openbox >/tmp/allpet-edge-openbox.log 2>&1 & ALLPET_NO_SANDBOX=1 ALLPET_EDGE_OUTPUT="$RUNNER_TEMP/edge-dock/result.json" node desktop/scripts/verify-edge-dock.js'
+      - name: 保存 Linux 贴边收起验收
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: edge-dock-linux
+          path: ${{ runner.temp }}/edge-dock/
+          if-no-files-found: ignore
       - name: 保存 Linux 菜单记录和截图
         if: always()
         uses: actions/upload-artifact@v5

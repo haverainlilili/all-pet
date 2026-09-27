@@ -13,13 +13,21 @@
   // 系统「降低动态效果」：与 macOS reduceMotion 对齐，只播放首帧、冻结 spinner 与轮播。
   const reduceMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
   let reduceMotion = !!(reduceMotionQuery && reduceMotionQuery.matches)
+  let presentation = { edge: null, dragging: false }
+  let currentScale = DEFAULT_SCALE
+  let headSource = null
+  const bubblesSuppressed = () => Boolean(presentation.edge || presentation.dragging)
 
   function applyScale(scale) {
     const s = Math.max(0.4, Math.min(1.2, typeof scale === 'number' ? scale : DEFAULT_SCALE))
+    currentScale = s
     const w = Math.min(224, Math.max(80, Math.round(cellW * s)))
     const h = Math.round(w * (cellH / cellW))
-    canvas.style.width = w + 'px'
-    canvas.style.height = h + 'px'
+    const size = presentation.edge ? window.petEdgeDock.headSize({ width: w, height: h }, presentation.edge) : { width: w, height: h }
+    canvas.style.width = size.width + 'px'
+    canvas.style.height = size.height + 'px'
+    canvas.width = presentation.edge ? Math.round(size.width * (window.devicePixelRatio || 1)) : cellW
+    canvas.height = presentation.edge ? Math.round(size.height * (window.devicePixelRatio || 1)) : cellH
   }
 
   const ANIMATIONS = {
@@ -63,6 +71,18 @@
   function drawFrame(f) {
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     if (!sprite) return
+    if (presentation.edge && headSource) {
+      const side = presentation.edge === 'left' || presentation.edge === 'right'
+      const width = side ? canvas.height : canvas.width, height = side ? canvas.width : canvas.height
+      const scale = Math.min(width / headSource.width, height / headSource.height)
+      ctx.save()
+      ctx.translate(canvas.width / 2, canvas.height / 2)
+      ctx.rotate(({ left: Math.PI / 2, right: -Math.PI / 2, top: Math.PI, bottom: 0 })[presentation.edge])
+      ctx.drawImage(sprite, headSource.x, headSource.y, headSource.width, headSource.height,
+        -headSource.width * scale / 2, -headSource.height * scale / 2, headSource.width * scale, headSource.height * scale)
+      ctx.restore()
+      return
+    }
     ctx.drawImage(
       sprite,
       f.col * cellW, f.row * cellH, cellW, cellH,
@@ -78,6 +98,7 @@
   function tick(now) {
     requestAnimationFrame(tick)
     if (!seq || !sprite) return
+    if (presentation.edge) { drawFrame({ row: 0, col: 0 }); lastTime = 0; return }
     if (!lastTime) lastTime = now
     frameTimer += now - lastTime
     lastTime = now
@@ -519,7 +540,7 @@
   function reportBubbleSize() {
     if (!window.petAPI || !window.petAPI.resizeForBubble) return
     requestAnimationFrame(() => {
-      const hidden = bubble.classList.contains('hidden')
+      const hidden = bubblesSuppressed() || bubble.classList.contains('hidden')
       const rect = hidden ? { width: 0, height: 0 } : bubble.getBoundingClientRect()
       const width = Math.max(0, Math.ceil(rect.width || 0))
       const height = Math.max(0, Math.ceil(rect.height || 0))
@@ -537,7 +558,7 @@
       hasActiveTask: data.unfinished.some(item => item.phase === 'running' || item.phase === 'thinking'),
       unfinishedPlatformCount: data.unfinished.length
     })
-    const needsRotation = motion.rotatesPlatforms
+    const needsRotation = !bubblesSuppressed() && motion.rotatesPlatforms
     if (needsRotation && !rotationTimer) {
       rotationTimer = setInterval(() => {
         const latest = buildData()
@@ -553,6 +574,11 @@
 
   function renderBubble(providedData) {
     const data = providedData || buildData()
+    if (bubblesSuppressed()) {
+      bubble.replaceChildren(); bubble.className = 'hidden'
+      syncRotationTimer(data); reportBubbleSize()
+      return
+    }
     if (!data.hasNotification) {
       bubbleStage = 'collapsed'
       selectedPlatform = null
@@ -699,6 +725,11 @@
       rows = atlas.rows
       cellW = atlas.cellWidth
       cellH = atlas.cellHeight
+      const idle = document.createElement('canvas')
+      idle.width = cellW; idle.height = cellH
+      const idleContext = idle.getContext('2d', { willReadFrequently: true })
+      idleContext.drawImage(img, 0, 0, cellW, cellH, 0, 0, cellW, cellH)
+      headSource = window.petEdgeDock.headCrop(idleContext.getImageData(0, 0, cellW, cellH))
       canvas.width = Math.round(cellW)
       canvas.height = Math.round(cellH)
       applyScale(payload.scale)
@@ -735,21 +766,23 @@
 
   canvas.addEventListener('mouseenter', () => {
     pointerInside = true
-    if (!dragging) setInteractionAnimation('jumping')
+    if (!dragging && !presentation.edge) setInteractionAnimation('jumping')
   })
   canvas.addEventListener('mouseleave', () => {
     pointerInside = false
     if (!dragging) setInteractionAnimation(null)
   })
 
-  canvas.addEventListener('mousedown', (e) => {
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || dragging) return
+    canvas.setPointerCapture(e.pointerId)
     dragging = true
     didDrag = false
     dragStart = { x: e.screenX, y: e.screenY }
     if (window.petAPI && window.petAPI.dragStart) window.petAPI.dragStart(e.screenX, e.screenY)
   })
 
-  window.addEventListener('mousemove', (e) => {
+  window.addEventListener('pointermove', (e) => {
     if (!dragging) return
     const dx = e.screenX - dragStart.x
     const dy = e.screenY - dragStart.y
@@ -760,24 +793,40 @@
     setInteractionAnimation(next.animation)
   })
 
-  window.addEventListener('mouseup', () => {
+  async function finishDrag(event) {
     if (!dragging) return
     dragging = false
-    if (window.petAPI && window.petAPI.dragEnd) window.petAPI.dragEnd()
     const release = window.petInteraction.dragRelease(didDrag, pointerInside)
+    const wasDocked = Boolean(presentation.edge)
+    dragStart = null
+    didDrag = false
+    if (event && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
+    const result = window.petAPI?.dragEnd ? await window.petAPI.dragEnd() : null
     setInteractionAnimation(release.animation)
-    if (release.openPlatforms) {
+    if (release.openPlatforms && !wasDocked && !result?.restored && !result?.docked && !event?.canceled) {
       // 点击精灵：展开到 Stage 2（与 macOS showPlatformStage 一致）。
       setStage('platforms')
     }
-    dragStart = null
-    didDrag = false
-  })
+  }
+  window.addEventListener('pointerup', finishDrag)
+  window.addEventListener('pointercancel', event => finishDrag({ pointerId: event.pointerId, canceled: true }))
+  canvas.addEventListener('lostpointercapture', event => finishDrag({ pointerId: event.pointerId, canceled: true }))
+  window.addEventListener('blur', () => finishDrag({ canceled: true }))
 
   if (window.petAPI) {
     window.petAPI.onPet(onPet)
     window.petAPI.onSnapshot(onSnapshot)
     window.petAPI.onScaleChanged((scale) => applyScale(scale))
+    window.petAPI.onPresentation((state) => {
+      presentation = state
+      document.body.dataset.dockEdge = state.edge || ''
+      document.body.dataset.petDragging = String(state.dragging)
+      canvas.title = state.edge ? '点击小头或拖回屏幕内，恢复宠物和任务气泡' : ''
+      if (state.edge) { bubbleStage = 'collapsed'; selectedPlatform = null; setInteractionAnimation(null) }
+      lastBubbleWidth = -1; lastBubbleHeight = -1
+      applyScale(currentScale)
+      renderBubble()
+    })
     window.petAPI.onCollapseBubble(() => {
       if (bubbleStage !== 'collapsed') setStage('collapsed')
     })
@@ -788,6 +837,7 @@
       setStage(stage, stage === 'tasks' ? (payload.platform || 'codex') : null)
     })
     window.petAPI.onWatchError((msg) => {
+      if (bubblesSuppressed()) return
       bubble.className = 'stage-collapsed'
       bubble.textContent = '监控异常：' + msg
       reportBubbleSize()

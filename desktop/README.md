@@ -1,5 +1,7 @@
 # AllPet Electron 桌宠（开发版；稳定版 v1.4.1）
 
+开发版支持四边收起：拖动宠物到屏幕可用区域边缘并松手，只留小头，全部气泡隐藏；点击小头或拖回屏幕内恢复。贴边位置保存在 `~/.config/all-pet/desktop-layout.json`，重启后保留；任务历史与已查看检测照常运行。
+
 Electron 通过 `allpet watch --json` 复用 Swift AllPetCore，macOS/Windows/Linux 共用动画、气泡与宠物管理。九平台接入与用户点击行为见 [功能设计说明](../docs/功能设计说明.md)；手动查看能力见 [验收表](../docs/平台行为验收.md)。
 
 

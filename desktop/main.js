@@ -34,6 +34,7 @@ const { createManualViewMonitor, readCodexUnread } = require('./src/manual-view'
 const { cropTrayPetIcon } = require('./src/tray-icon')
 const { isExcludedCodexHistory } = require('./src/codex-session-metadata')
 const { PLATFORMS, bubblePlatformRows, hiddenBubblePlatforms, setBubblePlatformVisibility, filterBubbleSnapshot } = require('./src/platforms')
+const edgeLayout = require('./src/edge-dock')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 const TRAY_PANEL_URL = pathToFileURL(path.join(__dirname, 'src', 'tray-panel.html')).href
@@ -166,6 +167,8 @@ function readScale() {
 // 当前气泡尺寸（0 = 隐藏）；渲染层实时上报。AppKit 的任务托盘位于宠物上方。
 let bubbleWidth = 0
 let bubbleHeight = 0
+let edgeDock = null
+let petDrag = null
 
 // 精灵按 scale 缩放；显示宽 clamp 80…224px（与 macOS layoutMetrics 一致）。
 // 三阶段气泡宽度由渲染层按 AppKit 304/324/334px 实时上报。
@@ -184,6 +187,8 @@ function windowSizeForScale(scale, targetPet = pet) {
 // 气泡、scale 或图集变化时，保持宠物本体左下角在屏幕上的位置不跳动。
 function resizeWindowPreservingSprite(nextScale, previousScale = nextScale, nextPet = pet, previousPet = nextPet) {
   if (!mainWindow || mainWindow.isDestroyed()) return
+  if (edgeDock && nextPet) { layoutDockedPet(nextScale, nextPet); return }
+  if (petDrag?.moved) return
   const oldBounds = mainWindow.getBounds()
   const oldSprite = spriteSizeForScale(previousScale, previousPet)
   const nextSprite = spriteSizeForScale(nextScale, nextPet)
@@ -211,6 +216,7 @@ function readAnchor() {
 // 与 macOS 对齐：按 config.pet.anchor 定位到屏幕四角（默认右下角）。
 function positionWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return
+  if (edgeDock && pet) { layoutDockedPet(); return }
   const anchor = readAnchor()
   const margin = 20
   const isLeft = anchor.endsWith('left')
@@ -228,13 +234,86 @@ function positionWindow() {
   mainWindow.setPosition(Math.round(x), Math.round(y))
 }
 
+function desktopLayoutPath() { return path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'desktop-layout.json') }
+function loadEdgeDock() {
+  try { edgeDock = edgeLayout.normalizeDock(JSON.parse(fs.readFileSync(desktopLayoutPath(), 'utf8')).dock) } catch { edgeDock = null }
+}
+function persistEdgeDock() {
+  try { writeJSONAtomically(desktopLayoutPath(), { version: 1, dock: edgeDock }) }
+  catch (error) { console.error('[allpet] 保存贴边位置失败:', error.message) }
+}
+function dockDisplay() {
+  return screen.getAllDisplays().find(display => display.id === edgeDock?.displayID) || screen.getPrimaryDisplay()
+}
+function sendPetPresentation() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-presentation', { edge: edgeDock?.edge || null, dragging: Boolean(petDrag?.moved) })
+}
+function layoutDockedPet(scale = readScale(), targetPet = pet) {
+  if (!edgeDock || !mainWindow || mainWindow.isDestroyed()) return
+  const display = dockDisplay()
+  if (edgeDock.displayID !== display.id) { edgeDock.displayID = display.id; persistEdgeDock() }
+  const bounds = edgeLayout.dockBounds(edgeDock, spriteSizeForScale(scale, targetPet), display.workArea)
+  mainWindow.setBounds(bounds, false)
+}
+function restoreDockedPet() {
+  if (!edgeDock || !mainWindow || mainWindow.isDestroyed()) return false
+  const bounds = edgeLayout.restoreBounds(mainWindow.getBounds(), spriteSizeForScale(readScale()), dockDisplay().workArea)
+  edgeDock = null; bubbleWidth = 0; bubbleHeight = 0
+  persistEdgeDock(); mainWindow.setBounds(bounds, false); sendPetPresentation()
+  return true
+}
+function startPetDrag(x, y) {
+  if (!pet || !mainWindow || mainWindow.isDestroyed() || !Number.isFinite(x) || !Number.isFinite(y)) return
+  petDrag = { x, y, moved: false, wasDocked: Boolean(edgeDock),
+    start: edgeDock ? mainWindow.getBounds() : edgeLayout.spriteBounds(mainWindow.getBounds(), spriteSizeForScale(readScale())), last: { x, y } }
+}
+function movePetDrag(x, y) {
+  if (!petDrag || !mainWindow || mainWindow.isDestroyed() || !Number.isFinite(x) || !Number.isFinite(y)) return
+  const dx = x - petDrag.x, dy = y - petDrag.y
+  if (!petDrag.moved && Math.hypot(dx, dy) < 4) return
+  const sprite = spriteSizeForScale(readScale())
+  const firstMove = !petDrag.moved
+  petDrag.moved = true; petDrag.last = { x, y }
+  const rect = petDrag.wasDocked
+    ? { x: x - sprite.width / 2, y: y - sprite.height * 0.22, ...sprite }
+    : { x: petDrag.start.x + dx, y: petDrag.start.y + dy, ...sprite }
+  petDrag.rect = { ...rect, x: Math.round(rect.x), y: Math.round(rect.y) }
+  edgeDock = null; bubbleWidth = 0; bubbleHeight = 0
+  if (firstMove) sendPetPresentation()
+  mainWindow.setBounds(petDrag.rect, false)
+}
+function endPetDrag() {
+  const drag = petDrag
+  petDrag = null
+  if (!drag || !mainWindow || mainWindow.isDestroyed()) return { ok: true, docked: Boolean(edgeDock) }
+  if (!drag.moved) return { ok: true, docked: false, restored: restoreDockedPet() }
+  const display = screen.getDisplayNearestPoint({ x: Math.round(drag.last.x), y: Math.round(drag.last.y) })
+  const area = display.workArea, rect = drag.rect
+  const edge = edgeLayout.edgeForRect(rect, area)
+  if (edge) {
+    const vertical = edge === 'left' || edge === 'right'
+    edgeDock = edgeLayout.normalizeDock({ edge, displayID: display.id, position: vertical
+      ? (rect.y + rect.height / 2 - area.y) / area.height : (rect.x + rect.width / 2 - area.x) / area.width })
+    layoutDockedPet()
+  } else {
+    resizeWindowPreservingSprite(readScale())
+  }
+  persistEdgeDock(); sendPetPresentation()
+  return { ok: true, docked: Boolean(edgeDock), restored: drag.wasDocked }
+}
+function realignPetForDisplays() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  petDrag = null
+  if (edgeDock) layoutDockedPet()
+  else resizeWindowPreservingSprite(readScale())
+  sendPetPresentation()
+}
+
 // ---- 任务历史（与 macOS 共享 ~/.config/all-pet/task-history.json）----
 
 let taskHistory = {}      // { [platform]: [item] }
 let dismissedTaskIDs = []
 let manuallyHiddenTaskTitles = {} // 非终态手动隐藏：同一标题保持隐藏，标题变化后视为新活动
-let dragStartScreen = null  // 精灵拖动起点（屏幕坐标）
-let dragStartPosition = null // 拖动开始时窗口位置
 
 function historyURL() {
   return path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'task-history.json')
@@ -548,6 +627,9 @@ function createWindow(options = {}) {
     alwaysOnTop: true,
     hasShadow: false,
     resizable: false,
+    // Own work-area clamping also handles tiny edge heads. AppKit's default
+    // constrainFrameRect can otherwise move a frameless head away from the edge.
+    enableLargerThanScreen: process.platform === 'darwin',
     skipTaskbar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -572,6 +654,7 @@ function createWindow(options = {}) {
   // 首次就绪后，把宠物素材 + 当前快照推给渲染层。
   mainWindow.webContents.on('did-finish-load', () => {
     if (mainWindow.webContents.getURL() !== MAIN_RENDERER_URL) return
+    sendPetPresentation()
     pushPet()
     if (currentSnapshot) sendSnapshot(currentSnapshot)
   })
@@ -586,6 +669,7 @@ function createWindow(options = {}) {
 }
 
 function pushPet() {
+  if (!pet && edgeDock) { edgeDock = null; persistEdgeDock(); sendPetPresentation(); resizeWindowPreservingSprite(readScale()) }
   const scale = readScale()
   let payload
   try {
@@ -960,6 +1044,8 @@ function registerPetIpc() {
 
   ipcMain.handle('pets:resizeBubble', async (event, width, height) => {
     requireMainFrame(event)
+    // A queued resize from before docking must never reopen the notification surface.
+    if (edgeDock || petDrag?.moved) return { ok: true }
     const w = Math.max(0, Math.round(Number(width) || 0))
     const h = Math.max(0, Math.round(Number(height) || 0))
     if (w === bubbleWidth && h === bubbleHeight) return { ok: true }
@@ -1006,28 +1092,19 @@ function registerPetIpc() {
 
   ipcMain.handle('pets:dragStart', async (event, x, y) => {
     requireMainFrame(event)
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      dragStartScreen = { x: Number(x), y: Number(y) }
-      dragStartPosition = mainWindow.getPosition()
-    }
+    startPetDrag(x, y)
     return { ok: true }
   })
 
   ipcMain.handle('pets:dragMove', async (event, x, y) => {
     requireMainFrame(event)
-    if (mainWindow && !mainWindow.isDestroyed() && dragStartScreen && dragStartPosition) {
-      const dx = Number(x) - dragStartScreen.x
-      const dy = Number(y) - dragStartScreen.y
-      mainWindow.setPosition(dragStartPosition[0] + Math.round(dx), dragStartPosition[1] + Math.round(dy))
-    }
+    movePetDrag(x, y)
     return { ok: true }
   })
 
   ipcMain.handle('pets:dragEnd', async (event) => {
     requireMainFrame(event)
-    dragStartScreen = null
-    dragStartPosition = null
-    return { ok: true }
+    return endPetDrag()
   })
 }
 
@@ -1809,12 +1886,31 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   if (process.platform === 'darwin') hydrateCachedTrayPetIcons()
   pet = readCurrentPet()
   petSurfaceAvailable = Boolean(pet)
+  loadEdgeDock()
+  if (!pet) edgeDock = null
   createWindow({ show: readPetEnabled() && petSurfaceAvailable })
+  screen.on('display-added', realignPetForDisplays)
+  screen.on('display-removed', realignPetForDisplays)
+  screen.on('display-metrics-changed', realignPetForDisplays)
   await createTray()
-  startManualViewMonitor()
+  if (!process.env.ALLPET_EDGE_DOCK_SMOKE) startManualViewMonitor()
   if (process.platform === 'darwin') refreshTrayPetIcons().catch(() => {})
   // 三阶段截图使用确定性 fixture，避免真实 watcher 快照覆盖测试数据。
-  if (!process.env.ALLPET_SCREENSHOT_STAGE && !process.env.ALLPET_PLATFORM_UI_SMOKE && !process.env.ALLPET_TRAY_PANEL_SMOKE) startWatch()
+  if (!process.env.ALLPET_SCREENSHOT_STAGE && !process.env.ALLPET_PLATFORM_UI_SMOKE && !process.env.ALLPET_TRAY_PANEL_SMOKE && !process.env.ALLPET_EDGE_DOCK_SMOKE) startWatch()
+
+  if (process.env.ALLPET_EDGE_DOCK_SMOKE) {
+    try {
+      const fixture = debugBubbleSnapshot()
+      accumulateHistory(fixture)
+      const result = await require('./src/edge-dock-smoke')({ window: mainWindow, display: () => screen.getPrimaryDisplay(),
+        sprite: () => spriteSizeForScale(readScale()), state: () => ({ dock: edgeDock, history: mutableHistoryState() }),
+        snapshot: fixture, scale: applyScale, output: process.env.ALLPET_EDGE_DOCK_SMOKE,
+        restoring: process.env.ALLPET_EDGE_DOCK_RESTORE_SMOKE === '1' })
+      console.log('[allpet] edge dock verified:', JSON.stringify(result))
+      cleanupLifecycle(); app.exit(0)
+    } catch (error) { console.error(error); cleanupLifecycle(); app.exit(1) }
+    return
+  }
 
   if (process.env.ALLPET_TRAY_PANEL_SMOKE) {
     try {

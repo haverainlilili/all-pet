@@ -21,6 +21,8 @@ Electron now captures terminal identities while tasks run, focuses existing tabs
 
 These changes are not yet released. The v1.4.1 downloads below do not include them.
 
+The development Electron app also supports **edge hiding**: drag the pet to any edge of the usable screen area and release to leave only a small head visible. All task bubbles stay hidden, including new notifications. Click the head or drag it back inside to restore the pet and notifications. Docked positions survive restart; docking itself does not acknowledge tasks.
+
 
 ## What's new in v1.4.1
 
