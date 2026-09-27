@@ -64,7 +64,14 @@ body {
   flex: 0 0 auto;
   image-rendering: pixelated;
   cursor: pointer;
+  touch-action: none;
 }
+
+body[data-dock-edge]:not([data-dock-edge=""]) #stage { gap: 0; justify-content: center; }
+body[data-dock-edge]:not([data-dock-edge=""]) #bubble,
+body[data-pet-dragging="true"] #bubble { display: none !important; pointer-events: none; }
+body[data-dock-edge]:not([data-dock-edge=""]) #pet { cursor: grab; }
+body[data-pet-dragging="true"] #pet { cursor: grabbing; }
 
 #bubble {
   position: relative;

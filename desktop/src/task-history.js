@@ -24,6 +24,7 @@ function sessionDisplayName(item) {
   return '未命名会话'
 }
 
+const { sanitizeLocator } = require('./terminal/process')
 const { PLATFORM_KEYS } = require('./platforms')
 const PHASE_KEYS = new Set(['idle', 'waiting', 'thinking', 'running', 'done', 'failed'])
 const STRING_FIELDS = [
@@ -75,6 +76,8 @@ function sanitizedHistoryTask(platform, input) {
   if (Number.isInteger(processID)) task.processID = processID
   const terminalBinding = sanitizedTerminalBinding(input.terminalBinding)
   if (terminalBinding) task.terminalBinding = terminalBinding
+  const locator = sanitizeLocator(input.terminalLocator)
+  if (locator) task.terminalLocator = locator
   task.id = canonicalID(platform, task)
   return task
 }
@@ -230,7 +233,11 @@ function accumulateTaskHistory(state, snap, nowMilliseconds = Date.now()) {
       }
       const existingIndex = list.findIndex(existing => existing.id === item.id)
       if (existingIndex >= 0) {
-        const previous = list[existingIndex]
+        const previous = { ...list[existingIndex] }
+        // A resumed session can move to a different shell. Do not retain its previous terminal target.
+        if (['processID', 'sourcePath', 'launchOrigin'].some(key => item[key] !== undefined && previous[key] !== undefined && item[key] !== previous[key])) {
+          delete previous.terminalBinding; delete previous.terminalLocator; delete previous.terminalTTY
+        }
         const sameTerminalPhase = (item.phase === 'done' || item.phase === 'failed') && previous.phase === item.phase
         if (sameTerminalPhase && previous.updatedAt) item.updatedAt = previous.updatedAt
         if (!(previous.phase === 'done' && item.phase === 'idle')) {

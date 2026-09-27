@@ -21,14 +21,15 @@ test('verified Codex Desktop origin uses encoded thread deep-link plan', () => {
 test('Codex CLI never silently opens or duplicates a task', () => {
   assert.equal(isCodexCLI({ launchOrigin: 'codex-cli' }), true)
   const plan = wakePlanForTask({ platform: 'codex', sessionID: 'abc', launchOrigin: 'codex-cli' })
-  assert.equal(plan.kind, 'fallback')
+  assert.equal(plan.kind, 'terminal')
   assert.equal(plan.canOpenPlatform, false)
-  assert.match(plan.message, /Codex CLI/)
+  assert.equal(plan.url, undefined)
+  assert.equal(plan.command, undefined)
 })
 
 test('terminal binding also classifies unknown Codex origin as CLI', () => {
   const plan = wakePlanForTask({ platform: 'codex', sessionID: 'abc', terminalBinding: { tty: 'ttys001' } })
-  assert.equal(plan.kind, 'fallback')
+  assert.equal(plan.kind, 'terminal')
 })
 
 test('verified macOS Claude Desktop tasks activate the app without importing a duplicate session', () => {
@@ -51,9 +52,9 @@ test('Claude CLI, unverified Desktop origins, non-macOS Claude, and Grok fail cl
   ]
   for (const [task, runtimePlatform] of tasks) {
     const plan = wakePlanForTask(task, runtimePlatform)
-    assert.equal(plan.kind, 'fallback')
+    assert.equal(plan.kind, task.launchOrigin === 'claude-desktop-3p' ? 'fallback' : 'terminal')
     assert.equal(plan.canOpenPlatform, false)
-    assert.ok(plan.message.length > 10)
+    assert.equal(plan.command, undefined)
   }
 })
 
@@ -70,7 +71,7 @@ test('DSH task uses an authenticated browser-fragment handoff instead of a base-
 test('Codex with missing or unknown launch origin never sends a deep link', () => {
   for (const launchOrigin of [undefined, '', 'unknown', 'codex-cli']) {
     const plan = wakePlanForTask({ platform: 'codex', sessionID: 'thread-123', launchOrigin })
-    assert.equal(plan.kind, 'fallback')
+    assert.equal(plan.kind, launchOrigin === 'codex-cli' ? 'terminal' : 'fallback')
     assert.equal(plan.canOpenPlatform, false)
   }
 })

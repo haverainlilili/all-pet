@@ -11,6 +11,16 @@ function trayPanelBounds(anchor, workArea) {
   return { x: Math.round(x), y: Math.round(Math.max(workArea.y + 8, Math.min(y, workArea.y + workArea.height - height - 8))), width, height }
 }
 
+function trayPanelLayout(anchor, workArea, expanded = false) {
+  const bounds = trayPanelBounds(anchor, workArea)
+  if (!expanded || workArea.width < 620) return { bounds, rootSide: 'left' }
+  const extra = 294
+  if (bounds.x + bounds.width + extra <= workArea.x + workArea.width - 8) {
+    return { bounds: { ...bounds, width: bounds.width + extra }, rootSide: 'left' }
+  }
+  return { bounds: { ...bounds, x: Math.max(workArea.x + 8, bounds.x - extra), width: bounds.width + extra }, rootSide: 'right' }
+}
+
 // Only actions that open another window, a confirmation or an external app close the panel.
 function keepsTrayPanelOpen(action) {
   return ['bubble-platform-toggle', 'bubble-platform-all', 'scale-decrease', 'scale-increase', 'pet-select', 'toggle-visibility', 'refresh-pets'].includes(action)
@@ -25,7 +35,8 @@ function validTrayPanelAction(action, value, state) {
   if (action === 'scale-decrease' || action === 'scale-increase') return state.hasPet && !state.busy
   if (action === 'refresh-pets') return !state.busy
   if (action === 'open-manager') return !state.busy && [undefined, null, 'install', 'import'].includes(value)
-  return ['toggle-visibility', 'open-config', 'quit'].includes(action)
+  if (action === 'open-accessibility') return state.accessibility !== undefined
+  return ['toggle-visibility', 'terminal-setup', 'open-config', 'quit'].includes(action)
 }
 
-module.exports = { trayPanelBounds, keepsTrayPanelOpen, validTrayPanelAction }
+module.exports = { trayPanelBounds, trayPanelLayout, keepsTrayPanelOpen, validTrayPanelAction }

@@ -19,3 +19,6 @@ Package.resolved
 node_modules/
 desktop/dist/
 desktop/sidecar/
+
+# Generated terminal integration package
+desktop/integrations/*.vsix

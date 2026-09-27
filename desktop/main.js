@@ -26,11 +26,15 @@ const { TRAY_PET_ICON_CACHE_VERSION, platformMenuTitles, scalePercentText, petTr
 const { createBoundedThumbnailDataURL } = require('./src/pet-thumbnail')
 const { reuseExistingDshTab } = require('./src/dsh-browser')
 const { menuBridgeState } = require('./src/menu-bridge')
-const { trayPanelBounds, keepsTrayPanelOpen, validTrayPanelAction } = require('./src/tray-panel-model')
+const { trayPanelLayout, keepsTrayPanelOpen, validTrayPanelAction } = require('./src/tray-panel-model')
+const { createRPC } = require('./src/terminal/rpc')
+const { createTerminalService, applyBindings } = require('./src/terminal/service')
+const { cliTask } = require('./src/terminal/process')
 const { createManualViewMonitor, readCodexUnread } = require('./src/manual-view')
 const { cropTrayPetIcon } = require('./src/tray-icon')
 const { isExcludedCodexHistory } = require('./src/codex-session-metadata')
 const { PLATFORMS, bubblePlatformRows, hiddenBubblePlatforms, setBubblePlatformVisibility, filterBubbleSnapshot } = require('./src/platforms')
+const edgeLayout = require('./src/edge-dock')
 
 const MAIN_RENDERER_URL = pathToFileURL(path.join(__dirname, 'src', 'renderer.html')).href
 const TRAY_PANEL_URL = pathToFileURL(path.join(__dirname, 'src', 'tray-panel.html')).href
@@ -56,9 +60,12 @@ let trayMenu = null
 let trayPanelWindow = null
 let trayPanelLoad = null
 let trayPanelOpenRequest = 0
+let trayPanelExpanded = false
 let nativeMenuBridgeProc = null
 let nativeMenuBridgeBuffer = ''
 let nativeMenuBridgeFailed = false
+let nativeBridgeRetryTimer = null
+let nativeBridgeRetryDelay = 2000
 const activeSipsProcesses = new Map()
 let nativeTrayPopupCount = 0
 let trayFallbackIcon = null
@@ -71,6 +78,13 @@ let watchRestartTimer = null
 let petRefreshRetryTimer = null
 let historyExpiryTimer = null
 let manualViewMonitor = null
+let terminalService = null
+const nativeTerminalRPC = createRPC(message => {
+  if (!nativeMenuBridgeProc || nativeMenuBridgeProc.stdin.destroyed || app.isQuitting) return false
+  nativeMenuBridgeProc.stdin.write(JSON.stringify(message) + '\n')
+  return true
+})
+const pendingViewParts = new Map()
 let manualViewStatus = {}
 let lifecycleCleaned = false
 let currentSnapshot = null
@@ -153,6 +167,8 @@ function readScale() {
 // 当前气泡尺寸（0 = 隐藏）；渲染层实时上报。AppKit 的任务托盘位于宠物上方。
 let bubbleWidth = 0
 let bubbleHeight = 0
+let edgeDock = null
+let petDrag = null
 
 // 精灵按 scale 缩放；显示宽 clamp 80…224px（与 macOS layoutMetrics 一致）。
 // 三阶段气泡宽度由渲染层按 AppKit 304/324/334px 实时上报。
@@ -171,6 +187,8 @@ function windowSizeForScale(scale, targetPet = pet) {
 // 气泡、scale 或图集变化时，保持宠物本体左下角在屏幕上的位置不跳动。
 function resizeWindowPreservingSprite(nextScale, previousScale = nextScale, nextPet = pet, previousPet = nextPet) {
   if (!mainWindow || mainWindow.isDestroyed()) return
+  if (edgeDock && nextPet) { layoutDockedPet(nextScale, nextPet); return }
+  if (petDrag) return
   const oldBounds = mainWindow.getBounds()
   const oldSprite = spriteSizeForScale(previousScale, previousPet)
   const nextSprite = spriteSizeForScale(nextScale, nextPet)
@@ -198,6 +216,7 @@ function readAnchor() {
 // 与 macOS 对齐：按 config.pet.anchor 定位到屏幕四角（默认右下角）。
 function positionWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) return
+  if (edgeDock && pet) { layoutDockedPet(); return }
   const anchor = readAnchor()
   const margin = 20
   const isLeft = anchor.endsWith('left')
@@ -215,13 +234,90 @@ function positionWindow() {
   mainWindow.setPosition(Math.round(x), Math.round(y))
 }
 
+function desktopLayoutPath() { return path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'desktop-layout.json') }
+function loadEdgeDock() {
+  try { edgeDock = edgeLayout.normalizeDock(JSON.parse(fs.readFileSync(desktopLayoutPath(), 'utf8')).dock) } catch { edgeDock = null }
+}
+function persistEdgeDock() {
+  try { writeJSONAtomically(desktopLayoutPath(), { version: 1, dock: edgeDock }) }
+  catch (error) { console.error('[allpet] 保存贴边位置失败:', error.message) }
+}
+function dockDisplay() {
+  return screen.getAllDisplays().find(display => display.id === edgeDock?.displayID) || screen.getPrimaryDisplay()
+}
+function sendPetPresentation() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('pet-presentation', { edge: edgeDock?.edge || null, dragging: Boolean(petDrag?.moved) })
+}
+function layoutDockedPet(scale = readScale(), targetPet = pet) {
+  if (!edgeDock || !mainWindow || mainWindow.isDestroyed()) return
+  const display = dockDisplay()
+  if (edgeDock.displayID !== display.id) { edgeDock.displayID = display.id; persistEdgeDock() }
+  const bounds = edgeLayout.dockBounds(edgeDock, spriteSizeForScale(scale, targetPet), display.workArea)
+  mainWindow.setBounds(bounds, false)
+}
+function restoreDockedPet() {
+  if (!edgeDock || !mainWindow || mainWindow.isDestroyed()) return false
+  const bounds = edgeLayout.restoreBounds(mainWindow.getBounds(), spriteSizeForScale(readScale()), dockDisplay().workArea)
+  edgeDock = null; bubbleWidth = 0; bubbleHeight = 0
+  persistEdgeDock(); mainWindow.setBounds(bounds, false); sendPetPresentation()
+  return true
+}
+function startPetDrag(x, y) {
+  if (!pet || !mainWindow || mainWindow.isDestroyed() || !Number.isFinite(x) || !Number.isFinite(y)) return
+  petDrag = { x, y, moved: false, wasDocked: Boolean(edgeDock),
+    start: edgeDock ? mainWindow.getBounds() : edgeLayout.spriteBounds(mainWindow.getBounds(), spriteSizeForScale(readScale())), last: { x, y } }
+}
+function movePetDrag(x, y) {
+  if (!petDrag || !mainWindow || mainWindow.isDestroyed() || !Number.isFinite(x) || !Number.isFinite(y)) return
+  const dx = x - petDrag.x, dy = y - petDrag.y
+  if (!petDrag.moved && Math.hypot(dx, dy) < 4) return
+  const sprite = spriteSizeForScale(readScale())
+  const firstMove = !petDrag.moved
+  petDrag.moved = true; petDrag.last = { x, y }
+  const rect = petDrag.wasDocked
+    ? { x: x - sprite.width / 2, y: y - sprite.height * 0.22, ...sprite }
+    : { x: petDrag.start.x + dx, y: petDrag.start.y + dy, ...sprite }
+  petDrag.rect = { ...rect, x: Math.round(rect.x), y: Math.round(rect.y) }
+  edgeDock = null; bubbleWidth = 0; bubbleHeight = 0
+  if (firstMove) sendPetPresentation()
+  mainWindow.setBounds(petDrag.rect, false)
+}
+function endPetDrag() {
+  const drag = petDrag
+  petDrag = null
+  if (!drag || !mainWindow || mainWindow.isDestroyed()) return { ok: true, docked: Boolean(edgeDock) }
+  if (!drag.moved) {
+    const restored = restoreDockedPet()
+    if (!restored) sendPetPresentation()
+    return { ok: true, docked: false, restored }
+  }
+  const display = screen.getDisplayNearestPoint({ x: Math.round(drag.last.x), y: Math.round(drag.last.y) })
+  const area = display.workArea, rect = drag.rect
+  const edge = edgeLayout.edgeForRect(rect, area)
+  if (edge) {
+    const vertical = edge === 'left' || edge === 'right'
+    edgeDock = edgeLayout.normalizeDock({ edge, displayID: display.id, position: vertical
+      ? (rect.y + rect.height / 2 - area.y) / area.height : (rect.x + rect.width / 2 - area.x) / area.width })
+    layoutDockedPet()
+  } else {
+    resizeWindowPreservingSprite(readScale())
+  }
+  persistEdgeDock(); sendPetPresentation()
+  return { ok: true, docked: Boolean(edgeDock), restored: drag.wasDocked }
+}
+function realignPetForDisplays() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  petDrag = null
+  if (edgeDock) layoutDockedPet()
+  else resizeWindowPreservingSprite(readScale())
+  sendPetPresentation()
+}
+
 // ---- 任务历史（与 macOS 共享 ~/.config/all-pet/task-history.json）----
 
 let taskHistory = {}      // { [platform]: [item] }
 let dismissedTaskIDs = []
 let manuallyHiddenTaskTitles = {} // 非终态手动隐藏：同一标题保持隐藏，标题变化后视为新活动
-let dragStartScreen = null  // 精灵拖动起点（屏幕坐标）
-let dragStartPosition = null // 拖动开始时窗口位置
 
 function historyURL() {
   return path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'task-history.json')
@@ -294,24 +390,43 @@ function startHistoryExpiryTimer() {
 
 // Local health only: no task titles, transcript contents or account identifiers.
 function recordManualViewStatus(update) {
-  manualViewStatus = { ...manualViewStatus, ...update, hostAccessibilityTrusted: systemPreferences.isTrustedAccessibilityClient(false), updatedAt: new Date().toISOString() }
+  manualViewStatus = { ...manualViewStatus, ...update, hostAccessibilityTrusted: process.platform === 'darwin' ? systemPreferences.isTrustedAccessibilityClient(false) : null, updatedAt: new Date().toISOString() }
   try { writeJSONAtomically(path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'manual-view-status.json'), manualViewStatus) } catch {}
 }
 
 function startManualViewMonitor() {
-  if (process.platform !== 'darwin') return
+  if (!process.env.ALLPET_TRAY_PANEL_SMOKE && !shouldUseLegacyMacTray()) {
+    terminalService = createTerminalService({ home: EFFECTIVE_HOME, native: nativeTerminalRPC,
+      getTasks: () => Object.values(taskHistory).flat(), config: () => readBubbleConfig().terminal || {},
+      onBindings: (inspected, bindings) => {
+        if (applyBindings(Object.values(taskHistory).flat(), inspected, bindings)) persistHistory()
+      } })
+    terminalService.start()
+  }
   manualViewMonitor = createManualViewMonitor({
     getState: mutableHistoryState,
     hiddenPlatforms: () => [...hiddenBubblePlatforms(readBubbleConfig())],
     readUnread: () => readCodexUnread(EFFECTIVE_HOME),
     sendCheck: request => {
+      const terminalTasks = request.tasks.filter(cliTask)
+      const desktopTasks = process.platform === 'darwin' ? request.tasks.filter(task => !cliTask(task)) : []
       const child = nativeMenuBridgeProc
-      if (!child || child.stdin.destroyed || app.isQuitting) return false
-      try {
-        recordManualViewStatus({ requestID: request.requestID, requestedAt: Date.now(), candidateCount: request.tasks.length })
-        child.stdin.write(`${JSON.stringify(request)}\n`)
-        return true
-      } catch { return false }
+      const entry = { remaining: 0, viewedIDs: [], at: Date.now() }
+      for (const [id, value] of pendingViewParts) if (Date.now() - value.at > 5000) pendingViewParts.delete(id)
+      if (terminalTasks.length && terminalService) entry.remaining++
+      if (desktopTasks.length && child && !child.stdin.destroyed) entry.remaining++
+      if (!entry.remaining) return false
+      pendingViewParts.set(request.requestID, entry)
+      if (terminalTasks.length && terminalService) {
+        Promise.all(terminalTasks.map(async task => await terminalService.viewed(task) ? task.id : null))
+          .then(ids => receiveViewPart({ type: 'view-result', requestID: request.requestID, viewedIDs: ids.filter(Boolean) }))
+          .catch(() => receiveViewPart({ type: 'view-result', requestID: request.requestID, viewedIDs: [] }))
+      }
+      if (desktopTasks.length && child && !child.stdin.destroyed) {
+        try { child.stdin.write(JSON.stringify({ ...request, tasks: desktopTasks }) + '\n') }
+        catch { receiveViewPart({ type: 'view-result', requestID: request.requestID, viewedIDs: [] }) }
+      }
+      return true
     },
     onDismiss: state => {
       adoptHistoryState(state)
@@ -320,6 +435,16 @@ function startManualViewMonitor() {
     }
   })
   manualViewMonitor.start()
+}
+
+function receiveViewPart(message) {
+  const entry = pendingViewParts.get(message.requestID)
+  if (!entry) return
+  entry.viewedIDs.push(...(message.viewedIDs || []))
+  if (--entry.remaining === 0) {
+    pendingViewParts.delete(message.requestID)
+    manualViewMonitor?.receive({ type: 'view-result', requestID: message.requestID, viewedIDs: entry.viewedIDs })
+  }
 }
 
 function historyPayload() {
@@ -506,6 +631,9 @@ function createWindow(options = {}) {
     alwaysOnTop: true,
     hasShadow: false,
     resizable: false,
+    // Own work-area clamping also handles tiny edge heads. AppKit's default
+    // constrainFrameRect can otherwise move a frameless head away from the edge.
+    enableLargerThanScreen: process.platform === 'darwin',
     skipTaskbar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -530,6 +658,7 @@ function createWindow(options = {}) {
   // 首次就绪后，把宠物素材 + 当前快照推给渲染层。
   mainWindow.webContents.on('did-finish-load', () => {
     if (mainWindow.webContents.getURL() !== MAIN_RENDERER_URL) return
+    sendPetPresentation()
     pushPet()
     if (currentSnapshot) sendSnapshot(currentSnapshot)
   })
@@ -544,6 +673,7 @@ function createWindow(options = {}) {
 }
 
 function pushPet() {
+  if (!pet && edgeDock) { edgeDock = null; persistEdgeDock(); sendPetPresentation(); resizeWindowPreservingSprite(readScale()) }
   const scale = readScale()
   let payload
   try {
@@ -749,6 +879,7 @@ async function wakeTask(taskID) {
     },
     launchApplication: (command, args) => runCommandLauncher(spawn, command, args),
     openExternal: url => shell.openExternal(url),
+    focusTerminal: task => terminalService ? terminalService.focus(task) : Promise.resolve({ succeeded: false, message: '终端接入尚未就绪' }),
     reuseDSHTab: url => reuseExistingDshTab(spawn, url, process.platform),
     presentFallback: presentWakeFallback
   }).finally(() => wakeInFlight.delete(taskID))
@@ -849,6 +980,7 @@ function managerPetPayload(catalog) {
 function registerPetIpc() {
   ipcMain.handle('tray-panel:state', event => { requireTrayPanelFrame(event); return trayPanelState() })
   ipcMain.handle('tray-panel:close', event => { requireTrayPanelFrame(event); hideTrayPanel(); return { ok: true } })
+  ipcMain.handle('tray-panel:layout', (event, expanded) => { requireTrayPanelFrame(event); trayPanelExpanded = expanded === true; return positionTrayPanel() })
   ipcMain.handle('tray-panel:action', async (event, action, value) => {
     requireTrayPanelFrame(event)
     const state = trayPanelState()
@@ -916,6 +1048,8 @@ function registerPetIpc() {
 
   ipcMain.handle('pets:resizeBubble', async (event, width, height) => {
     requireMainFrame(event)
+    // A queued resize from before docking must never reopen the notification surface.
+    if (edgeDock || petDrag) return { ok: true }
     const w = Math.max(0, Math.round(Number(width) || 0))
     const h = Math.max(0, Math.round(Number(height) || 0))
     if (w === bubbleWidth && h === bubbleHeight) return { ok: true }
@@ -962,28 +1096,19 @@ function registerPetIpc() {
 
   ipcMain.handle('pets:dragStart', async (event, x, y) => {
     requireMainFrame(event)
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      dragStartScreen = { x: Number(x), y: Number(y) }
-      dragStartPosition = mainWindow.getPosition()
-    }
+    startPetDrag(x, y)
     return { ok: true }
   })
 
   ipcMain.handle('pets:dragMove', async (event, x, y) => {
     requireMainFrame(event)
-    if (mainWindow && !mainWindow.isDestroyed() && dragStartScreen && dragStartPosition) {
-      const dx = Number(x) - dragStartScreen.x
-      const dy = Number(y) - dragStartScreen.y
-      mainWindow.setPosition(dragStartPosition[0] + Math.round(dx), dragStartPosition[1] + Math.round(dy))
-    }
+    movePetDrag(x, y)
     return { ok: true }
   })
 
   ipcMain.handle('pets:dragEnd', async (event) => {
     requireMainFrame(event)
-    dragStartScreen = null
-    dragStartPosition = null
-    return { ok: true }
+    return endPetDrag()
   })
 }
 
@@ -1226,6 +1351,7 @@ async function handleNativeMenuAction(message) {
   const action = String(message && message.action || '')
   const value = message && message.value
   if (action === 'bubble-platform-toggle') await changeBubbleVisibility(String(value))
+  else if (action === 'terminal-setup') await shell.openPath(path.join(app.isPackaged ? path.join(process.resourcesPath, 'terminal-integrations') : path.join(__dirname, 'integrations'), 'README.md'))
   else if (action === 'integration-install') await installPlatformIntegration(String(value))
   else if (action === 'bubble-platform-all') await changeBubbleVisibility('all', value === 'show')
   else if (action === 'toggle-visibility') await togglePetVisibility()
@@ -1244,6 +1370,8 @@ async function handleNativeMenuAction(message) {
   else if (action === 'refresh-pets') {
     const result = await runSerializedPetRefresh(petOperationGate, () => refreshDesktopState({ fromMutation: true }))
     if (!result || !result.ok) await dialog.showMessageBox({ type: 'warning', title: '刷新失败', message: '无法刷新宠物状态', detail: String(result && result.error || '未知错误'), buttons: ['知道了'] })
+  } else if (action === 'open-accessibility' && process.platform === 'darwin') {
+    nativeMenuBridgeProc?.stdin.write(JSON.stringify({ type: 'permission-request' }) + '\n')
   } else if (action === 'open-config') await openConfig()
   else if (action === 'quit') quit()
 }
@@ -1258,13 +1386,15 @@ function consumeNativeMenuBridgeOutput(chunk, onReady) {
       if (message.type === 'ready') {
         recordManualViewStatus({ bridgeReady: true, accessibilityTrusted: message.manualViewAccessibility === true })
         onReady()
+      } else if (message.type === 'terminal-result') {
+        nativeTerminalRPC.receive(message)
       } else if (message.type === 'view-result') {
         recordManualViewStatus({ replyID: message.requestID, repliedAt: Date.now(),
           replyLatencyMs: message.requestID === manualViewStatus.requestID ? Date.now() - manualViewStatus.requestedAt : null,
           matchedCount: Array.isArray(message.viewedIDs) ? message.viewedIDs.length : 0,
           ...(typeof message.accessibilityTrusted === 'boolean' ? { accessibilityTrusted: message.accessibilityTrusted } : {}),
           nativeElapsedMs: message.elapsedMs ?? null })
-        manualViewMonitor?.receive(message)
+        receiveViewPart(message)
       } else if (message.type === 'error') recordManualViewStatus({ bridgeError: message.message })
       else if (message.type === 'action') handleNativeMenuAction(message).catch(err => console.error('[allpet] 原生菜单动作失败:', err && err.message || err))
     } catch {}
@@ -1275,16 +1405,30 @@ function shouldUseLegacyMacTray() {
   return Boolean(process.env.ALLPET_TRAY_NATIVE_SMOKE || process.env.ALLPET_TRAY_NATIVE_HEADLESS_SMOKE || process.env.ALLPET_TRAY_NATIVE_PREVIEW || process.env.ALLPET_TRAY_PETS_PREVIEW)
 }
 
+function retryNativeBridge() {
+  if (app.isQuitting || nativeBridgeRetryTimer) return
+  nativeMenuBridgeFailed = true
+  recordManualViewStatus({ bridgeReady: false })
+  nativeBridgeRetryTimer = setTimeout(() => {
+    nativeBridgeRetryTimer = null; nativeMenuBridgeFailed = false
+    startNativeMenuBridge().catch(() => {})
+  }, nativeBridgeRetryDelay)
+  nativeBridgeRetryDelay = Math.min(nativeBridgeRetryDelay * 2, 30000)
+}
+
 function startNativeMenuBridge() {
-  if (process.platform !== 'darwin' || usesTrayPanel() || nativeMenuBridgeFailed || shouldUseLegacyMacTray()) return Promise.resolve(false)
+  if (process.platform !== 'darwin' || nativeMenuBridgeFailed || shouldUseLegacyMacTray() || process.env.ALLPET_TRAY_PANEL_SMOKE) return Promise.resolve(false)
+  if (nativeMenuBridgeProc) return Promise.resolve(true)
   return new Promise(resolve => {
     let settled = false
     let child
+    nativeMenuBridgeBuffer = ''
     const finish = value => { if (!settled) { settled = true; clearTimeout(timer); resolve(value) } }
     try {
-      child = spawn(allpetBinary(), ['menu-bridge'], { stdio: ['pipe', 'pipe', 'pipe'], env: sidecarEnvironment() })
+      child = spawn(allpetBinary(), ['menu-bridge'], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...sidecarEnvironment(), ALLPET_BRIDGE_HEADLESS: usesTrayPanel() ? '1' : '0' } })
     } catch (err) {
       console.error('[allpet] 启动原生菜单桥接失败:', err && err.message || err)
+      retryNativeBridge()
       resolve(false)
       return
     }
@@ -1292,26 +1436,24 @@ function startNativeMenuBridge() {
     child.stdout.on('data', chunk => consumeNativeMenuBridgeOutput(chunk, () => {
       if (settled) return
       nativeMenuBridgeProc = child
+      nativeBridgeRetryDelay = 2000
       sendNativeMenuState()
       finish(true)
     }))
+    child.stdin.on('error', () => { if (nativeMenuBridgeProc === child) nativeTerminalRPC.disconnect(); try { child.kill() } catch {} })
     child.stderr.on('data', chunk => { if (!app.isQuitting) console.error('[allpet] 原生菜单桥接:', chunk.toString('utf8').trim()) })
     child.once('error', err => { console.error('[allpet] 原生菜单桥接错误:', err && err.message || err); finish(false) })
     child.once('close', () => {
       const wasActive = nativeMenuBridgeProc === child
-      if (wasActive) nativeMenuBridgeProc = null
-      if (!app.isQuitting && wasActive) {
-        nativeMenuBridgeFailed = true
-        console.error('[allpet] 原生菜单桥接已退出，回退 Electron 原生菜单')
-        setTimeout(() => createTray().catch(err => console.error('[allpet] 托盘回退失败:', err && err.message || err)), 250)
-      }
+      if (wasActive) { nativeMenuBridgeProc = null; nativeTerminalRPC.disconnect() }
+      if (!app.isQuitting) retryNativeBridge()
       finish(false)
     })
   })
 }
 
 function usesTrayPanel() {
-  return process.platform !== 'darwin' || Boolean(process.env.ALLPET_TRAY_PANEL_SMOKE || process.env.ALLPET_TRAY_PANEL_PREVIEW)
+  return !shouldUseLegacyMacTray()
 }
 
 function requireTrayPanelFrame(event) {
@@ -1321,6 +1463,7 @@ function requireTrayPanelFrame(event) {
 function trayPanelState() {
   const state = nativeMenuState()
   state.importLocal = petCapabilities(process.platform).importLocal
+  if (process.platform === 'darwin') state.accessibility = manualViewStatus.accessibilityTrusted === true
   state.installedPets = state.installedPets.map(row => {
     const entry = petCatalog.find(pet => petMutationTarget(pet) === row.target)
     return { label: row.label, target: row.target, current: row.current,
@@ -1347,7 +1490,7 @@ async function showTrayPanel() {
     const panel = new BrowserWindow({
       width: 304, height: 568, show: false, frame: false, resizable: false,
       minimizable: false, maximizable: false, fullscreenable: false,
-      skipTaskbar: true, alwaysOnTop: true, backgroundColor: '#28282c',
+      skipTaskbar: true, alwaysOnTop: true, transparent: true, hasShadow: false, backgroundColor: '#00000000',
       webPreferences: { preload: path.join(__dirname, 'src', 'tray-panel-preload.js'),
         contextIsolation: true, nodeIntegration: false, sandbox: true }
     })
@@ -1361,13 +1504,19 @@ async function showTrayPanel() {
   }
   await trayPanelLoad
   if (request !== trayPanelOpenRequest || app.isQuitting || !trayPanelWindow || trayPanelWindow.isDestroyed()) return
-  let anchor = tray?.getBounds()
-  if (!anchor || anchor.width < 1 || anchor.height < 1) anchor = { ...screen.getCursorScreenPoint(), width: 0, height: 0 }
-  const display = screen.getDisplayNearestPoint({ x: Math.round(anchor.x), y: Math.round(anchor.y) })
-  trayPanelWindow.setBounds(trayPanelBounds(anchor, display.workArea))
+  positionTrayPanel()
   sendTrayPanelState()
   trayPanelWindow.show()
   trayPanelWindow.focus()
+}
+
+function positionTrayPanel() {
+  let anchor = tray?.getBounds()
+  if (!anchor || anchor.width < 1 || anchor.height < 1) anchor = { ...screen.getCursorScreenPoint(), width: 0, height: 0 }
+  const display = screen.getDisplayNearestPoint({ x: Math.round(anchor.x), y: Math.round(anchor.y) })
+  const layout = trayPanelLayout(anchor, display.workArea, trayPanelExpanded)
+  trayPanelWindow?.setBounds(layout.bounds)
+  return layout
 }
 
 function toggleTrayPanel() {
@@ -1387,7 +1536,9 @@ function applyTrayScale(delta, action) {
 }
 
 async function createTray() {
-  if (await startNativeMenuBridge()) return
+  const bridge = await startNativeMenuBridge()
+  if (bridge && !usesTrayPanel()) return
+  if (tray) return
   const iconPath = path.join(__dirname, 'assets', 'icon.png')
   let icon
   if (fs.existsSync(iconPath)) {
@@ -1628,6 +1779,11 @@ function cleanupLifecycle() {
   app.isQuitting = true
   hideTrayPanel()
   if (trayPanelWindow && !trayPanelWindow.isDestroyed()) trayPanelWindow.destroy()
+  terminalService?.stop()
+  terminalService = null
+  nativeTerminalRPC.disconnect()
+  if (nativeBridgeRetryTimer) { clearTimeout(nativeBridgeRetryTimer); nativeBridgeRetryTimer = null }
+  pendingViewParts.clear()
   manualViewMonitor?.stop()
   manualViewMonitor = null
   if (watchRestartTimer) { clearTimeout(watchRestartTimer); watchRestartTimer = null }
@@ -1734,12 +1890,31 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   if (process.platform === 'darwin') hydrateCachedTrayPetIcons()
   pet = readCurrentPet()
   petSurfaceAvailable = Boolean(pet)
+  loadEdgeDock()
+  if (!pet) edgeDock = null
   createWindow({ show: readPetEnabled() && petSurfaceAvailable })
+  screen.on('display-added', realignPetForDisplays)
+  screen.on('display-removed', realignPetForDisplays)
+  screen.on('display-metrics-changed', realignPetForDisplays)
   await createTray()
-  startManualViewMonitor()
+  if (!process.env.ALLPET_EDGE_DOCK_SMOKE) startManualViewMonitor()
   if (process.platform === 'darwin') refreshTrayPetIcons().catch(() => {})
   // 三阶段截图使用确定性 fixture，避免真实 watcher 快照覆盖测试数据。
-  if (!process.env.ALLPET_SCREENSHOT_STAGE && !process.env.ALLPET_PLATFORM_UI_SMOKE && !process.env.ALLPET_TRAY_PANEL_SMOKE) startWatch()
+  if (!process.env.ALLPET_SCREENSHOT_STAGE && !process.env.ALLPET_PLATFORM_UI_SMOKE && !process.env.ALLPET_TRAY_PANEL_SMOKE && !process.env.ALLPET_EDGE_DOCK_SMOKE) startWatch()
+
+  if (process.env.ALLPET_EDGE_DOCK_SMOKE) {
+    try {
+      const fixture = debugBubbleSnapshot()
+      accumulateHistory(fixture)
+      const result = await require('./src/edge-dock-smoke')({ window: mainWindow, display: () => screen.getPrimaryDisplay(),
+        sprite: () => spriteSizeForScale(readScale()), state: () => ({ dock: edgeDock, history: mutableHistoryState() }),
+        snapshot: fixture, scale: applyScale, output: process.env.ALLPET_EDGE_DOCK_SMOKE,
+        restoring: process.env.ALLPET_EDGE_DOCK_RESTORE_SMOKE === '1' })
+      console.log('[allpet] edge dock verified:', JSON.stringify(result))
+      cleanupLifecycle(); app.exit(0)
+    } catch (error) { console.error(error); cleanupLifecycle(); app.exit(1) }
+    return
+  }
 
   if (process.env.ALLPET_TRAY_PANEL_SMOKE) {
     try {

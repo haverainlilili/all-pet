@@ -34,7 +34,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y libcurl4-openssl-dev
+          sudo apt-get install -y libcurl4-openssl-dev dbus-x11 openbox xvfb libnss3 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
 
       - name: 构建自包含 Swift 核心
         run: swift build -c release --static-swift-stdlib
@@ -104,6 +104,37 @@ jobs:
         env:
           ALLPET_APP_BINARY: ${{ github.workspace }}/desktop/dist/win-unpacked/AllPet.exe
           ALLPET_TRAY_PANEL_OUTPUT: ${{ runner.temp }}/tray-panel/menu.json
+
+      - name: macOS 成品贴边收起与重启恢复
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          ALLPET_APP_BINARY="$PWD/desktop/dist/mac-arm64/AllPet.app/Contents/MacOS/AllPet" \
+            ALLPET_EDGE_OUTPUT="$RUNNER_TEMP/edge-dock/result.json" node desktop/scripts/verify-edge-dock.js
+
+      - name: Windows 成品贴边收起与重启恢复
+        if: runner.os == 'Windows'
+        run: node desktop/scripts/verify-edge-dock.js
+        env:
+          ALLPET_APP_BINARY: ${{ github.workspace }}/desktop/dist/win-unpacked/AllPet.exe
+          ALLPET_EDGE_OUTPUT: ${{ runner.temp }}/edge-dock/result.json
+
+      - name: Linux 成品贴边收起与重启恢复
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          PACKAGED="$PWD/desktop/dist/linux-unpacked/allpet-desktop"
+          test -x "$PACKAGED"
+          ALLPET_APP_BINARY="$PACKAGED" ALLPET_NO_SANDBOX=1 ALLPET_EDGE_OUTPUT="$RUNNER_TEMP/edge-dock/result.json" \
+            xvfb-run -a dbus-run-session -- bash -c 'openbox >"$RUNNER_TEMP/allpet-edge-openbox.log" 2>&1 & node desktop/scripts/verify-edge-dock.js'
+
+      - name: 保存三平台成品贴边验收
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: packaged-edge-${{ runner.os }}
+          path: ${{ runner.temp }}/edge-dock/
+          if-no-files-found: ignore
 
       - name: 保存 Windows 成品菜单验收
         if: always() && runner.os == 'Windows'

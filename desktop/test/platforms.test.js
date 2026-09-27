@@ -89,7 +89,7 @@ test('new desktop platforms activate their app without inventing a conversation 
   }
   for (const os of ['darwin', 'linux', 'win32']) {
     const plan = wakePlanForTask({ platform: 'pi', sessionID: 'session' }, os)
-    assert.equal(plan.kind, 'fallback')
+    assert.equal(plan.kind, 'terminal')
     assert.equal(plan.canOpenPlatform, false)
   }
 })

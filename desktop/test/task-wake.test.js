@@ -71,7 +71,7 @@ test('Claude unsupported CLI and OS targets still acknowledge terminal notices w
       assert.equal(result.succeeded, false)
       assert.equal(result.exact, false)
       assert.equal(result.acknowledged, true)
-      assert.match(h.calls[1][1].message, /不会启动新的 Claude 进程.*已确认该任务通知/)
+      assert.match(h.calls[1][1].message, /不会启动新的终端进程.*已确认该任务通知/)
       assert.doesNotMatch(result.message, /卡片.*保留/)
     }
   }

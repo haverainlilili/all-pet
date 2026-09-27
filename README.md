@@ -12,11 +12,17 @@ The pet switches animation based on what your agents are doing — idle, running
 
 ---
 
-## What's new in v1.4.1
 
-Windows/Linux now use a persistent tray panel: left or right click opens it; provider checkboxes, inline size controls, and pet selection stay open for repeated clicks. Pet rows include thumbnails. Outside focus or Escape closes the panel. macOS keeps its native menu.
+## What’s new in v1.5.0
 
-Local CLI logs, including Codex CLI, can produce task bubbles. The Electron app does not yet fully support returning to the original terminal tab or automatically acknowledging a CLI task when that tab is viewed. See [terminal support and limits](docs/终端CLI支持说明.md).
+Electron uses the same Mac-style cascading menu on all three systems. Hover or click opens a submenu. Provider toggles, show/hide all, size controls, and pet selection keep the menu open; Escape, outside clicks, and actions that open another window close it. The macOS system bridge runs without an additional tray icon.
+
+Electron now captures terminal identities while tasks run, focuses existing tabs or panes on click, and checks viewing state every 500 ms. See [terminal setup and limits](desktop/integrations/README.md): VS Code/Cursor requires an extension, WezTerm requires Lua integration, kitty requires a local control socket, and some Linux paths depend on accessibility or X11. Implemented adapters do not mean every terminal version has been tested, or that acknowledgement is unconditionally guaranteed within two seconds.
+
+See the [v1.5.0 release notes](docs/releases/v1.5.0.md) for setup, verification, and remaining limits.
+
+The Electron app also supports **edge hiding**: drag the pet to any edge of the usable screen area and release to leave only a small head visible. All task bubbles stay hidden, including new notifications. Click the head or drag it back inside to restore the pet and notifications. Docked positions survive restart; docking itself does not acknowledge tasks.
+
 
 ### v1.4.0 foundation
 
@@ -51,14 +57,14 @@ Installers bundle the Swift core, runtime and five built-in pets; no Node.js or 
 
 ### Choose the correct installer — humans and AI agents
 
-**Latest stable release: v1.4.1.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
+**Latest stable release: v1.5.0.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
 
 | User device | Architecture / supported models | Download | Choose this when |
 | --- | --- | --- | --- |
-| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.4.1-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1-arm64-mac.zip) | Mac with an Apple M-series chip |
-| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.4.1.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-Setup-1.4.1.exe) | Typical Intel / AMD Windows PC |
-| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.4.1.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/AllPet-1.4.1.AppImage) | Portable install on most x64 Linux distributions |
-| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.4.1_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.4.1/allpet-desktop_1.4.1_amd64.deb) | Debian / Ubuntu and compatible distributions |
+| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.5.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0-arm64-mac.zip) | Mac with an Apple M-series chip |
+| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.5.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-Setup-1.5.0.exe) | Typical Intel / AMD Windows PC |
+| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.5.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0.AppImage) | Portable install on most x64 Linux distributions |
+| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.5.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/allpet-desktop_1.5.0_amd64.deb) | Debian / Ubuntu and compatible distributions |
 
 **Not packaged yet:** Intel Mac (`x86_64`), Windows on ARM, and Linux ARM (`aarch64`) do not currently have ready-made installers. Build from source or contribute a package build.
 
@@ -187,17 +193,17 @@ See [`宠物生成标准包/README.md`](./宠物生成标准包/README.md) for t
 
 Titles show stable session names; subtitles show current actions and progress. The × button closes a notification. Unacknowledged terminal tasks expire after 24 hours; new task activity can appear again. Internal subagents are filtered using explicit source evidence, not merely short IDs.
 
-The tray's platform visibility controls hide individual or all platforms while preserving monitoring and history. On macOS, checkboxes keep the menu open for consecutive changes; Esc or an outside click closes it. Windows/Linux use native tray menu behavior.
+The tray's platform visibility controls hide individual or all platforms while preserving monitoring and history. On macOS, checkboxes keep the menu open for consecutive changes; Esc or an outside click closes it. The development Electron build uses the same persistent cascading menu on all three systems.
 
 | Manual viewing of a completed task | macOS Electron support |
 |---|---|
 | Codex | Same-account/local-host unread→read receipt, or a unique foreground task title; title detection needs Accessibility |
 | Claude | Exact foreground Desktop conversation address/focus timestamp, or a valid original CLI terminal binding |
 | DSH | Exact sessionId in the frontmost browser tab; browser automation permission required |
-| Grok / pi | Valid original TTY selected in foreground Terminal/iTerm; default pi logs without TTY cannot qualify |
+| Grok / pi | Development build: captured terminal identity and exact foreground tab/pane; see the terminal adapter matrix |
 | Cursor / WorkBuddy / Qoder / Z Code | Reliable detection not implemented; acknowledge with a bubble click or × |
 
-Checks run independently every 500 ms on macOS. Missing permissions or uncertain identity retain notifications; this is not an unconditional two-second guarantee. Windows/Linux do not yet have equivalent manual-view detection. See the [validation record](./docs/平台行为验收.md).
+Checks run independently every 500 ms on macOS. Missing permissions or uncertain identity retain notifications; this is not an unconditional two-second guarantee. The development build also detects supported CLI terminals on Windows/Linux; GUI conversation detection remains platform-specific. See the [validation record](./docs/平台行为验收.md).
 
 ## Returning to a task
 
@@ -249,7 +255,7 @@ Config file: `~/.config/all-pet/config.json` (see [`config.example.json`](./conf
 
 ## Packaging installers
 
-Update the version in `desktop/package.json` and `desktop/package-lock.json`, update documentation, and pass CI before pushing a matching `vX.Y.Z` tag (`v1.4.0` for this release).
+Update the version in `desktop/package.json` and `desktop/package-lock.json`, update documentation, and pass CI before pushing a matching `vX.Y.Z` tag (`v1.5.0` for this release).
 
 The Release workflow checks the tag, builds the Swift core and resources, runs behavior/provider checks, and packages macOS arm64 DMG/ZIP, Windows x64 EXE, and Linux x64 AppImage/DEB. Tag builds upload to a draft Release. Verify all three builds, installer contents and SHA256SUMS before publishing. Manual workflow runs only produce Actions artifacts.
 

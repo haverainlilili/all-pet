@@ -1,5 +1,8 @@
 # AllPet · macOS 平台行为基准文档
 
+> 开发版更新：Electron 三平台已改用同一套持续级联菜单；Mac AppKit 桥接后台运行，仅提供系统识别。CLI 终端链路已接通，具体适配条件见 [终端接入说明](../desktop/integrations/README.md)。本文主体继续描述独立 AppKit GUI；旧版 Electron 对齐记录不等同于当前开发版的菜单实现。
+
+
 > 本文档是 macOS 原生 GUI（`Sources/allpet`）的**权威行为记录**，作为其余平台（Electron 壳 / 后续客户端）对齐「展示 + 交互」的唯一基准。
 > 后续修改 macOS 行为时同步维护本文；第三方客户端的实际验收状态以 [平台行为验收](平台行为验收.md) 为准。
 

@@ -38,6 +38,7 @@ final class TaskLauncher: @unchecked Sendable {
     }
 
     private let home: URL
+    private let terminalBindingLock = NSLock()
     private var cachedBindingByTask: [String: TerminalBinding] = [:]
     private var recentWakeAt: [String: Date] = [:]
     private let claudeBaselineLock = NSLock()
@@ -597,19 +598,44 @@ final class TaskLauncher: @unchecked Sendable {
         return Date().timeIntervalSince(wakeAt) <= claudeDesktopWakeViewWindow
     }
 
+    private func bindingCacheKey(_ task: TrayTaskItem) -> String {
+        "\(task.id)|\(task.sessionID ?? "")|\(task.processID ?? 0)|\(task.sourcePath ?? "")|\(task.launchOrigin ?? "")"
+    }
+
+    private func rememberedBinding(_ task: TrayTaskItem) -> TerminalBinding? {
+        terminalBindingLock.lock()
+        defer { terminalBindingLock.unlock() }
+        return task.terminalBinding ?? cachedBindingByTask[bindingCacheKey(task)]
+    }
+
+    private func remember(_ binding: TerminalBinding, for task: TrayTaskItem) {
+        terminalBindingLock.lock()
+        defer { terminalBindingLock.unlock() }
+        // Bounded cache; persisted bindings are owned by Electron/task history.
+        if cachedBindingByTask.count > 512 { cachedBindingByTask.removeAll() }
+        cachedBindingByTask[bindingCacheKey(task)] = binding
+    }
+
+    func selectedTerminalTTYInForeground() -> String? {
+        if isApplicationActive(bundleID: "com.apple.Terminal") { return selectedTerminalTTY() }
+        if isApplicationActive(bundleID: "com.googlecode.iterm2") { return selectediTermTTY() }
+        return nil
+    }
+
+    func isTerminalBindingSelected(_ binding: TerminalBinding) -> Bool {
+        guard TerminalBindingResolver.isValid(binding), let selected = selectedTerminalTTYInForeground() else { return false }
+        return normalizeTTY(selected) == normalizeTTY(binding.tty)
+    }
+
+    func focusTerminalBinding(_ binding: TerminalBinding) -> Bool {
+        guard TerminalBindingResolver.isValid(binding), focusTerminal(tty: binding.tty) else { return false }
+        return isTerminalBindingSelected(binding)
+    }
+
     private func isTerminalTabSelected(_ task: TrayTaskItem) -> Bool {
-        if let binding = task.terminalBinding, !TerminalBindingResolver.isValid(binding) { return false }
-        guard let tty = task.terminalBinding?.tty ?? task.terminalTTY, !tty.isEmpty else { return false }
-        let expected = normalizeTTY(tty)
-        if isApplicationActive(bundleID: "com.apple.Terminal"),
-           let selected = selectedTerminalTTY() {
-            return normalizeTTY(selected) == expected
-        }
-        if isApplicationActive(bundleID: "com.googlecode.iterm2"),
-           let selected = selectediTermTTY() {
-            return normalizeTTY(selected) == expected
-        }
-        return false
+        // A bare TTY can be recycled. Only an anchored, live binding is proof.
+        guard let binding = rememberedBinding(task) else { return false }
+        return isTerminalBindingSelected(binding)
     }
 
     private func selectedTerminalTTY() -> String? {
@@ -1295,66 +1321,50 @@ final class TaskLauncher: @unchecked Sendable {
 
     // MARK: - Existing terminal windows
 
-    private func focusExistingTerminal(
-        for task: TrayTaskItem,
-        processNames: [String]
-    ) -> TerminalFocusAttempt {
-        let rows = processRows().filter { $0.tty != "??" && $0.tty != "?" && !$0.tty.isEmpty }
-        let sourcePIDs: Set<Int32>
-        if task.platform == .codex || task.platform == .claude || task.platform == .pi,
-           let sourcePath = task.sourcePath, !sourcePath.isEmpty {
-            sourcePIDs = processIDsHolding(path: sourcePath)
-        } else {
-            sourcePIDs = []
-        }
+    func terminalBinding(forTTY tty: String) -> TerminalBinding? {
+        guard tty.hasPrefix("/dev/"), tty.count < 128 else { return nil }
+        let bindings = processRows().filter { normalizeTTY($0.tty) == tty }
+            .compactMap { TerminalBindingResolver.binding(forAgentProcessID: $0.pid) }
+        guard let first = bindings.first, bindings.allSatisfy({ $0 == first }) else { return nil }
+        return first
+    }
 
-        var scored: [(row: ProcessRow, score: Int, exact: Bool)] = []
+    /// Capture without activating any window, while the agent still owns its transcript.
+    func discoverTerminalBinding(for task: TrayTaskItem) -> TerminalBinding? {
+        if let existing = rememberedBinding(task), TerminalBindingResolver.isValid(existing) { return existing }
+        guard [.codex, .claude, .grok, .pi].contains(task.platform),
+              task.launchOrigin != "codex-desktop", task.launchOrigin != "claude-desktop-3p",
+              !(task.sessionID?.hasPrefix("local_") ?? false) else { return nil }
+        let rows = processRows().filter { $0.tty != "??" && $0.tty != "?" && !$0.tty.isEmpty }
+        let sourcePIDs = task.sourcePath.flatMap { $0.isEmpty ? nil : processIDsHolding(path: $0) } ?? []
+        var candidates: [TerminalBinding] = []
         for row in rows {
             let sourceMatch = sourcePIDs.contains(row.pid)
+            // An exact argv token, never a title/project/substring match.
+            let sessionMatch = task.sessionID.map { id in !id.isEmpty && row.command.split(whereSeparator: { $0.isWhitespace }).contains(Substring(id)) } ?? false
             let pidMatch = task.processID == row.pid
-            let sessionMatch = task.sessionID.map { !$0.isEmpty && row.command.contains($0) } ?? false
-            guard pidMatch || sourceMatch || sessionMatch else { continue }
-
-            var identifiedRow = row
-            if let executable = processExecutablePath(row.pid) { identifiedRow.executable = executable }
-            let nameMatch = processNames.contains { process(identifiedRow, matchesExecutableNamed: $0) }
-            // A transcript reader (tail/vim/indexer) is not task ownership.
-            guard nameMatch else { continue }
-
-            var cwdMatch = false
-            if let cwd = task.workingDirectory, !cwd.isEmpty {
-                cwdMatch = row.command.contains(cwd)
-                if !cwdMatch { cwdMatch = processWorkingDirectory(row.pid) == cwd }
-            }
-            let exact = pidMatch || sourceMatch || sessionMatch
-            guard exact else { continue }
-
-            var score = nameMatch ? 10 : 0
-            if pidMatch { score += 1_000 }
-            if sourceMatch { score += 800 }
-            if sessionMatch { score += 500 }
-            if cwdMatch { score += 100 }
-            scored.append((row, score, exact))
+            guard sourceMatch || sessionMatch || pidMatch else { continue }
+            var identified = row
+            if let executable = processExecutablePath(row.pid) { identified.executable = executable }
+            guard process(identified, matchesExecutableNamed: task.platform.rawValue),
+                  let binding = TerminalBindingResolver.binding(forAgentProcessID: row.pid) else { continue }
+            // Old persisted PIDs must not attach an old notification to a new process.
+            if !sourceMatch && !sessionMatch, let updatedAt = task.updatedAt,
+               TerminalBindingResolver.startedAt(processID: row.pid).map({ $0 > updatedAt }) != false { continue }
+            candidates.append(binding)
         }
+        let ttys = Set(candidates.map(\.tty))
+        guard ttys.count == 1, let binding = candidates.first else { return nil }
+        remember(binding, for: task)
+        return binding
+    }
 
-        let sorted = scored.sorted {
-            $0.score == $1.score ? $0.row.pid > $1.row.pid : $0.score > $1.score
+    private func focusExistingTerminal(for task: TrayTaskItem, processNames: [String]) -> TerminalFocusAttempt {
+        guard let binding = discoverTerminalBinding(for: task) else {
+            return TerminalFocusAttempt(binding: nil, liveProcessFound: false)
         }
-        if let remembered = task.terminalBinding ?? cachedBindingByTask[task.id],
-           sorted.contains(where: { normalizeTTY($0.row.tty) == normalizeTTY(remembered.tty) }),
-           TerminalBindingResolver.isValid(remembered),
-           focusTerminal(tty: remembered.tty) {
-            cachedBindingByTask[task.id] = remembered
-            return TerminalFocusAttempt(binding: remembered, liveProcessFound: true)
-        }
-        for candidate in sorted {
-            guard let binding = TerminalBindingResolver.binding(forAgentProcessID: candidate.row.pid),
-                  focusTerminal(tty: binding.tty) else { continue }
-            cachedBindingByTask[task.id] = binding
-            return TerminalFocusAttempt(binding: binding, liveProcessFound: true)
-        }
-
-        return TerminalFocusAttempt(binding: nil, liveProcessFound: !sorted.isEmpty)
+        let focused = focusTerminalBinding(binding)
+        return TerminalFocusAttempt(binding: focused ? binding : nil, liveProcessFound: true)
     }
 
     private func normalizeTTY(_ tty: String) -> String {
@@ -1363,12 +1373,12 @@ final class TaskLauncher: @unchecked Sendable {
 
     private func focusTerminal(tty: String) -> Bool {
         let terminalScript = terminalFocusScript(tty: tty)
-        if runAppleScript(terminalScript) == "FOUND" {
+        if runViewAppleScript(terminalScript) == "FOUND" {
             forceFrontmostPreservingWindow(bundleID: "com.apple.Terminal")
             return true
         }
         let iTermScript = iTermFocusScript(tty: tty)
-        if runAppleScript(iTermScript) == "FOUND" {
+        if runViewAppleScript(iTermScript) == "FOUND" {
             forceFrontmostPreservingWindow(bundleID: "com.googlecode.iterm2")
             return true
         }
@@ -1431,6 +1441,9 @@ final class TaskLauncher: @unchecked Sendable {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
+            let timeout = DispatchWorkItem { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1, execute: timeout)
+            defer { timeout.cancel() }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return [] }
@@ -1453,6 +1466,9 @@ final class TaskLauncher: @unchecked Sendable {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
+            let timeout = DispatchWorkItem { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1, execute: timeout)
+            defer { timeout.cancel() }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             return Set(String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { Int32($0) })
@@ -1477,6 +1493,9 @@ final class TaskLauncher: @unchecked Sendable {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
+            let timeout = DispatchWorkItem { if process.isRunning { kill(process.processIdentifier, SIGKILL) } }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1, execute: timeout)
+            defer { timeout.cancel() }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }
@@ -1554,7 +1573,7 @@ final class TaskLauncher: @unchecked Sendable {
             for row in existingMatches {
                 guard let binding = TerminalBindingResolver.binding(forAgentProcessID: row.pid),
                       focusTerminal(tty: binding.tty) else { continue }
-                cachedBindingByTask[task.id] = binding
+                remember(binding, for: task)
                 return Result(succeeded: true, message: nil, terminalTTY: binding.tty, terminalBinding: binding)
             }
             return Result(succeeded: false, message: "目标会话已重新运行，但无法聚焦其终端；未创建重复任务")
@@ -1593,7 +1612,7 @@ final class TaskLauncher: @unchecked Sendable {
                 stableCounts[candidate.pid] = count
                 guard count >= 6,
                       let binding = TerminalBindingResolver.binding(forAgentProcessID: candidate.pid) else { continue }
-                cachedBindingByTask[task.id] = binding
+                remember(binding, for: task)
                 return Result(
                     succeeded: true,
                     message: nil,

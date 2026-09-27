@@ -8,8 +8,8 @@
   <link rel="stylesheet" href="tray-panel.css">
 </head>
 <body>
-  <header><button id="back" aria-label="返回主菜单">‹</button><strong id="heading">AllPet</strong><button id="close" aria-label="关闭菜单">×</button></header>
-  <main id="items" aria-label="AllPet 设置"></main>
+  <main id="root" class="menu" role="menu" aria-label="AllPet 设置"></main>
+  <section id="submenu" class="menu" role="menu" hidden><button id="back" aria-label="返回主菜单">‹ 返回</button><div id="items"></div></section>
   <p id="error" role="alert" hidden></p>
   <script src="tray-panel.js"></script>
 </body>
