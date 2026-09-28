@@ -89,6 +89,11 @@ try {
   expect(codex().phase === 'idle', 'A stale unfinished turn still expires at the hard timeout')
   write(activeID, [...executing, done('execution')], 300)
   expect(codex().phase === 'idle', 'The longer scan does not resurrect old completed notifications')
+  const completedAt = new Date(Date.now() - 1000)
+  write(activeID, [...executing, { ...done('execution'), timestamp: completedAt.toISOString() }])
+  const completed = codex().task
+  expect(completed.turnID === 'execution', 'Completion exposes the exact Codex turn ID to the desktop')
+  expect(completed.completedAt === completedAt.getTime(), 'Completion carries its event time independently of desktop polling time')
   console.log(JSON.stringify({ checks, passed: true, scope: 'Codex plan to execution, silence, turn identity, concurrent tasks, and Electron acknowledgement' }))
 } finally {
   fs.rmSync(home, { recursive: true, force: true })

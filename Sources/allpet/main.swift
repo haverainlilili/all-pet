@@ -122,6 +122,8 @@ private func taskSnapshotKey(_ task: TaskInfo) -> String {
     fields.append(task.terminalTTY ?? "")
     fields.append(binding)
     fields.append(task.scheduledTaskName ?? "")
+    fields.append(task.turnID ?? "")
+    fields.append(task.completedAt.map { String($0.timeIntervalSince1970) } ?? "")
     return fields.joined(separator: "~")
 }
 
@@ -169,6 +171,8 @@ private struct TaskJSON: Codable {
     var scheduledTaskName: String?
     var title: String?
     var phase: String?
+    var turnID: String?
+    var completedAt: Double?
 }
 
 private struct PlatformJSON: Codable {
@@ -210,7 +214,9 @@ private func taskJSON(_ t: TaskInfo) -> TaskJSON {
         launchOrigin: t.launchOrigin,
         scheduledTaskName: t.scheduledTaskName,
         title: t.title,
-        phase: t.phase?.rawValue
+        phase: t.phase?.rawValue,
+        turnID: t.turnID,
+        completedAt: t.completedAt.map { $0.timeIntervalSince1970 * 1000 }
     )
 }
 

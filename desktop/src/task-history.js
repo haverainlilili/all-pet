@@ -29,7 +29,7 @@ const { PLATFORM_KEYS } = require('./platforms')
 const PHASE_KEYS = new Set(['idle', 'waiting', 'thinking', 'running', 'done', 'failed'])
 const STRING_FIELDS = [
   'title', 'sessionName', 'action', 'progress', 'sessionID', 'sourcePath',
-  'workingDirectory', 'terminalTTY', 'launchOrigin', 'scheduledTaskName'
+  'workingDirectory', 'terminalTTY', 'launchOrigin', 'scheduledTaskName', 'turnID'
 ]
 
 function optionalString(value) {
@@ -72,6 +72,7 @@ function sanitizedHistoryTask(platform, input) {
   task.sessionID = task.sessionID.trim()
   const updatedAt = Number(input.updatedAt)
   if (Number.isFinite(updatedAt)) task.updatedAt = updatedAt
+  if (typeof input.completedAt === 'number' && Number.isFinite(input.completedAt)) task.completedAt = input.completedAt
   const processID = Number(input.processID)
   if (Number.isInteger(processID)) task.processID = processID
   const terminalBinding = sanitizedTerminalBinding(input.terminalBinding)
@@ -208,7 +209,9 @@ function accumulateTaskHistory(state, snap, nowMilliseconds = Date.now()) {
         terminalTTY: task.terminalTTY,
         terminalBinding: task.terminalBinding,
         launchOrigin: task.launchOrigin,
-        scheduledTaskName: task.scheduledTaskName
+        scheduledTaskName: task.scheduledTaskName,
+        turnID: task.turnID,
+        completedAt: task.completedAt
       }
       const hiddenTitle = state.hidden[item.id]
       if (hiddenTitle !== undefined) {
@@ -238,7 +241,9 @@ function accumulateTaskHistory(state, snap, nowMilliseconds = Date.now()) {
         if (['processID', 'sourcePath', 'launchOrigin'].some(key => item[key] !== undefined && previous[key] !== undefined && item[key] !== previous[key])) {
           delete previous.terminalBinding; delete previous.terminalLocator; delete previous.terminalTTY
         }
+        if (item.phase !== 'done' && item.phase !== 'failed') delete previous.completedAt
         const sameTerminalPhase = (item.phase === 'done' || item.phase === 'failed') && previous.phase === item.phase
+          && (!item.turnID || !previous.turnID || item.turnID === previous.turnID)
         if (sameTerminalPhase && previous.updatedAt) item.updatedAt = previous.updatedAt
         if (!(previous.phase === 'done' && item.phase === 'idle')) {
           list[existingIndex] = mergeDefined(previous, item)

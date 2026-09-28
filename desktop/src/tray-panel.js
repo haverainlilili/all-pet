@@ -115,7 +115,7 @@ function renderRoot() {
     for (const title of state.platformTitles) { const row = node('p', title, 'status'); row.title = title; items.append(row) }
     separator()
     if (state.busy) items.append(node('p', `正在${state.busyLabel || '操作'}…`, 'note'))
-    if (state.accessibility !== undefined) items.append(button(state.accessibility ? '自动确认：辅助功能权限已开启' : '自动确认：开启辅助功能权限…', 'open-accessibility'))
+    if (state.accessibility !== undefined) items.append(button(state.accessibility ? '自动确认：辅助功能权限已开启' : '自动确认受限：开启辅助功能权限…', 'open-accessibility'))
     items.append(button('打开配置', 'open-config'), button('退出', 'quit'))
 }
 document.getElementById('back').addEventListener('click', () => navigate('root'))

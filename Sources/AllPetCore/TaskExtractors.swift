@@ -31,6 +31,8 @@ enum TaskExtractors {
             }
 
             if topType == "turn_context" {
+                activeTurnID = payload["turn_id"] as? String ?? activeTurnID
+                out.info.turnID = activeTurnID
                 collaborationMode = dictionary(payload["collaboration_mode"])["mode"] as? String ?? collaborationMode
                 out.workingDirectory = payload["cwd"] as? String ?? out.workingDirectory
                 continue
@@ -76,6 +78,8 @@ enum TaskExtractors {
             switch eventType {
             case "task_started":
                 activeTurnID = payload["turn_id"] as? String
+                out.info.turnID = activeTurnID
+                out.info.completedAt = nil
                 collaborationMode = payload["collaboration_mode_kind"] as? String
                 out.phase = .thinking
                 out.info.action = "正在分析任务"
@@ -110,6 +114,8 @@ enum TaskExtractors {
                         : (eventType == "item_started" ? "正在生成计划" : "计划已更新，继续执行")
                 }
             case "task_complete":
+                out.info.turnID = payload["turn_id"] as? String ?? activeTurnID
+                out.info.completedAt = parseISO8601(object["timestamp"] as? String)
                 if let error = nonNull(payload["error"]) {
                     out.phase = .failed
                     out.info.action = "失败：\(errorMessage(error) ?? "任务执行失败")"
@@ -118,6 +124,8 @@ enum TaskExtractors {
                     out.info.action = "任务已完成"
                 }
             case "task_failed", "turn_failed", "error":
+                out.info.turnID = payload["turn_id"] as? String ?? activeTurnID
+                out.info.completedAt = parseISO8601(object["timestamp"] as? String)
                 out.phase = .failed
                 out.info.action = "任务执行失败"
             case "task_cancelled", "turn_aborted":
@@ -128,6 +136,7 @@ enum TaskExtractors {
             }
         }
 
+        if out.phase != .done && out.phase != .failed { out.info.completedAt = nil }
         out.detail = out.info.action
         return out
     }

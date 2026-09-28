@@ -114,6 +114,9 @@ public struct CodexMonitor: PlatformMonitor {
             guard let explicit = parsed.phase, Self.isUnfinished(explicit), age <= Self.hardTimeout else { return nil }
         }
         var taskInfo = parsed.info
+        if phase == .done || phase == .failed {
+            taskInfo.completedAt = taskInfo.completedAt ?? candidate.mtime
+        }
         // subagent 会话的文件名形如 <主sessionID>_<subagentID>；应归属到主会话，
         // 因此优先用文件名里的主会话 ID（第一个 UUID），transcript 里的 session_id 仅作回退。
         taskInfo.sessionID = Self.sessionID(from: candidate.path) ?? parsed.sessionID
