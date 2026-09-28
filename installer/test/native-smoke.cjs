@@ -36,7 +36,7 @@ async function smoke() {
       // NSIS owns registry/shortcut cleanup as well as installation.
       await installWindows(path.join(destination, 'Uninstall AllPet.exe'), { args: ['/S', '/currentuser'] });
     } else {
-      const paths = linuxPaths(path.join(dir, 'home'), {});
+      const paths = linuxPaths(path.join(dir, 'home 用户 $cash'), {});
       await installLinux(file, asset.version, checksum, { paths });
       assert.equal(await linuxInstalled(paths), asset.version);
       await installLinux(file, asset.version, checksum, { paths });
