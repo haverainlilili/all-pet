@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { EventEmitter } = require('node:events');
-const { compareVersions, detectTarget, selectAsset, checksumFromManifest, downloadVerified, replaceFile, windowsInstalled, installWindows, linuxPaths, linuxInstalled, installLinux, desktopEntry, main } = require('../install.cjs');
+const { compareVersions, detectTarget, selectAsset, checksumFromManifest, loadRelease, downloadVerified, replaceFile, windowsInstalled, installWindows, linuxPaths, linuxInstalled, installLinux, desktopEntry, main } = require('../install.cjs');
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 async function temp(t) {
@@ -49,6 +49,23 @@ test('manifest requires the exact filename; stable comparison handles two-digit 
   assert.equal(compareVersions('1.5.0', '1.5.0'), 0);
   assert.equal(compareVersions('1.4.9', '1.5.0'), -1);
   assert.throws(() => compareVersions('1.5.0-beta', '1.5.0'));
+});
+
+test('API rate limits fall back to the pinned public stable release and exact checksum', async () => {
+  const base = 'https://github.com/haverainlilili/all-pet/releases';
+  const sha = 'a'.repeat(64), name = 'AllPet-1.5.0.AppImage';
+  const fetcher = async (url, options) => {
+    if (url.includes('api.github.com')) return new Response('rate limited', { status: 403 });
+    if (url === `${base}/latest`) return { ok: true, url: `${base}/tag/v1.5.0` };
+    if (url.endsWith('SHA256SUMS')) return new Response(`${sha}  ${name}\n`);
+    assert.equal(url, `${base}/download/v1.5.0/${name}`);
+    assert.equal(options.method, 'HEAD');
+    return new Response(null, { headers: { 'content-length': '123' } });
+  };
+  const release = await loadRelease({ platform: 'linux' }, { fetcher, log: silent });
+  assert.equal(selectAsset(release, { platform: 'linux' }).digest, `sha256:${sha}`);
+  await assert.rejects(loadRelease({ platform: 'linux' }, { fetcher: async url => url.includes('api.github.com') ? new Response('', { status: 429 }) : { ok: true, url: 'https://example.invalid/tag/v1.5.0' }, log: silent }), /Invalid latest/);
+  await assert.rejects(loadRelease({ platform: 'linux' }, { fetcher: async url => url.endsWith('SHA256SUMS') ? new Response(`${sha}  wrong-file`) : fetcher(url, { method: 'HEAD' }), log: silent }), /SHA256SUMS/);
 });
 
 test('streamed downloads verify bytes and remove partial, corrupt, oversized and HTTP failures', async t => {

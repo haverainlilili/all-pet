@@ -50,14 +50,17 @@ async function detectTarget({ platform = process.platform, machine = os.machine(
   return { platform, arch };
 }
 
+function assetName(version, platform) {
+  return { darwin: `AllPet-${version}-arm64-mac.zip`, win32: `AllPet-Setup-${version}.exe`, linux: `AllPet-${version}.AppImage` }[platform];
+}
+
 function selectAsset(release, target) {
   if (release.draft || release.prerelease || !/^v\d+\.\d+\.\d+$/.test(release.tag_name)) {
     throw new Error('GitHub 未返回有效的正式版 / Not a stable release.');
   }
   const version = release.tag_name.slice(1);
   versionParts(version);
-  const names = { darwin: `AllPet-${version}-arm64-mac.zip`, win32: `AllPet-Setup-${version}.exe`, linux: `AllPet-${version}.AppImage` };
-  const asset = release.assets?.find(item => item.name === names[target.platform]);
+  const asset = release.assets?.find(item => item.name === assetName(version, target.platform));
   if (!asset || !Number.isSafeInteger(asset.size) || asset.size <= 0 || asset.size > 1024 ** 3) {
     throw new Error(`正式版缺少有效的 ${target.platform} 安装包 / Missing release asset.`);
   }
@@ -65,17 +68,41 @@ function selectAsset(release, target) {
   return { ...asset, version, url: `${RELEASES}/download/${release.tag_name}/${asset.name}` };
 }
 
-async function getResponse(url, { fetcher = fetch, timeout = 30000 } = {}) {
+async function getResponse(url, { fetcher = fetch, timeout = 30000, method = 'GET' } = {}) {
   const response = await fetcher(url, {
+    method,
     headers: { 'User-Agent': 'AllPet-Installer/1.0', Accept: new URL(url).hostname === 'api.github.com' ? 'application/vnd.github+json' : 'application/octet-stream' },
     signal: AbortSignal.timeout(timeout)
   });
-  if (!response.ok) throw new Error(`下载失败 / HTTP ${response.status}: ${url}${response.status === 403 || response.status === 429 ? '（可能触发 GitHub 限流，请稍后重试）' : ''}`);
+  if (!response.ok) {
+    const error = new Error(`下载失败 / HTTP ${response.status}: ${url}${response.status === 403 || response.status === 429 ? '（可能触发 GitHub 限流，请稍后重试）' : ''}`);
+    error.status = response.status;
+    throw error;
+  }
   return response;
 }
 
-async function loadRelease() {
-  return (await getResponse(`https://api.github.com/repos/${REPO}/releases/latest`)).json();
+async function loadRelease(target, { fetcher = fetch, log = console.log } = {}) {
+  try { return await (await getResponse(`https://api.github.com/repos/${REPO}/releases/latest`, { fetcher })).json(); }
+  catch (error) {
+    if (![403, 429, 500, 502, 503, 504].includes(error.status)) throw error;
+  }
+  // Shared networks can exhaust GitHub's unauthenticated API quota. Its public latest-release
+  // redirect and checksum asset provide the same pinned release without requiring an account/token.
+  log('GitHub API 暂不可用，改用公开 Release 与 SHA256SUMS / Using public release metadata…');
+  target ||= await detectTarget();
+  const latest = await getResponse(`${RELEASES}/latest`, { fetcher, method: 'HEAD' });
+  const prefix = `${RELEASES}/tag/`;
+  const tag = latest.url.startsWith(prefix) ? latest.url.slice(prefix.length) : '';
+  if (!/^v\d+\.\d+\.\d+$/.test(tag)) throw new Error('无法确认官方最新正式版 / Invalid latest-release redirect.');
+  const name = assetName(tag.slice(1), target.platform);
+  const url = `${RELEASES}/download/${tag}/${name}`;
+  const head = await getResponse(url, { fetcher, method: 'HEAD' });
+  const manifest = await getResponse(`${RELEASES}/download/${tag}/SHA256SUMS`, { fetcher });
+  const digest = checksumFromManifest(await manifest.text(), name);
+  const release = { tag_name: tag, draft: false, prerelease: false, assets: [{ name, size: Number(head.headers.get('content-length')), digest: `sha256:${digest}` }] };
+  selectAsset(release, target); // Apply the same size and stable-version validation as the API path.
+  return release;
 }
 
 function checksumFromManifest(manifest, name) {
@@ -300,7 +327,7 @@ async function main(args, { log = console.log } = {}) {
   if (compareVersions(process.versions.node.split('-')[0], '24.18.0') < 0) throw new Error('请使用 Node.js 24.18+（含 npm 11.16+）或更新版本。');
   const target = await detectTarget();
   log(`检查正式版 / Checking stable release (${target.platform} ${target.arch})…`);
-  const release = await loadRelease();
+  const release = await loadRelease(target, { log });
   const asset = selectAsset(release, target);
   const checksum = await expectedChecksum(release, asset);
   log(`最新版 / Latest: ${asset.version}\n安装包 / Asset: ${asset.name}\nSHA-256: ${checksum}`);
