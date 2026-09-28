@@ -20,8 +20,16 @@ async function smoke() {
       const destination = path.join(dir, 'AllPet.app');
       await installMac(file, asset.version, { destination, launch: false });
       assert.equal(await readMacVersion(destination), asset.version);
-      // Exercise replacement, including removal of the temporary previous app.
-      await installMac(file, asset.version, { destination, launch: false });
+      // Exercise normal quit of a running app in isolated profile directories before replacement.
+      const child = require('node:child_process').spawn(path.join(destination, 'Contents', 'MacOS', 'AllPet'), [`--user-data-dir=${path.join(dir, 'electron-data')}`], {
+        env: { ...process.env, ALLPET_HOME: path.join(dir, 'allpet-home') }, stdio: 'ignore'
+      });
+      try {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        assert.equal(child.exitCode, null, 'isolated app should be running before update');
+        await installMac(file, asset.version, { destination, launch: false });
+        assert.notEqual(child.exitCode, null, 'update should quit the old process normally');
+      } finally { if (child.exitCode === null) child.kill('SIGTERM'); }
       assert.equal((await fs.readdir(dir)).filter(name => name.endsWith('.app')).length, 1);
       assert.equal((await fs.readdir(dir)).filter(name => name.startsWith('.allpet-')).length, 0);
     } else if (target.platform === 'win32') {

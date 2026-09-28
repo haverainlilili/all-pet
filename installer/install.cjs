@@ -135,7 +135,14 @@ async function macPids(app, run = exec) {
 
 async function stopMac(app, run = exec) {
   const pids = await macPids(app, run);
-  for (const pid of pids) { try { process.kill(pid, 'SIGTERM'); } catch (e) { if (e.code !== 'ESRCH') throw e; } }
+  if (!pids.length) return;
+  // Send the normal app quit event so Electron can save state and stop its Swift sidecars.
+  // Passing the path as an argument avoids interpolating it into AppleScript source.
+  try {
+    await run('/usr/bin/osascript', ['-e', 'on run argv', '-e', 'tell application (item 1 of argv) to quit', '-e', 'end run', app], { timeout: 15000 });
+  } catch {
+    throw new Error('无法正常退出 AllPet，请从菜单退出后重试；旧版本尚未替换。');
+  }
   for (let i = 0; i < 40; i++) {
     if (!(await macPids(app, run)).length) return;
     await sleep(250);
