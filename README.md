@@ -47,7 +47,7 @@ AllPet brings progress and completion notifications from several coding tools in
 
 ### Install with one command
 
-With **Node.js 22+ (including npm/npx) and Git** installed, run the same command on macOS, Windows PowerShell/CMD, or Linux:
+With **Node.js 24.18+ (including npm 11.16+/npx) and Git** installed, run the same command on macOS, Windows PowerShell/CMD, or Linux:
 
 ```bash
 npx --yes github:haverainlilili/all-pet

@@ -287,10 +287,10 @@ async function installLinux(file, version, checksum, { paths = linuxPaths(), log
 async function main(args, { log = console.log } = {}) {
   if (args.some(arg => !['--help', '-h', '--dry-run'].includes(arg))) throw new Error('未知参数。使用 --help 查看用法；无需 -g。');
   if (args.includes('--help') || args.includes('-h')) {
-    log(`AllPet 一行安装 / One-command installer\n\nnpx --yes github:${REPO}\n\n--dry-run  仅查看最新版本和安装目标，不下载安装包或修改应用\n--help     显示帮助\n\n需要 Node.js 22+、npm 和 Git；无需 Swift，无需 -g。\n重复执行更新正式版；macOS/Linux 相同或更高版本跳过，Windows 按注册表版本判断。\n支持 macOS 14+ Apple Silicon、Windows x64、Linux x64（WSL 请在 Windows 中运行）。\n${RELEASES}/latest`);
+    log(`AllPet 一行安装 / One-command installer\n\nnpx --yes github:${REPO}\n\n--dry-run  仅查看最新版本和安装目标，不下载安装包或修改应用\n--help     显示帮助\n\n需要 Node.js 24.18+、npm 11.16+ 和 Git；无需 Swift，无需 -g。\n重复执行更新正式版；macOS/Linux 相同或更高版本跳过，Windows 按注册表版本判断。\n支持 macOS 14+ Apple Silicon、Windows x64、Linux x64（WSL 请在 Windows 中运行）。\n${RELEASES}/latest`);
     return;
   }
-  if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('请使用 Node.js 22 或更新版本 / Node.js 22+ required.');
+  if (compareVersions(process.versions.node.split('-')[0], '24.18.0') < 0) throw new Error('请使用 Node.js 24.18+（含 npm 11.16+）或更新版本。');
   const target = await detectTarget();
   log(`检查正式版 / Checking stable release (${target.platform} ${target.arch})…`);
   const release = await loadRelease();

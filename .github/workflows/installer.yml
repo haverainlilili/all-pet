@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: '24.18.0'
       - name: Download validation, architecture, update and rollback tests
         run: npm test
       - name: Package entry point

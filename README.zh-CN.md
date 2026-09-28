@@ -34,7 +34,7 @@ Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查
 
 ### 一行命令安装
 
-已安装 **Node.js 22+（含 npm/npx）和 Git** 时，macOS、Windows PowerShell/CMD、Linux 都运行同一行：
+已安装 **Node.js 24.18+（含 npm 11.16+/npx）和 Git** 时，macOS、Windows PowerShell/CMD、Linux 都运行同一行：
 
 ```bash
 npx --yes github:haverainlilili/all-pet
