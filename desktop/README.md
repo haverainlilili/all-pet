@@ -13,6 +13,8 @@ Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查
 
 本版安装包见 [GitHub Release](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.0)。
 
+已有 Node.js 24.18+ / npm 11.16+ 和 Git 的用户，可用 `npx --yes github:haverainlilili/all-pet` 安装或更新最新正式版。安装后的路径、系统提示及重复执行行为见 [一行命令安装](../docs/一行命令安装.md)。这只是安装入口，桌宠运行时使用安装包自带的 Electron/Swift 运行时。
+
 
 ## 菜单与终端支持
 

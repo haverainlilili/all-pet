@@ -45,7 +45,19 @@ AllPet brings progress and completion notifications from several coding tools in
 
 ## Quick start
 
-### Download an installer (recommended)
+### Install with one command
+
+With **Node.js 24.18+ (including npm 11.16+/npx) and Git** installed, run the same command on macOS, Windows PowerShell/CMD, or Linux:
+
+```bash
+npx --yes github:haverainlilili/all-pet
+```
+
+It detects your OS/CPU, downloads the latest stable GitHub Release, verifies SHA-256, and installs the app. Run it again to update. macOS uses `/Applications/AllPet.app`, Windows uses the official installer and its existing location, and Linux uses `~/.local/opt/allpet/AllPet.AppImage` with an application-menu entry. Existing pets and settings are preserved. An already current version is skipped. No Swift or `-g` is needed.
+
+Add `--dry-run` to preview the version and destination without installing. OS security/permission prompts still apply; Linux AppImage requires a desktop environment and FUSE support. WSL users should run the command in Windows. See [installation behavior, requirements, and troubleshooting](docs/一行命令安装.md).
+
+### Download an installer (no Node.js required)
 
 Grab the latest from [GitHub Releases](https://github.com/haverainlilili/all-pet/releases):
 
@@ -79,7 +91,7 @@ Not every commit needs a new installer release:
 - **`main` branch = newest development source.** Source users can follow every merged fix immediately with `git pull --ff-only`, then rebuild/restart the app.
 - **`vX.Y.Z` tag / GitHub Release = stable prebuilt installers.** People using DMG / EXE / AppImage / DEB keep running the code bundled in that installer; later commits do not enter an already-installed app automatically.
 - **Code changes require a new build to affect installer users.** Routine fixes can be collected into a patch release such as `v1.4.1`; urgent compatibility/security fixes should be packaged promptly. README-only changes do not require repackaging.
-- **No automatic updater is enabled yet.** Installer users should watch [GitHub Releases](https://github.com/haverainlilili/all-pet/releases) and download the next version when published.
+- **No background automatic updater is enabled yet.** Rerun the one-command installer to check and update, or download the next version from [GitHub Releases](https://github.com/haverainlilili/all-pet/releases). Linux DEB users should continue using their package installation channel.
 
 Latest source: [download `main` as ZIP](https://github.com/haverainlilili/all-pet/archive/refs/heads/main.zip), or update a clone:
 
