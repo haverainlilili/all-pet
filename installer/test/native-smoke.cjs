@@ -40,8 +40,9 @@ async function smoke() {
       await installLinux(file, asset.version, checksum, { paths });
       assert.equal(await linuxInstalled(paths), asset.version);
       await installLinux(file, asset.version, checksum, { paths });
-      const { stdout } = await exec(paths.app, ['--appimage-version']);
-      assert.match(stdout, /AppImage/i);
+      const { stdout, stderr } = await exec(paths.app, ['--appimage-version']);
+      // AppImage runtimes commonly print their version to stderr while exiting successfully.
+      assert.match(`${stdout}\n${stderr}`, /AppImage|Version:/i);
       await exec('desktop-file-validate', [paths.desktop]);
       assert.deepEqual((await fs.readdir(path.dirname(paths.app))).sort(), ['AllPet.AppImage', 'install.json']);
     }
