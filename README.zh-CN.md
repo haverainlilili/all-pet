@@ -32,7 +32,19 @@ Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查
 
 ## 快速开始
 
-### 下载安装包（推荐）
+### 一行命令安装
+
+已安装 **Node.js 22+（含 npm/npx）和 Git** 时，macOS、Windows PowerShell/CMD、Linux 都运行同一行：
+
+```bash
+npx --yes github:haverainlilili/all-pet
+```
+
+自动识别系统与 CPU，下载最新正式版、校验 SHA-256 并安装；以后再次执行即可检查并更新。Mac 安装到 `/Applications/AllPet.app`，Windows 使用官方安装器及原安装位置，Linux 安装到 `~/.local/opt/allpet/AllPet.AppImage` 并添加应用菜单入口。保留宠物与设置，已有最新版直接跳过。无需 Swift，无需 `-g`。
+
+加 `--dry-run` 可只预览版本和安装位置。系统安全确认与权限仍需按提示操作；Linux AppImage 需要桌面环境和 FUSE，WSL 用户请在 Windows 中执行。详细步骤、执行后的表现与限制见 [一行命令安装说明](docs/一行命令安装.md)。
+
+### 下载安装包（无需 Node.js）
 
 从 [GitHub Releases](https://github.com/haverainlilili/all-pet/releases) 下载最新版本：
 
@@ -66,7 +78,7 @@ Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查
 - **`main` 分支 = 最新开发源码。** 能自行构建的用户可在修复合入后立即执行 `git pull --ff-only`，重新构建/重启即可跟进，不必等待下一个安装包。
 - **`vX.Y.Z` 标签 / GitHub Release = 稳定预编译安装包。** 通过 DMG / EXE / AppImage / DEB 安装的用户，运行的是打包时包含的代码；后续提交不会自动进入已经安装的程序。
 - **代码修复要让安装包用户生效，就必须再构建一个新版本。** 普通修复可合并积累后发布补丁版（例如 `v1.4.1`）；严重兼容性或安全问题应尽快单独打包。仅 README/说明文档变化不需要重新打包。
-- **目前尚未启用应用内自动更新。** 安装包用户需要关注 [GitHub Releases](https://github.com/haverainlilili/all-pet/releases)，有新版本时重新下载安装。
+- **目前尚未启用后台自动更新。** 重新执行上面的一行命令即可检查并更新，也可在 [GitHub Releases](https://github.com/haverainlilili/all-pet/releases) 下载新版；Linux DEB 用户应继续沿用原包安装渠道。
 
 需要直接跟进最新提交时，可[下载 `main` 源码 ZIP](https://github.com/haverainlilili/all-pet/archive/refs/heads/main.zip)，或在已有仓库中运行：
 

@@ -1,0 +1,12 @@
+{
+  "name": "allpet-installer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Install the latest stable AllPet desktop app from GitHub Releases",
+  "bin": { "allpet-install": "installer/cli.cjs" },
+  "files": ["installer/cli.cjs", "installer/install.cjs", "docs/一行命令安装.md"],
+  "engines": { "node": ">=22" },
+  "scripts": { "test": "node --test installer/test/install.test.cjs" },
+  "repository": { "type": "git", "url": "https://github.com/haverainlilili/all-pet.git" },
+  "license": "MIT"
+}

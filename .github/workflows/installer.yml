@@ -1,0 +1,40 @@
+name: One-command installer
+
+on:
+  push:
+    branches: [main]
+    paths: ['installer/**', 'package.json', '.github/workflows/installer.yml']
+  pull_request:
+    paths: ['installer/**', 'package.json', '.github/workflows/installer.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    name: Installer · ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Download validation, architecture, update and rollback tests
+        run: npm test
+      - name: Package entry point
+        shell: bash
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          npx --yes "$RUNNER_TEMP/allpet-installer-1.0.0.tgz" --help
+          node installer/cli.cjs --dry-run
+      - name: Desktop entry validator
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y desktop-file-utils
+      - name: Install official release twice in disposable runner
+        run: node installer/test/native-smoke.cjs
