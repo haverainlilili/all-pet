@@ -47,7 +47,9 @@ public struct CodexMonitor: PlatformMonitor {
             isIncluded: { path in
                 path.hasSuffix(".jsonl") && sessionClassifier.belongsToCodex(path)
             },
-            recentWindow: config.waitingWindowSeconds,
+            // Explicit running/waiting turns survive quiet reasoning and long tool calls.
+            // Applying the generic 120s window here bypassed resolvePhase's 30-minute rule.
+            recentWindow: max(config.waitingWindowSeconds, Self.hardTimeout),
             now: now
         )
 
@@ -55,20 +57,21 @@ public struct CodexMonitor: PlatformMonitor {
             return PlatformStatus(platform: .codex, phase: .idle, detail: "未检测到会话", lastActivityAt: nil, activeSessions: 0, enabled: true)
         }
 
-        // 解析 recentWindow 内所有会话（多会话并存时每个都识别），按修改时间从新到旧。
+        // Parse the full active-turn window; parseTask still limits stale terminal cards.
         var parsed: [(task: TaskInfo, phase: AgentPhase)] = []
         for candidate in scan.recentCandidates {
             if let result = parseTask(candidate, now: now, config: config) {
                 parsed.append(result)
             }
         }
+        // Completed plans/other threads must not crowd an executing thread out of the five slots.
+        parsed = parsed.filter { Self.isUnfinished($0.phase) } + parsed.filter { !Self.isUnfinished($0.phase) }
         guard let main = parsed.first else {
-            return PlatformStatus(platform: .codex, phase: .idle, detail: "未检测到会话", lastActivityAt: nil, activeSessions: scan.recentCount, enabled: true)
+            return PlatformStatus(platform: .codex, phase: .idle, detail: "未检测到会话", lastActivityAt: nil, activeSessions: 0, enabled: true)
         }
 
-        // 主任务（最新）决定平台聚合 phase；tasks 携带 recentWindow 内全部任务
-        //（含 done/failed 完成卡片），每个任务自身的 phase 已写入 TaskInfo.phase，
-        // 这样刚完成的会话在其它会话仍运行时也能作为完成卡片展示，不会漏识别。
+        // 未完成任务优先，同组按最近修改排序；主任务决定平台聚合 phase。
+        // tasks 最多五条，含近期 done/failed 卡片，各自携带独立 phase。
         let tasks = Array(parsed.map { $0.task }.prefix(5))
         let detail = main.task.action ?? main.phase.label
 
@@ -77,7 +80,7 @@ public struct CodexMonitor: PlatformMonitor {
             phase: main.phase,
             detail: detail,
             lastActivityAt: scan.newestMtime,
-            activeSessions: scan.recentCount,
+            activeSessions: parsed.count,
             enabled: true,
             task: main.task,
             tasks: tasks
@@ -105,6 +108,11 @@ public struct CodexMonitor: PlatformMonitor {
         // 任务进行中 / 等待用户，不因 age 快速降级（8s/120s 会误伤长任务与计划模式）。
         // 仅用 30 分钟硬超时清理崩溃/僵尸 session（无 task_complete 且长期无活动）。
         phase = Self.resolvePhase(parsed: parsed.phase, inferred: phase, age: age)
+        // Widening the scan must not resurrect old completions or mtime-only activity.
+        guard phase != .idle else { return nil }
+        if age > config.waitingWindowSeconds {
+            guard let explicit = parsed.phase, Self.isUnfinished(explicit), age <= Self.hardTimeout else { return nil }
+        }
         var taskInfo = parsed.info
         // subagent 会话的文件名形如 <主sessionID>_<subagentID>；应归属到主会话，
         // 因此优先用文件名里的主会话 ID（第一个 UUID），transcript 里的 session_id 仅作回退。
@@ -139,6 +147,10 @@ public struct CodexMonitor: PlatformMonitor {
 
     /// 进行中/等待状态的最长保留时长（秒）；超过则判定为已停止的僵尸 session。
     private static let hardTimeout: TimeInterval = 1_800
+
+    private static func isUnfinished(_ phase: AgentPhase) -> Bool {
+        phase == .running || phase == .thinking || phase == .waiting
+    }
 
     static func sessionID(from path: String) -> String? {
         let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent

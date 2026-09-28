@@ -45,6 +45,8 @@ jobs:
         run: swift build -c release --static-swift-stdlib
       - name: 九平台原生格式 / Hook / SQLite WAL 验收
         run: node desktop/scripts/verify-platform-integrations.js
+      - name: Codex 计划转执行、静默运行与气泡恢复
+        run: node desktop/scripts/verify-codex-lifecycle.js
       - name: 终端桥接协议与进程失效检查
         if: runner.os != 'Linux'
         run: node desktop/scripts/verify-terminal-bridge.js

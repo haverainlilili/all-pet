@@ -61,6 +61,8 @@ jobs:
 
       - name: 九平台原生格式及 SQLite WAL 验收
         run: node desktop/scripts/verify-platform-integrations.js
+      - name: Codex 计划转执行、静默运行与气泡恢复
+        run: node desktop/scripts/verify-codex-lifecycle.js
 
       - name: macOS 核心与查看桥接回归
         if: runner.os == 'macOS'
