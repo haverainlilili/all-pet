@@ -188,6 +188,7 @@ async function installMac(archive, version, { destination = '/Applications/AllPe
 
 const WINDOWS_QUERY = String.raw`
 $ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $key = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\da04df8d-272a-5e14-a753-89a6afe9c592'
 $roots = @("HKCU:\$key", "HKLM:\$key", 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\da04df8d-272a-5e14-a753-89a6afe9c592')
 $apps = @(Get-ItemProperty $roots -ErrorAction SilentlyContinue | Select-Object DisplayVersion, DisplayIcon)
@@ -232,28 +233,54 @@ async function linuxInstalled(paths) {
 }
 
 function desktopEntry(app) {
-  // Desktop Entry Exec has its own quoting rules, separate from shell quoting; % is a field-code escape.
-  const quoted = app.replace(/[\\"`$]/g, '\\$&').replace(/%/g, '%%');
+  // Exec quoting is decoded after Desktop Entry string escapes (two distinct layers).
+  const quoted = app.replace(/[\\"`$]/g, '\\$&').replace(/\\/g, '\\\\').replace(/%/g, '%%');
   return `[Desktop Entry]\nType=Application\nName=AllPet\nComment=AI coding agent desktop pet\nExec="${quoted}"\nIcon=applications-games\nTerminal=false\nCategories=Utility;\n`;
 }
 
-async function installLinux(file, version, checksum, { paths = linuxPaths(), log = console.log } = {}) {
+async function installLinux(file, version, checksum, { paths = linuxPaths(), log = console.log, rename = fs.rename } = {}) {
   await linuxInstalled(paths);
-  if (/[\r\n]/.test(paths.app)) throw new Error('安装路径包含不支持的换行字符。');
+  if (/[\x00-\x1f=]/.test(paths.app)) throw new Error('安装路径包含桌面入口不支持的控制字符或等号。');
   if (await exists(paths.desktop) && !(await exists(paths.receipt))) throw new Error(`已有桌面入口，拒绝覆盖：${paths.desktop}`);
   await fs.mkdir(path.dirname(paths.app), { recursive: true });
   await fs.mkdir(path.dirname(paths.desktop), { recursive: true });
   const staging = await fs.mkdtemp(path.join(path.dirname(paths.app), '.install-'));
-  let preserve = false;
+  let preserve = false, menuStaging;
+  const completed = [];
   try {
+    menuStaging = await fs.mkdtemp(path.join(path.dirname(paths.desktop), '.allpet-menu-'));
     const staged = path.join(staging, 'AllPet.AppImage');
     await fs.copyFile(file, staged);
     await fs.chmod(staged, 0o755);
-    await replaceFile(staged, paths.app, path.join(staging, 'previous.AppImage'));
-    await fs.writeFile(paths.receipt, JSON.stringify({ installer: 'allpet-installer', version, sha256: checksum }, null, 2) + '\n');
-    await fs.writeFile(paths.desktop, desktopEntry(paths.app));
-  } catch (e) { preserve = e.preserveBackup === true; throw e; }
-  finally { if (!preserve) await fs.rm(staging, { recursive: true, force: true }); }
+    await fs.writeFile(path.join(staging, 'install.json'), JSON.stringify({ installer: 'allpet-installer', version, sha256: checksum }, null, 2) + '\n');
+    await fs.writeFile(path.join(menuStaging, 'allpet.desktop'), desktopEntry(paths.app));
+    // Each stage/backup is on the target filesystem, even with a separate XDG_DATA_HOME mount.
+    const entries = [
+      [staged, paths.app, path.join(staging, 'previous.AppImage')],
+      [path.join(staging, 'install.json'), paths.receipt, path.join(staging, 'previous.json')],
+      [path.join(menuStaging, 'allpet.desktop'), paths.desktop, path.join(menuStaging, 'previous.desktop')]
+    ];
+    for (const [source, destination, backup] of entries) {
+      const hadPrevious = await exists(destination);
+      await replaceFile(source, destination, backup, rename);
+      completed.push({ destination, backup, hadPrevious });
+    }
+  } catch (e) {
+    preserve = e.preserveBackup === true;
+    for (const entry of completed.reverse()) {
+      try {
+        await fs.rm(entry.destination, { force: true });
+        if (entry.hadPrevious) await rename(entry.backup, entry.destination);
+      } catch { preserve = true; }
+    }
+    if (preserve) throw new Error(`Linux 更新未完成；恢复文件保留在 ${staging} 和 ${menuStaging}。${e.message}`);
+    throw e;
+  } finally {
+    if (!preserve) {
+      await fs.rm(staging, { recursive: true, force: true });
+      if (menuStaging) await fs.rm(menuStaging, { recursive: true, force: true });
+    }
+  }
   log(`已安装 / Installed: ${paths.app} (${version})\n在应用菜单打开 AllPet；已运行的旧进程请退出后重新打开。\nAppImage 需要桌面环境与 FUSE 支持；不支持时可手动安装 Release 中的 DEB。`);
 }
 

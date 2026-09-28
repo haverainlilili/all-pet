@@ -139,6 +139,25 @@ test('Linux refuses existing unmanaged executable', async t => {
   await assert.rejects(linuxInstalled(paths), /拒绝覆盖/);
 });
 
+test('Linux menu write failure rolls back app and receipt together', async t => {
+  const dir = await temp(t), paths = linuxPaths(path.join(dir, 'home'), {}), file = path.join(dir, 'release');
+  await fs.writeFile(file, 'old');
+  await installLinux(file, '1.5.0', digest('old'), { paths, log: silent });
+  const originalMenu = await fs.readFile(paths.desktop, 'utf8');
+  await fs.writeFile(file, 'new');
+  await assert.rejects(installLinux(file, '1.6.0', digest('new'), { paths, log: silent, rename: async (source, destination) => {
+    if (source.endsWith('allpet.desktop') && source !== paths.desktop) throw new Error('menu disk full');
+    return fs.rename(source, destination);
+  } }), /menu disk full/);
+  assert.equal(await linuxInstalled(paths), '1.5.0');
+  assert.equal(await fs.readFile(paths.desktop, 'utf8'), originalMenu);
+});
+
+test('Desktop Entry escapes strings before the Exec quoting layer', () => {
+  const execLine = desktopEntry('/home/back\\slash/$cash/AllPet.AppImage').split('\n').find(line => line.startsWith('Exec='));
+  assert.equal(execLine, String.raw`Exec="/home/back\\\\slash/\\$cash/AllPet.AppImage"`);
+});
+
 test('help makes no installation and unknown flags fail instead of unexpectedly installing', async () => {
   let output = '';
   await main(['--help'], { log: line => { output += line; } });
