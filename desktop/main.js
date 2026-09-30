@@ -25,6 +25,7 @@ const {
 const { TRAY_PET_ICON_CACHE_VERSION, platformMenuTitles, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPetIconFrames, trayPrimaryAction } = require('./src/tray-menu')
 const { createBoundedThumbnailDataURL } = require('./src/pet-thumbnail')
 const { reuseExistingDshTab } = require('./src/dsh-browser')
+const { performDshPlatformWake } = require('./src/dsh-wake')
 const { menuBridgeState } = require('./src/menu-bridge')
 const { trayPanelLayout, keepsTrayPanelOpen, validTrayPanelAction } = require('./src/tray-panel-model')
 const { createRPC } = require('./src/terminal/rpc')
@@ -803,6 +804,13 @@ async function launchPlatform(platform) {
     return { succeeded: false, requested: false, exact: false, openedApp: false, message: `不支持打开 ${platformLabel(platform)}` }
   }
   if (spec.kind === 'external') {
+    if (platform === 'dsh') {
+      return performDshPlatformWake({
+        runtimePlatform: process.platform,
+        reuseDSHTab: url => reuseExistingDshTab(spawn, url, process.platform),
+        openExternal: url => shell.openExternal(url)
+      })
+    }
     try {
       await shell.openExternal(spec.url)
       return {

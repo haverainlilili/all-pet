@@ -7,9 +7,9 @@ end isDSHURL
 
 on reuseChromium(browserID, targetURL)
   try
+    if not (application id browserID is running) then return "MISS"
     using terms from application "Google Chrome"
       tell application id browserID
-        if not running then return "MISS"
         repeat with w in windows
           set tabIndex to 0
           repeat with t in tabs of w
@@ -18,8 +18,11 @@ on reuseChromium(browserID, targetURL)
               set u to URL of t as text
               if my isDSHURL(u) then
                 try
-                  set URL of t to targetURL
+                  if targetURL is not "" then set URL of t to targetURL
                   set active tab index of w to tabIndex
+                  try
+                    set minimized of w to false
+                  end try
                   set index of w to 1
                   activate
                   return "REUSED"
@@ -27,19 +30,24 @@ on reuseChromium(browserID, targetURL)
                   return "BLOCKED"
                 end try
               end if
+            on error
+              return "BLOCKED"
             end try
           end repeat
         end repeat
       end tell
     end using terms from
+  on error errorMessage number errorNumber
+    if errorNumber is -10814 or errorNumber is -600 then return "MISS"
+    return "BLOCKED"
   end try
   return "MISS"
 end reuseChromium
 
 on reuseSafari(targetURL)
   try
+    if not (application id "com.apple.Safari" is running) then return "MISS"
     tell application id "com.apple.Safari"
-      if not running then return "MISS"
       repeat with w in windows
         set tabIndex to 0
         repeat with t in tabs of w
@@ -48,8 +56,11 @@ on reuseSafari(targetURL)
             set u to URL of t as text
             if my isDSHURL(u) then
               try
-                set URL of t to targetURL
+                if targetURL is not "" then set URL of t to targetURL
                 set current tab of w to tab tabIndex of w
+                try
+                  set miniaturized of w to false
+                end try
                 set index of w to 1
                 activate
                 return "REUSED"
@@ -57,10 +68,15 @@ on reuseSafari(targetURL)
                 return "BLOCKED"
               end try
             end if
+          on error
+            return "BLOCKED"
           end try
         end repeat
       end repeat
     end tell
+  on error errorMessage number errorNumber
+    if errorNumber is -10814 or errorNumber is -600 then return "MISS"
+    return "BLOCKED"
   end try
   return "MISS"
 end reuseSafari

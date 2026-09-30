@@ -13,6 +13,8 @@ The pet switches animation based on what your agents are doing — idle, running
 ---
 
 
+Local v1.5.3 fixes macOS DSH platform clicks opening another browser page when a DSH tab already exists, and bundled decoding of multi-frame DSH logs. This local build is not a GitHub Release; see the [validation record](docs/平台行为验收.md).
+
 ## What’s new in v1.5.0
 
 Electron uses the same Mac-style cascading menu on all three systems. Hover or click opens a submenu. Provider toggles, show/hide all, size controls, and pet selection keep the menu open; Escape, outside clicks, and actions that open another window close it. The macOS system bridge runs without an additional tray icon.
