@@ -13,7 +13,7 @@ The pet switches animation based on what your agents are doing — idle, running
 ---
 
 
-Local v1.5.3 fixes macOS DSH platform clicks opening another browser page when a DSH tab already exists, and bundled decoding of multi-frame DSH logs. This local build is not a GitHub Release; see the [validation record](docs/平台行为验收.md).
+Local v1.5.4 adds task-name rotation every 3.2 seconds even with a single platform, with stable task order across activity updates. It also includes the v1.5.3 DSH browser-tab reuse and multi-frame log decoding fixes. This local build is not a GitHub Release; see the [validation record](docs/平台行为验收.md).
 
 ## What’s new in v1.5.0
 

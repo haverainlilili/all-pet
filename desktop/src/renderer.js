@@ -138,6 +138,7 @@
   let selectedPlatform = null
   let platformPageIndex = 0
   let rotationIndex = 0
+  const taskCarousel = window.petBubbleCarousel.create()
   let rotationTimer = null
   let lastBubbleWidth = -1
   let lastBubbleHeight = -1
@@ -220,23 +221,26 @@
       .filter(task => task.phase === 'done' && !dismissed.has(task.id) && !hidden.has(task.id))
       .sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0))
 
-    const unfinished = groups.map((group) => {
-      const task = group.tasks.find(item => item.phase !== 'done')
-      if (task) return { ...task, platform: group.platform }
+    const unfinishedGroups = groups.map((group) => {
+      const tasks = group.tasks.filter(item => item.phase !== 'done').map(task => ({ ...task, platform: group.platform }))
+      if (tasks.length) return { platform: group.platform, tasks }
       const primary = group.status && group.status.task
       const hasStableIdentity = primary && (primary.sessionID || primary.scheduledTaskName)
       if (group.status && group.status.phase !== 'idle' && group.status.phase !== 'done' && hasStableIdentity) {
-        return {
+        return { platform: group.platform, tasks: [{
           id: canonicalTaskID(group.platform, primary),
           platform: group.platform,
           sessionDisplayName: primary.sessionName || primary.title || '未命名会话',
           action: primary.action || group.status.detail || '',
           progress: primary.progressLabel,
           phase: primary.phase || group.status.phase
-        }
+        }] }
       }
       return null
     }).filter(Boolean)
+    taskCarousel.reconcile(unfinishedGroups.map(group => ({ platform: group.platform, taskIDs: group.tasks.map(task => task.id) })))
+    rotationIndex = taskCarousel.platformIndex
+    const unfinished = unfinishedGroups.map(group => group.tasks.find(task => task.id === taskCarousel.selectedTaskID(group.platform)) || group.tasks[0])
 
     const hasNotification = completed.length > 0
       || unfinished.length > 0
@@ -248,7 +252,7 @@
         && (group.status.task.sessionID || group.status.task.scheduledTaskName)
       ))
 
-    return { groups, completed, unfinished, hasNotification }
+    return { groups, completed, unfinished, unfinishedTaskCount: taskCarousel.taskCount, hasNotification }
   }
 
   function displayName(item) {
@@ -559,14 +563,15 @@
       reduceMotion,
       stageIsCollapsed: bubbleStage === 'collapsed',
       hasActiveTask: data.unfinished.some(item => item.phase === 'running' || item.phase === 'thinking'),
-      unfinishedPlatformCount: data.unfinished.length
+      unfinishedPlatformCount: data.unfinished.length,
+      unfinishedTaskCount: data.unfinishedTaskCount
     })
     const needsRotation = !bubblesSuppressed() && motion.rotatesPlatforms
     if (needsRotation && !rotationTimer) {
       rotationTimer = setInterval(() => {
         const latest = buildData()
-        if (bubbleStage !== 'collapsed' || latest.unfinished.length <= 1) return
-        rotationIndex = (rotationIndex + 1) % latest.unfinished.length
+        if (bubbleStage !== 'collapsed' || latest.unfinishedTaskCount <= 1) return
+        taskCarousel.advance()
         renderBubble()
       }, 3200)
     } else if (!needsRotation && rotationTimer) {
@@ -586,6 +591,7 @@
       bubbleStage = 'collapsed'
       selectedPlatform = null
       rotationIndex = 0
+      taskCarousel.reset()
       bubble.replaceChildren()
       bubble.className = 'hidden'
       syncRotationTimer(data)
@@ -612,7 +618,7 @@
   function applyMotionPreference(nextReduceMotion) {
     if (reduceMotion === nextReduceMotion) return
     reduceMotion = nextReduceMotion
-    if (reduceMotion) rotationIndex = 0
+    if (reduceMotion) { taskCarousel.reset(); rotationIndex = 0 }
     setAnimation(interactionAnimation || statusAnimation || 'idle', true)
     renderBubble()
   }

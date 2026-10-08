@@ -139,7 +139,8 @@ final class TaskTrayView: NSView {
     private var spinnerTimer: Timer?
     private var rotationTimer: Timer?
     private var spinnerAngle: CGFloat = 0
-    private var rotationIndex = 0
+    private var carousel = TaskBubbleCarousel()
+    private var rotationIndex: Int { carousel.platformIndex }
     private var platformPageIndex = 0
     private var platformPageCount: Int { max(1, (stage2PlatformGroups.count + 3) / 4) }
     private var pageGroups: [PlatformGroup] { Array(stage2PlatformGroups.dropFirst(platformPageIndex * 4).prefix(4)) }
@@ -196,12 +197,10 @@ final class TaskTrayView: NSView {
            !self.statuses.contains(where: { $0.platform == platform }) {
             stage = .platforms
         }
-        let unfinishedCount = unfinishedPlatformBubbles.count
-        if unfinishedCount == 0 {
-            rotationIndex = 0
-        } else {
-            rotationIndex %= unfinishedCount
-        }
+        carousel.reconcile(self.statuses.map { status in
+            TaskBubbleCarousel.Group(platform: status.platform.rawValue,
+                taskIDs: orderedTasks(for: status.platform).filter { $0.phase != .done }.map(\.id))
+        })
         updateTimers()
         needsDisplay = true
         notifySizeChange(from: oldSize)
@@ -220,7 +219,7 @@ final class TaskTrayView: NSView {
     func accessibilityDisplayOptionsDidChange() {
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             spinnerAngle = 0
-            rotationIndex = 0
+            carousel.reset()
         }
         updateTimers()
         needsDisplay = true
@@ -309,7 +308,7 @@ final class TaskTrayView: NSView {
 
     // MARK: - Three stages
 
-    /// 阶段 1：已完成任务常驻在上方；未完成平台在最下方轮播。
+    /// 阶段 1：已完成任务常驻在上方；未完成平台与各平台的任务名称在最下方轮播。
     private func drawStage1() {
         let visibleCompleted = Array(completedTasks.suffix(3))
         var y: CGFloat = 4
@@ -441,7 +440,8 @@ final class TaskTrayView: NSView {
             let unfinished = (tasksByPlatform[status.platform] ?? [])
                 .filter { $0.phase != .done }
                 .sorted(by: taskComesFirst)
-            if let task = unfinished.first {
+            let selected = carousel.selectedTaskID(for: status.platform.rawValue)
+            if let task = unfinished.first(where: { $0.id == selected }) ?? unfinished.first {
                 bubbles.append(PlatformBubble(
                     platform: status.platform,
                     taskTitle: task.sessionDisplayName,
@@ -771,10 +771,11 @@ final class TaskTrayView: NSView {
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
             stageIsCollapsed: stage == .collapsed,
             hasActiveTask: hasActiveTask,
-            unfinishedPlatformCount: unfinishedPlatformBubbles.count
+            unfinishedPlatformCount: unfinishedPlatformBubbles.count,
+            unfinishedTaskCount: carousel.taskCount
         )
         if !motion.spinsStatus { spinnerAngle = 0 }
-        if !motion.rotatesPlatforms { rotationIndex = 0 }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { carousel.reset() }
         let needsSpinner = motion.spinsStatus
         if needsSpinner, spinnerTimer == nil {
             spinnerTimer = Timer.scheduledTimer(withTimeInterval: 0.09, repeats: true) { [weak self] _ in
@@ -791,9 +792,7 @@ final class TaskTrayView: NSView {
         if needsRotation, rotationTimer == nil {
             rotationTimer = Timer.scheduledTimer(withTimeInterval: 3.2, repeats: true) { [weak self] _ in
                 guard let self else { return }
-                let count = self.unfinishedPlatformBubbles.count
-                guard count > 0 else { return }
-                self.rotationIndex = (self.rotationIndex + 1) % count
+                self.carousel.advance()
                 self.needsDisplay = true
             }
         } else if !needsRotation {

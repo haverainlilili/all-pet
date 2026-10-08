@@ -43,6 +43,9 @@ jobs:
           swift run allpet status --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.animation||!Array.isArray(j.platforms)){console.error('bad json');process.exit(1)}console.log('OK:',j.animation,j.platforms.length+' platforms')})"
       - name: 构建自包含 release sidecar
         run: swift build -c release --static-swift-stdlib
+      - name: Mac 原生单平台任务名称轮转
+        if: runner.os == 'macOS'
+        run: node desktop/scripts/verify-native-bubble-carousel.js
       - name: 九平台原生格式 / Hook / SQLite WAL 验收
         run: node desktop/scripts/verify-platform-integrations.js
       - name: Codex 计划转执行、静默运行与气泡恢复
@@ -87,6 +90,9 @@ jobs:
       - name: Electron 行为测试
         run: npm test
         working-directory: desktop
+      - name: 单平台任务轮转与真实渲染器交互
+        if: runner.os != 'Linux'
+        run: node desktop/scripts/verify-bubble-carousel.js
       - uses: SwiftyLab/setup-swift@latest
         if: runner.os != 'Linux'
         with:
@@ -165,6 +171,8 @@ jobs:
       - name: 构建解包 Electron 应用
         run: npm run dist:dir
         working-directory: desktop
+      - name: Linux 单平台任务轮转与真实渲染器交互
+        run: xvfb-run -a env ALLPET_NO_SANDBOX=1 node desktop/scripts/verify-bubble-carousel.js
       - name: Linux 菜单连续点击与失焦关闭
         run: |
           xvfb-run -a --server-args="-screen 0 1024x768x24" \
