@@ -22,7 +22,6 @@ if (!process.versions.electron) {
     ? path.join(process.env.ALLPET_CAROUSEL_RESOURCES, 'app.asar') : path.join(__dirname, '..')
   const [temporary, mode] = process.argv.slice(2)
   app.setPath('userData', path.join(temporary, mode))
-  if (mode === 'reduced') app.commandLine.appendSwitch('force-prefers-reduced-motion')
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
   let dismissed = null, snapshot
   const task = (platform, name, updatedAt, phase = 'running') => ({ id: `${platform}|${name}`, platform,
@@ -42,6 +41,13 @@ if (!process.versions.electron) {
     const errors = []
     win.webContents.on('console-message', (_event, details) => { if (details.level === 'error') errors.push(details.message) })
     await win.loadFile(path.join(rendererRoot, 'src/renderer.html'))
+    // CI hosts may default to reduced motion. Emulate this fixture's media input after its frame exists.
+    win.webContents.debugger.attach('1.3')
+    await Promise.race([
+      win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: mode === 'reduced' ? 'reduce' : 'no-preference' }]
+      }), delay(5000).then(() => { throw Error('Fixture media emulation timed out') })
+    ])
     const evaluate = code => win.webContents.executeJavaScript(code)
     const read = () => evaluate(`(() => {
       const cards = [...document.querySelectorAll('.stack-card')]
@@ -98,6 +104,6 @@ if (!process.versions.electron) {
     fs.writeFileSync(path.join(temporary, `${mode}.json`), JSON.stringify({ ok: true, mode, seen,
       verified: mode === 'normal' ? ['single platform timer', 'snapshot reordering', 'front dismiss identity',
         'completion removal', 'three platform rear cards', 'platform/task rotation', 'expanded pause', 'hidden removal'] : ['reduced motion freezes task names'] }) + '\n')
-    win.destroy(); app.quit()
+    win.webContents.debugger.detach(); win.destroy(); app.quit()
   }).catch(error => { console.error(error); app.exit(1) })
 }

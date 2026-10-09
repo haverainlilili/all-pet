@@ -27,8 +27,8 @@ jobs:
         with:
           node-version: 24
 
-      - name: 校验 tag 与安装包版本一致
-        run: node -e "const v=require('./desktop/package.json').version,r=process.env.GITHUB_REF;if(r.startsWith('refs/tags/')&&r!=='refs/tags/v'+v)throw new Error('Tag/package version mismatch')"
+      - name: 校验 tag、安装包版本与相关文档
+        run: node desktop/scripts/verify-release-docs.js
 
       - name: 安装 Linux 静态链接依赖
         if: runner.os == 'Linux'

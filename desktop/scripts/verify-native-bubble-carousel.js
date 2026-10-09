@@ -14,7 +14,11 @@ try {
   const build = process.env.ALLPET_NATIVE_BUILD_DIR || run('swift', ['build', '-c', 'release', '--show-bin-path']).split(/\r?\n/).at(-1)
   const objects = fs.readdirSync(path.join(build, 'AllPetCore.build')).filter(name => name.endsWith('.o')).map(name => path.join(build, 'AllPetCore.build', name))
   const source = path.join(temporary, 'Fixture.swift'), binary = path.join(temporary, 'fixture')
-  fs.writeFileSync(source, fs.readFileSync(path.join(root, 'Sources/allpet/TaskTrayView.swift'), 'utf8') + `
+  // Replace only the system preference input in the isolated compiled fixture.
+  // AppKit on CI may default to Reduce Motion; production continues reading NSWorkspace.
+  const viewSource = fs.readFileSync(path.join(root, 'Sources/allpet/TaskTrayView.swift'), 'utf8')
+    .replaceAll('NSWorkspace.shared.accessibilityDisplayShouldReduceMotion', 'NativeCarouselFixture.reduceMotion')
+  fs.writeFileSync(source, viewSource + `
 extension TaskTrayView {
     fileprivate var fixtureFrontID: String? {
         let items = unfinishedPlatformBubbles
@@ -28,6 +32,7 @@ extension TaskTrayView {
     }
 }
 @main enum NativeCarouselFixture {
+    static var reduceMotion = false
     static func wait() { RunLoop.current.run(until: Date().addingTimeInterval(3.4)) }
     static func check(_ condition: @autoclosure () -> Bool, _ message: String) {
         if !condition() { fatalError(message) }
@@ -38,7 +43,6 @@ extension TaskTrayView {
     }
     static func main() throws {
         let app = NSApplication.shared; app.setActivationPolicy(.prohibited)
-        check(!NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, "Native timer fixture requires normal motion; reduced policy is tested separately")
         let policy = PetMotionPolicy.plan(reduceMotion: false, stageIsCollapsed: true, hasActiveTask: true, unfinishedPlatformCount: 1, unfinishedTaskCount: 3)
         check(policy.rotatesPlatforms, "Single platform task timer policy")
         check(!PetMotionPolicy.plan(reduceMotion: true, stageIsCollapsed: true, hasActiveTask: true, unfinishedPlatformCount: 1, unfinishedTaskCount: 3).rotatesPlatforms, "Reduced motion freezes tasks")
@@ -79,9 +83,14 @@ extension TaskTrayView {
         view.update(statuses: [claude, codex], tasksByPlatform: [.codex: [A, B, done], .claude: [D, E]])
         wait(); check(view.fixtureFrontID == D.id, "Next platform Delta")
         wait(); check(view.fixtureFrontID == B.id, "Returning platform Beta, not Alpha")
+        reduceMotion = true; view.accessibilityDisplayOptionsDidChange()
+        check(!view.fixtureTimer && view.fixtureFrontID == A.id, "Reduced preference freezes real view timer")
+        wait(); check(view.fixtureFrontID == A.id, "Reduced preference keeps same task")
+        reduceMotion = false; view.accessibilityDisplayOptionsDidChange()
+        check(view.fixtureTimer, "Normal preference restores real timer")
         view.update(statuses: [codex], tasksByPlatform: [.codex: [A, done]])
         check(!view.fixtureTimer && view.fixtureFrontID == A.id, "Single remaining task stops timer")
-        print("Native carousel verified: Alpha -> Beta -> Gamma; snapshot stability, dismiss ID, completion, expanded pause, multi-platform tasks, reduced policy")
+        print("Native carousel verified: Alpha -> Beta -> Gamma; snapshot stability, dismiss ID, completion, expanded pause, multi-platform tasks, fixture motion preferences")
     }
 }
 `)
