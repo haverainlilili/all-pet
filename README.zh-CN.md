@@ -62,14 +62,14 @@ npx --yes github:haverainlilili/all-pet
 
 ### 选择正确安装包（供用户与 AI 直接判断）
 
-**当前稳定版：v1.5.0。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
+**当前稳定版：v1.5.4。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
 
 | 设备 | 架构 / 适用型号 | 直接下载 | 适用场景 |
 | --- | --- | --- | --- |
-| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.5.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0-arm64-mac.zip) | Apple M 系列芯片的 Mac |
-| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.5.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-Setup-1.5.0.exe) | 常见 Intel / AMD Windows 电脑 |
-| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.5.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0.AppImage) | 大多数 x64 Linux，免安装便携使用 |
-| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.5.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/allpet-desktop_1.5.0_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
+| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.5.4-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64-mac.zip) | Apple M 系列芯片的 Mac |
+| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.5.4.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-Setup-1.5.4.exe) | 常见 Intel / AMD Windows 电脑 |
+| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.5.4.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4.AppImage) | 大多数 x64 Linux，免安装便携使用 |
+| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.5.4_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/allpet-desktop_1.5.4_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
 
 **当前未提供预编译包：** Intel Mac（`x86_64`）、Windows on ARM、Linux ARM（`aarch64`）。这些环境请从源码构建，或欢迎贡献对应打包支持。
 
@@ -266,7 +266,7 @@ Cursor/Qoder 可通过菜单安装观察 hooks，以补充完整生命周期；�
 
 ## 打包安装包
 
-版本号位于 `desktop/package.json` 与 `desktop/package-lock.json`。先更新版本、文档并通过 CI，再推送对应的 `vX.Y.Z` tag（本版为 `v1.5.0`）。
+版本号位于 `desktop/package.json` 与 `desktop/package-lock.json`。先更新版本、文档并通过 CI，再推送对应的 `vX.Y.Z` tag（本版为 `v1.5.4`）。
 
 Release 工作流验证版本号，构建 Swift 核心和资源，运行行为/接入测试，再生成 macOS arm64 DMG/ZIP、Windows x64 EXE、Linux x64 AppImage/DEB。tag 构建上传到 Release 草稿；确认三平台成功、校验安装包与 SHA256SUMS 后再公开。手动触发只生成 Actions 产物。
 

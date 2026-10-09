@@ -75,14 +75,14 @@ Installers bundle the Swift core, runtime and five built-in pets; no Node.js or 
 
 ### Choose the correct installer — humans and AI agents
 
-**Latest stable release: v1.5.0.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
+**Latest stable release: v1.5.4.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
 
 | User device | Architecture / supported models | Download | Choose this when |
 | --- | --- | --- | --- |
-| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.5.0-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0-arm64-mac.zip) | Mac with an Apple M-series chip |
-| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.5.0.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-Setup-1.5.0.exe) | Typical Intel / AMD Windows PC |
-| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.5.0.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/AllPet-1.5.0.AppImage) | Portable install on most x64 Linux distributions |
-| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.5.0_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.5.0/allpet-desktop_1.5.0_amd64.deb) | Debian / Ubuntu and compatible distributions |
+| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.5.4-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64-mac.zip) | Mac with an Apple M-series chip |
+| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.5.4.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-Setup-1.5.4.exe) | Typical Intel / AMD Windows PC |
+| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.5.4.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4.AppImage) | Portable install on most x64 Linux distributions |
+| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.5.4_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/allpet-desktop_1.5.4_amd64.deb) | Debian / Ubuntu and compatible distributions |
 
 **Not packaged yet:** Intel Mac (`x86_64`), Windows on ARM, and Linux ARM (`aarch64`) do not currently have ready-made installers. Build from source or contribute a package build.
 
@@ -273,7 +273,7 @@ Config file: `~/.config/all-pet/config.json` (see [`config.example.json`](./conf
 
 ## Packaging installers
 
-Update the version in `desktop/package.json` and `desktop/package-lock.json`, update documentation, and pass CI before pushing a matching `vX.Y.Z` tag (`v1.5.0` for this release).
+Update the version in `desktop/package.json` and `desktop/package-lock.json`, update documentation, and pass CI before pushing a matching `vX.Y.Z` tag (`v1.5.4` for this release).
 
 The Release workflow checks the tag, builds the Swift core and resources, runs behavior/provider checks, and packages macOS arm64 DMG/ZIP, Windows x64 EXE, and Linux x64 AppImage/DEB. Tag builds upload to a draft Release. Verify all three builds, installer contents and SHA256SUMS before publishing. Manual workflow runs only produce Actions artifacts.
 
