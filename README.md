@@ -13,7 +13,11 @@ The pet switches animation based on what your agents are doing — idle, running
 ---
 
 
-Local v1.5.4 adds task-name rotation every 3.2 seconds even with a single platform, with stable task order across activity updates. It also includes the v1.5.3 DSH browser-tab reuse and multi-frame log decoding fixes. This local build is not a GitHub Release; see the [validation record](docs/平台行为验收.md).
+## What’s new in v1.5.4
+
+Task names rotate every 3.2 seconds even with one platform, keeping their order across activity updates. This release also fixes Codex plan-to-execution transitions and quiet active turns, persists desktop read receipts across restarts, and reuses existing DSH tabs on macOS while decoding complete multi-frame DSH logs.
+
+[Download v1.5.4](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.4) · [Release notes](docs/releases/v1.5.4.md) · [Behavior and validation limits](docs/平台行为验收.md)
 
 ## What’s new in v1.5.0
 

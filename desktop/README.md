@@ -1,4 +1,6 @@
-# AllPet Electron 桌宠（v1.5.4 本地修复，待发布）
+# AllPet Electron 桌宠（v1.5.4）
+
+[下载 v1.5.4](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.4) · [发布说明](../docs/releases/v1.5.4.md)。发布内容含 v1.5.1–v1.5.3 的 Codex 状态、已读确认和 DSH 修复；会话内容导出未包含。
 
 v1.5.4 补齐单平台多任务每 3.2 秒轮换名称，保留多平台半透明后卡；完成/关闭移出，展开暂停，降低动态效果冻结。真实渲染器与原生视图验收通过。
 
