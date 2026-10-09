@@ -32,7 +32,7 @@ const { createRPC } = require('./src/terminal/rpc')
 const { createTerminalService, applyBindings } = require('./src/terminal/service')
 const { cliTask } = require('./src/terminal/process')
 const { createManualViewMonitor, readCodexUnread, readReceiptCheckpoint } = require('./src/manual-view')
-const { cropTrayPetIcon } = require('./src/tray-icon')
+const { cropTrayPetIcon, statusTrayIconPath, loadStatusTrayIcon } = require('./src/tray-icon')
 const { isExcludedCodexHistory } = require('./src/codex-session-metadata')
 const { PLATFORMS, bubblePlatformRows, hiddenBubblePlatforms, setBubblePlatformVisibility, filterBubbleSnapshot } = require('./src/platforms')
 const edgeLayout = require('./src/edge-dock')
@@ -57,6 +57,7 @@ if (!hasSingleInstanceLock) app.quit()
 let mainWindow = null
 let petManagerWindow = null
 let tray = null
+let statusTrayIcon = null
 let trayMenu = null
 let trayPanelWindow = null
 let trayPanelLoad = null
@@ -1343,7 +1344,7 @@ function nativeMenuState() {
     busyLabel: petOperationState.label || null,
     scalePercent: scalePercentText(readScale()),
     tooltip: petOperationState.busy ? `AllPet · 正在${petOperationState.label || '操作'}` : `AllPet · ${pet && pet.displayName || '无宠物'}`,
-    statusIconPath: app.isPackaged ? path.join(process.resourcesPath, 'tray', 'icon.png') : path.join(__dirname, 'assets', 'icon.png'),
+    statusIconPath: statusTrayIconPath({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appDirectory: __dirname }),
     bubblePlatforms: bubblePlatformRows(readBubbleConfig()),
     platformTitles: platformMenuTitles(currentSnapshot && currentSnapshot.platforms, disabledPlatformKeys()),
     installedPets: petCatalog.map(item => ({
@@ -1556,15 +1557,12 @@ async function createTray() {
   const bridge = await startNativeMenuBridge()
   if (bridge && !usesTrayPanel()) return
   if (tray) return
-  const iconPath = path.join(__dirname, 'assets', 'icon.png')
-  let icon
-  if (fs.existsSync(iconPath)) {
-    icon = nativeImage.createFromPath(iconPath)
-    if (process.platform === 'darwin') icon = icon.resize({ width: 18, height: 18 })
-  } else {
-    icon = nativeImage.createEmpty()
-  }
-  tray = new Tray(icon)
+  statusTrayIcon = loadStatusTrayIcon(nativeImage, {
+    isPackaged: app.isPackaged, resourcesPath: process.resourcesPath,
+    appDirectory: __dirname, platform: process.platform
+  })
+  if (statusTrayIcon.fallback) console.error('[allpet] 托盘图标资源不可用，已使用内置爪印:', statusTrayIcon.iconPath)
+  tray = new Tray(statusTrayIcon.image)
   tray.setToolTip('AllPet')
   if (usesTrayPanel()) {
     tray.on('click', toggleTrayPanel)
@@ -1936,7 +1934,8 @@ if (hasSingleInstanceLock) app.whenReady().then(async () => {
   if (process.env.ALLPET_TRAY_PANEL_SMOKE) {
     try {
       const result = await require('./src/tray-panel-smoke')({ show: showTrayPanel, window: () => trayPanelWindow,
-        state: trayPanelState, readConfig: readBubbleConfig, output: process.env.ALLPET_TRAY_PANEL_SMOKE })
+        state: trayPanelState, readConfig: readBubbleConfig, output: process.env.ALLPET_TRAY_PANEL_SMOKE,
+        tray, statusIcon: statusTrayIcon, packaged: app.isPackaged })
       console.log('[allpet] tray panel verified:', JSON.stringify(result))
       cleanupLifecycle(); app.exit(0)
     } catch (error) { console.error(error); cleanupLifecycle(); app.exit(1) }

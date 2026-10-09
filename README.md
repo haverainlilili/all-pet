@@ -1,5 +1,7 @@
 # AllPet 🐾
 
+Local revision (2026-10-09, v1.5.4): packaged builds now load the tray paw from `Resources/tray/icon.png`, with an embedded paw fallback if the asset is missing or unreadable. Left/right click opens the existing persistent menu. This local test build does not replace the published v1.5.4 assets; the one-command installer still selects the public release.
+
 **One desktop pet that watches all your AI coding agents — Codex, Claude Code / Desktop, DeepSeek Harness (DSH), Grok, Cursor, WorkBuddy, Qoder, pi and Z Code — with a cross-platform status / watch CLI.**
 
 > The native pet GUI is macOS; the cross-platform Electron shell (`desktop/`) shows the pet plus a graphical pet manager on macOS, Linux, and Windows. Core monitoring and the `status` / `watch` CLI build and run everywhere.

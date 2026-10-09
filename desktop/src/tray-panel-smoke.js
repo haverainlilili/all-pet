@@ -5,7 +5,8 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { BrowserWindow } = require('electron')
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
-module.exports = async function verify({ show, window, state, readConfig, output }) {
+module.exports = async function verify({ show, window, state, readConfig, output, tray, statusIcon, packaged }) {
+  const js = source => window().webContents.executeJavaScript(source)
   const until = async (predicate, label) => {
     for (let i = 0; i < 100; i++) { if (await predicate()) return; await wait(100) }
     const diagnostic = { label, home: process.env.ALLPET_HOME, state: state(), config: readConfig(), renderer: await js('({state, actionPending, text: document.body.innerText})') }
@@ -13,9 +14,18 @@ module.exports = async function verify({ show, window, state, readConfig, output
     await capture('failure')
     throw new Error(`Timed out: ${label}`)
   }
-  await show()
+  assert.ok(tray && !tray.isDestroyed(), 'tray exists')
+  assert.ok(statusIcon && !statusIcon.image.isEmpty(), 'tray icon decodes')
+  const pixels = statusIcon.image.toBitmap()
+  assert.ok(pixels.some((alpha, index) => index % 4 === 3 && alpha > 0), 'tray icon has visible pixels')
+  assert.equal(statusIcon.fallback, false, 'shipped tray asset must load without fallback')
+  if (packaged) assert.equal(path.basename(path.dirname(statusIcon.iconPath)), 'tray', 'packaged resource path')
+  // Exercise the real tray click handler, not just the panel-opening helper.
+  tray.emit('click')
+  await until(() => window()?.isVisible(), 'tray click opens menu')
+  const trayBounds = tray.getBounds()
+  if (process.platform === 'darwin') assert.ok(trayBounds.width > 0 && trayBounds.height > 0, 'Mac status item has bounds')
   const panel = window(), panelID = panel.id
-  const js = source => panel.webContents.executeJavaScript(source)
   const click = selector => js(`document.querySelector(${JSON.stringify(selector)}).click()`)
   const visible = () => { assert.equal(window().id, panelID); assert.ok(panel.isVisible(), 'menu must remain open') }
   const capture = async name => fs.writeFileSync(output.replace(/\.json$/, `-${name}.png`), (await panel.webContents.capturePage()).toPNG())
@@ -73,7 +83,8 @@ module.exports = async function verify({ show, window, state, readConfig, output
     outside.show(); outside.focus()
     await until(() => !panel.isVisible(), 'outside focus closes')
   } finally { outside.destroy() }
-  const result = { ok: true, cascading: true, hoverOpens: true, continuousPlatformClicks: true, allPlatforms: true, continuousScale: true, petSelection: true, visibility: true, refresh: true,
+  const result = { ok: true, statusIconVisible: true, trayClickOpens: true, packaged,
+    statusIconPath: statusIcon.iconPath, statusIconSize: statusIcon.image.getSize(), trayBounds, cascading: true, hoverOpens: true, continuousPlatformClicks: true, allPlatforms: true, continuousScale: true, petSelection: true, visibility: true, refresh: true,
     sameWindow: true, thumbnails: true, invalidActionRejected: true, escapeCloses: true, blurCloses: true,
     hiddenBubblePlatforms: readConfig().hiddenBubblePlatforms, selectedPet: next.label }
   fs.writeFileSync(output, JSON.stringify(result, null, 2) + '\n')

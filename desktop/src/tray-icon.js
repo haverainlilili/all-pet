@@ -1,5 +1,26 @@
 'use strict'
 
+const path = require('node:path')
+
+// electron-builder copies this PNG outside app.asar; assets/icon.png is development-only.
+function statusTrayIconPath({ isPackaged, resourcesPath, appDirectory }) {
+  return isPackaged ? path.join(resourcesPath, 'tray', 'icon.png') : path.join(appDirectory, 'assets', 'icon.png')
+}
+
+const FALLBACK_STATUS_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAZklEQVR42mNgGAVDDXxdpvwfGRMSp6nlhPCoA4a2A0hNbNjEyXYQNXxEkRmjDhhwB1CrZKNZtqRbvh80hRCpllPVEeRaTjVHDKgDKLWcYkeMOmDAHTCaCwZFQTRo2oMDXhmNgmELAAs8glYko+JSAAAAAElFTkSuQmCC'
+
+function loadStatusTrayIcon(nativeImage, options) {
+  const iconPath = statusTrayIconPath(options)
+  let image = nativeImage.createFromPath(iconPath)
+  const fallback = image.isEmpty()
+  // Never create an invisible tray when an asset is missing or cannot be decoded.
+  if (fallback) image = nativeImage.createFromDataURL(FALLBACK_STATUS_ICON)
+  if (image.isEmpty()) throw new Error('AllPet status icon cannot be decoded')
+  if (options.platform === 'darwin') image = image.resize({ width: 18, height: 18, quality: 'best' })
+  if (image.isEmpty()) throw new Error('AllPet status icon resize failed')
+  return { image, iconPath, fallback }
+}
+
 function trayIconCropRect(descriptor, row = 0, column = 0) {
   const width = Math.round(Number(descriptor && descriptor.cellWidth))
   const height = Math.round(Number(descriptor && descriptor.cellHeight))
@@ -28,4 +49,4 @@ function cropTrayPetIcon(nativeImage, descriptor, row = 0, column = 0, maximumDi
   return result
 }
 
-module.exports = { cropTrayPetIcon, fittedSize, trayIconCropRect }
+module.exports = { cropTrayPetIcon, fittedSize, trayIconCropRect, statusTrayIconPath, loadStatusTrayIcon }
