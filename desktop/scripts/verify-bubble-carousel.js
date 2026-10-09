@@ -22,6 +22,8 @@ if (!process.versions.electron) {
     ? path.join(process.env.ALLPET_CAROUSEL_RESOURCES, 'app.asar') : path.join(__dirname, '..')
   const [temporary, mode] = process.argv.slice(2)
   app.setPath('userData', path.join(temporary, mode))
+  // Start from reduced motion on every host, then explicitly emulate each tested preference.
+  app.commandLine.appendSwitch('force-prefers-reduced-motion')
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
   let dismissed = null, snapshot
   const task = (platform, name, updatedAt, phase = 'running') => ({ id: `${platform}|${name}`, platform,
@@ -48,6 +50,13 @@ if (!process.versions.electron) {
         features: [{ name: 'prefers-reduced-motion', value: mode === 'reduced' ? 'reduce' : 'no-preference' }]
       }), delay(5000).then(() => { throw Error('Fixture media emulation timed out') })
     ])
+    // Hidden CI windows can defer media change events. Reload with the emulation already active.
+    await new Promise((resolve, reject) => {
+      win.webContents.once('did-finish-load', resolve)
+      win.webContents.once('did-fail-load', (_event, code, description) => reject(Error(`${code}: ${description}`)))
+      win.webContents.reload()
+    })
+    assert.equal(await win.webContents.executeJavaScript("window.matchMedia('(prefers-reduced-motion: reduce)').matches"), mode === 'reduced')
     const evaluate = code => win.webContents.executeJavaScript(code)
     const read = () => evaluate(`(() => {
       const cards = [...document.querySelectorAll('.stack-card')]
