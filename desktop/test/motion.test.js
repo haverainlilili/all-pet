@@ -20,6 +20,14 @@ test('normal motion rotates only the collapsed multi-platform stack', () => {
   })
 })
 
+test('single-platform task names rotate only with multiple tasks, collapsed and normal motion', () => {
+  const options = { reduceMotion: false, stageIsCollapsed: true, hasActiveTask: true, unfinishedPlatformCount: 1, unfinishedTaskCount: 2 }
+  assert.equal(plan(options).rotatesPlatforms, true)
+  assert.equal(plan({ ...options, unfinishedTaskCount: 1 }).rotatesPlatforms, false)
+  assert.equal(plan({ ...options, stageIsCollapsed: false }).rotatesPlatforms, false)
+  assert.equal(plan({ ...options, reduceMotion: true }).rotatesPlatforms, false)
+})
+
 
 test('visible statuses alone drive pet animation after task dismissal', () => {
   assert.equal(animationForStatuses([{ phase: 'idle' }]), 'idle')

@@ -1,4 +1,14 @@
-# AllPet Electron 桌宠（v1.5.0）
+# AllPet Electron 桌宠（v1.5.4）
+
+[下载 v1.5.4](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.4) · [发布说明](../docs/releases/v1.5.4.md)。发布内容含 v1.5.1–v1.5.3 的 Codex 状态、已读确认和 DSH 修复；会话内容导出未包含。
+
+v1.5.4 补齐单平台多任务每 3.2 秒轮换名称，保留多平台半透明后卡；完成/关闭移出，展开暂停，降低动态效果冻结。真实渲染器与原生视图验收通过。
+
+v1.5.3 修复 macOS 无任务 DSH 平台入口绕过已有页面查找的问题，先聚焦现有页面并保留当前会话；查找拒绝或失败不再新开页面。内置解码器完整处理 DSH 追加的独立压缩帧，不再只读首帧。
+
+v1.5.2 补齐 Codex 已读检测的重启恢复和先读后收到完成快照的时间差。回执在本地持久化并依据完成轮次/时间处理，不把首次启动时“不在未读列表”当成已读。macOS 当前窗口识别仍依赖实际生效的辅助功能授权；开发包更新后须复核，不能只看旧授权条目。
+
+v1.5.1 修复 Codex 从计划转执行时的气泡保持：明确的运行/思考/等待任务不会因两分钟无新日志提前丢失，执行中的计划步骤更新也不会误判为等待确认。仍保留 30 分钟无活动上限。详细行为及隔离回归见 [功能设计说明](../docs/功能设计说明.md)。该修复已随 v1.5.4 提供。
 
 支持四边收起：拖动宠物到屏幕可用区域边缘并松手，只留小头，全部气泡隐藏；点击小头或拖回屏幕内恢复。贴边位置保存在 `~/.config/all-pet/desktop-layout.json`，重启后保留；任务历史与已查看检测照常运行。
 
@@ -11,7 +21,7 @@ Electron 通过 `allpet watch --json` 复用 Swift AllPetCore，macOS/Windows/Li
 
 Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查看检查。各终端的条件与限制见 [终端接入说明](integrations/README.md)：VS Code/Cursor 需要扩展，WezTerm 需要 Lua 接入，kitty 需要本地控制 socket，Linux 部分路径依赖辅助功能或 X11。接口存在不等于所有版本均已实测，也不构成无条件两秒内确认的保证。
 
-本版安装包见 [GitHub Release](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.0)。
+当前安装包见 [v1.5.4 GitHub Release](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.4)。
 
 已有 Node.js 24.18+ / npm 11.16+ 和 Git 的用户，可用 `npx --yes github:haverainlilili/all-pet` 安装或更新最新正式版。安装后的路径、系统提示及重复执行行为见 [一行命令安装](../docs/一行命令安装.md)。这只是安装入口，桌宠运行时使用安装包自带的 Electron/Swift 运行时。
 

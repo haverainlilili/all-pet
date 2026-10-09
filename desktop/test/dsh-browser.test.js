@@ -47,3 +47,12 @@ test('DSH browser lookup distinguishes missing and blocked existing tabs', async
   assert.match(blocked.message, /禁止/)
   assert.deepEqual(await reuseExistingDshTab(fakeSpawn('REUSED\n'), url, 'win32'), { status: 'unsupported' })
 })
+
+test('DSH platform reuse passes an empty target so the current session is retained', async () => {
+  let args
+  const result = await reuseExistingDshTab((...invocation) => { args = invocation[1]; return fakeSpawn('REUSED\n')(...invocation) }, '', 'darwin')
+  assert.equal(result.status, 'reused')
+  assert.deepEqual(args.slice(2), ['--', ''])
+  assert.equal((REUSE_DSH_TAB_APPLESCRIPT.match(/if targetURL is not "" then set URL of t to targetURL/g) || []).length, 2)
+  assert.match(REUSE_DSH_TAB_APPLESCRIPT, /on error errorMessage number errorNumber/)
+})

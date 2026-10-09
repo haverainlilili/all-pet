@@ -25,12 +25,13 @@ const {
 const { TRAY_PET_ICON_CACHE_VERSION, platformMenuTitles, scalePercentText, petTrayActionTitles, petTrayRows, reopensAfterTrayAction, trayPetIconFrames, trayPrimaryAction } = require('./src/tray-menu')
 const { createBoundedThumbnailDataURL } = require('./src/pet-thumbnail')
 const { reuseExistingDshTab } = require('./src/dsh-browser')
+const { performDshPlatformWake } = require('./src/dsh-wake')
 const { menuBridgeState } = require('./src/menu-bridge')
 const { trayPanelLayout, keepsTrayPanelOpen, validTrayPanelAction } = require('./src/tray-panel-model')
 const { createRPC } = require('./src/terminal/rpc')
 const { createTerminalService, applyBindings } = require('./src/terminal/service')
 const { cliTask } = require('./src/terminal/process')
-const { createManualViewMonitor, readCodexUnread } = require('./src/manual-view')
+const { createManualViewMonitor, readCodexUnread, readReceiptCheckpoint } = require('./src/manual-view')
 const { cropTrayPetIcon } = require('./src/tray-icon')
 const { isExcludedCodexHistory } = require('./src/codex-session-metadata')
 const { PLATFORMS, bubblePlatformRows, hiddenBubblePlatforms, setBubblePlatformVisibility, filterBubbleSnapshot } = require('./src/platforms')
@@ -395,6 +396,7 @@ function recordManualViewStatus(update) {
 }
 
 function startManualViewMonitor() {
+  const checkpointPath = path.join(EFFECTIVE_HOME, '.config', 'all-pet', 'codex-read-receipts.json')
   if (!process.env.ALLPET_TRAY_PANEL_SMOKE && !shouldUseLegacyMacTray()) {
     terminalService = createTerminalService({ home: EFFECTIVE_HOME, native: nativeTerminalRPC,
       getTasks: () => Object.values(taskHistory).flat(), config: () => readBubbleConfig().terminal || {},
@@ -407,6 +409,13 @@ function startManualViewMonitor() {
     getState: mutableHistoryState,
     hiddenPlatforms: () => [...hiddenBubblePlatforms(readBubbleConfig())],
     readUnread: () => readCodexUnread(EFFECTIVE_HOME),
+    checkpoint: readReceiptCheckpoint(checkpointPath),
+    onCheckpoint: checkpoint => {
+      try { writeJSONAtomically(checkpointPath, checkpoint) }
+      catch { recordManualViewStatus({ readReceiptPersistence: false }); return false }
+      recordManualViewStatus({ readReceiptPersistence: true, readReceiptGroups: checkpoint.groups.length,
+        pendingReadReceipts: checkpoint.receipts.length })
+    },
     sendCheck: request => {
       const terminalTasks = request.tasks.filter(cliTask)
       const desktopTasks = process.platform === 'darwin' ? request.tasks.filter(task => !cliTask(task)) : []
@@ -417,6 +426,7 @@ function startManualViewMonitor() {
       if (desktopTasks.length && child && !child.stdin.destroyed) entry.remaining++
       if (!entry.remaining) return false
       pendingViewParts.set(request.requestID, entry)
+      recordManualViewStatus({ requestID: request.requestID, requestedAt: entry.at, candidateCount: request.tasks.length })
       if (terminalTasks.length && terminalService) {
         Promise.all(terminalTasks.map(async task => await terminalService.viewed(task) ? task.id : null))
           .then(ids => receiveViewPart({ type: 'view-result', requestID: request.requestID, viewedIDs: ids.filter(Boolean) }))
@@ -794,6 +804,13 @@ async function launchPlatform(platform) {
     return { succeeded: false, requested: false, exact: false, openedApp: false, message: `不支持打开 ${platformLabel(platform)}` }
   }
   if (spec.kind === 'external') {
+    if (platform === 'dsh') {
+      return performDshPlatformWake({
+        runtimePlatform: process.platform,
+        reuseDSHTab: url => reuseExistingDshTab(spawn, url, process.platform),
+        openExternal: url => shell.openExternal(url)
+      })
+    }
     try {
       await shell.openExternal(spec.url)
       return {
@@ -1390,7 +1407,7 @@ function consumeNativeMenuBridgeOutput(chunk, onReady) {
         nativeTerminalRPC.receive(message)
       } else if (message.type === 'view-result') {
         recordManualViewStatus({ replyID: message.requestID, repliedAt: Date.now(),
-          replyLatencyMs: message.requestID === manualViewStatus.requestID ? Date.now() - manualViewStatus.requestedAt : null,
+          replyLatencyMs: pendingViewParts.has(message.requestID) ? Date.now() - pendingViewParts.get(message.requestID).at : null,
           matchedCount: Array.isArray(message.viewedIDs) ? message.viewedIDs.length : 0,
           ...(typeof message.accessibilityTrusted === 'boolean' ? { accessibilityTrusted: message.accessibilityTrusted } : {}),
           nativeElapsedMs: message.elapsedMs ?? null })

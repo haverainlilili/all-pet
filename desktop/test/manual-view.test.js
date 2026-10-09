@@ -148,7 +148,7 @@ test('platform requests proceed independently when a browser check is slow', () 
 test('Codex read receipts cannot acknowledge matching session IDs from another platform', () => {
   const tracker = createReadTransitionTracker()
   tracker.observe(groups(['a']), [platformTask('claude'), platformTask('pi'), task()])
-  assert.deepEqual(tracker.observe(groups(), []).map(t => t.id), ['codex|a'])
+  assert.deepEqual(tracker.observe(groups(), [platformTask('claude'), platformTask('pi'), task()]).map(t => t.id), ['codex|a'])
 })
 
 test('Claude and terminal replies obey new-turn, hidden-platform and persistence protections', () => {
@@ -162,4 +162,81 @@ test('Claude and terminal replies obey new-turn, hidden-platform and persistence
     assert.equal(dismissViewedTasks(value, [original], [original.id]), true)
     assert.deepEqual(value.dismissed, [original.id])
   }
+})
+
+test('unread baseline survives restart and a read while AllPet is stopped', () => {
+  let checkpoint
+  const original = task('a', { turnID: 'turn-a', completedAt: 1000 })
+  const first = createReadTransitionTracker({ now: () => 2000, onCheckpoint: value => { checkpoint = value } })
+  first.observe(groups(['a']), [original])
+  const next = createReadTransitionTracker({ checkpoint, now: () => 3000 })
+  assert.deepEqual(next.observe(groups(), [original]).map(t => t.id), ['codex|a'])
+})
+
+test('receipt before completed snapshot is retained across another restart', () => {
+  let checkpoint
+  const first = createReadTransitionTracker({ now: () => 2000, onCheckpoint: value => { checkpoint = value } })
+  first.observe(groups(['a']), [])
+  assert.deepEqual(first.observe(groups(), []), [])
+  const next = createReadTransitionTracker({ checkpoint, now: () => 3000 })
+  assert.deepEqual(next.observe(groups(), [task('a', { turnID: 'turn-a', completedAt: 1500 })]).map(t => t.id), ['codex|a'])
+})
+
+test('a completion after reading is not acknowledged by that old receipt', () => {
+  const tracker = createReadTransitionTracker({ now: () => 2000 })
+  tracker.observe(groups(['a']), [])
+  tracker.observe(groups(), [])
+  assert.deepEqual(tracker.observe(groups(), [task('a', { turnID: 'next-turn', completedAt: 2100 })]), [])
+  assert.deepEqual(tracker.observe(groups(), [task('a', { turnID: 'old-format-no-time' })]), [])
+})
+
+test('persisted read-state mtime bounds the receipt even when the next poll is delayed', () => {
+  const tracker = createReadTransitionTracker({ now: () => 5000 })
+  tracker.observe(groups(['a']), [])
+  const read = groups(); read.observedAt = 2000
+  assert.deepEqual(tracker.observe(read, [task('a', { turnID: 'new-turn', completedAt: 3000 })]), [])
+})
+
+test('explicit completion identity survives title changes but rejects a new completed turn', () => {
+  const original = task('a', { turnID: 'turn-a', completedAt: 1500 })
+  const renamed = state({ ...original, title: 'renamed', updatedAt: 1000 })
+  assert.equal(dismissViewedTasks(renamed, [original], [original.id]), true)
+  for (const extra of [{ turnID: 'turn-b' }, { completedAt: 1501 }]) {
+    const changed = state({ ...original, ...extra })
+    assert.equal(dismissViewedTasks(changed, [original], [original.id]), false)
+  }
+})
+
+test('checkpoint stores hashed identities and revisions, without titles or transcript paths', () => {
+  let checkpoint
+  createReadTransitionTracker({ now: () => 2000, onCheckpoint: value => { checkpoint = value } })
+    .observe(groups(['a'], 'private-account'), [task('a', { title: 'private-title', sourcePath: '/private/path' })])
+  const text = JSON.stringify(checkpoint)
+  for (const secret of ['private-account', 'private-title', '/private/path']) assert.equal(text.includes(secret), false)
+})
+
+test('invalid, expired or future checkpoints never make startup absence a read receipt', () => {
+  for (const checkpoint of [{ version: 99 }, { version: 1, savedAt: 4000 }, { version: 1, savedAt: -90000000 },
+    { version: 1, savedAt: 1000, groups: [null], tasks: [], receipts: [] }]) {
+    const tracker = createReadTransitionTracker({ checkpoint, now: () => 3000 })
+    assert.deepEqual(tracker.observe(groups(), [task('a', { turnID: 'a', completedAt: 1000 })]), [])
+  }
+})
+
+test('completion identity persists in history and is removed when the task resumes', () => {
+  const original = task('a', { turnID: 'turn-a', completedAt: 1500 })
+  const value = normalizeTaskHistory({ platforms: { codex: [original] } }, APPLE_REF_MS + 101000)
+  assert.equal(value.platforms.codex[0].completedAt, 1500)
+  assert.equal(value.platforms.codex[0].turnID, 'turn-a')
+  accumulateTaskHistory(value, { platforms: [{ platform: 'codex', phase: 'running', tasks: [{ ...task(), phase: 'running', turnID: 'turn-b' }] }] })
+  assert.equal(value.platforms.codex[0].turnID, 'turn-b')
+  assert.equal(value.platforms.codex[0].completedAt, undefined)
+})
+
+test('reading while Codex bubbles are hidden does not create a deferred acknowledgement', () => {
+  const h = harness(state(task('a', { turnID: 'turn-a', completedAt: 1 })))
+  h.clock(2000); h.monitor.start(); h.hidden(['codex']); h.unread(groups()); h.tick()
+  h.hidden([]); h.clock(2500); h.tick()
+  assert.equal(h.persisted.length, 0)
+  h.monitor.stop()
 })

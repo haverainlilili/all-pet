@@ -83,6 +83,9 @@ public struct TaskInfo: Sendable, Equatable {
     public var scheduledTaskName: String?
     /// 该任务自身的阶段（running/thinking/waiting/done/failed）；nil 表示沿用平台聚合 phase。
     public var phase: AgentPhase?
+    /// Codex 执行轮次及终态时间，用于将已读回执绑定到完成轮次。
+    public var turnID: String?
+    public var completedAt: Date?
 
     public init(
         sessionName: String? = nil,
@@ -99,7 +102,9 @@ public struct TaskInfo: Sendable, Equatable {
         terminalBinding: TerminalBinding? = nil,
         launchOrigin: String? = nil,
         scheduledTaskName: String? = nil,
-        phase: AgentPhase? = nil
+        phase: AgentPhase? = nil,
+        turnID: String? = nil,
+        completedAt: Date? = nil
     ) {
         self.sessionName = sessionName
         self.title = title
@@ -116,6 +121,8 @@ public struct TaskInfo: Sendable, Equatable {
         self.launchOrigin = launchOrigin
         self.scheduledTaskName = scheduledTaskName
         self.phase = phase
+        self.turnID = turnID
+        self.completedAt = completedAt
     }
 
     public var progressLabel: String? {

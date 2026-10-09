@@ -27,8 +27,8 @@ jobs:
         with:
           node-version: 24
 
-      - name: 校验 tag 与安装包版本一致
-        run: node -e "const v=require('./desktop/package.json').version,r=process.env.GITHUB_REF;if(r.startsWith('refs/tags/')&&r!=='refs/tags/v'+v)throw new Error('Tag/package version mismatch')"
+      - name: 校验 tag、安装包版本与相关文档
+        run: node desktop/scripts/verify-release-docs.js
 
       - name: 安装 Linux 静态链接依赖
         if: runner.os == 'Linux'
@@ -61,6 +61,17 @@ jobs:
 
       - name: 九平台原生格式及 SQLite WAL 验收
         run: node desktop/scripts/verify-platform-integrations.js
+      - name: Codex 计划转执行、静默运行与气泡恢复
+        run: node desktop/scripts/verify-codex-lifecycle.js
+      - name: Mac 原生任务名称轮转
+        if: runner.os == 'macOS'
+        run: node desktop/scripts/verify-native-bubble-carousel.js
+      - name: Electron 真实任务名称轮转
+        if: runner.os != 'Linux'
+        run: node desktop/scripts/verify-bubble-carousel.js
+      - name: Linux 真实任务名称轮转
+        if: runner.os == 'Linux'
+        run: xvfb-run -a env ALLPET_NO_SANDBOX=1 node desktop/scripts/verify-bubble-carousel.js
 
       - name: macOS 核心与查看桥接回归
         if: runner.os == 'macOS'

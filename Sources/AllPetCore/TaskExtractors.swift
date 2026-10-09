@@ -17,6 +17,8 @@ struct ParsedTask: Sendable {
 enum TaskExtractors {
     static func codex(from text: String) -> ParsedTask {
         var out = ParsedTask()
+        var activeTurnID: String?
+        var collaborationMode: String?
 
         for object in objects(in: text) {
             let topType = object["type"] as? String ?? ""
@@ -28,6 +30,14 @@ enum TaskExtractors {
                 continue
             }
 
+            if topType == "turn_context" {
+                activeTurnID = payload["turn_id"] as? String ?? activeTurnID
+                out.info.turnID = activeTurnID
+                collaborationMode = dictionary(payload["collaboration_mode"])["mode"] as? String ?? collaborationMode
+                out.workingDirectory = payload["cwd"] as? String ?? out.workingDirectory
+                continue
+            }
+
             if topType == "response_item" {
                 let type = payload["type"] as? String ?? ""
                 switch type {
@@ -35,6 +45,11 @@ enum TaskExtractors {
                     let role = payload["role"] as? String ?? ""
                     if role == "user", let title = humanPrompt(payload["content"]) {
                         out.info.title = title
+                        // A resumed turn's task_started can fall outside a bounded tail.
+                        // The new real prompt must clear the previous plan's completed state.
+                        out.phase = .thinking
+                        out.info.action = "正在分析任务"
+                        out.info.toolName = nil
                     } else if role == "assistant" {
                         out.phase = .running
                         out.info.action = "正在生成回复"
@@ -56,10 +71,19 @@ enum TaskExtractors {
 
             guard topType == "event_msg" else { continue }
             let eventType = payload["type"] as? String ?? ""
+            if eventType != "task_started", let turnID = payload["turn_id"] as? String,
+               let activeTurnID, turnID != activeTurnID {
+                continue // Delayed completion of a plan must not finish its executing successor.
+            }
             switch eventType {
             case "task_started":
+                activeTurnID = payload["turn_id"] as? String
+                out.info.turnID = activeTurnID
+                out.info.completedAt = nil
+                collaborationMode = payload["collaboration_mode_kind"] as? String
                 out.phase = .thinking
                 out.info.action = "正在分析任务"
+                out.info.toolName = nil
             case "item_started", "item_completed":
                 let item = dictionary(payload["item"])
                 let itemType = item["type"] as? String ?? ""
@@ -83,12 +107,15 @@ enum TaskExtractors {
                     out.phase = .thinking
                     out.info.action = "正在思考"
                 } else if itemType == "Plan" {
-                    // 计划模式：item_started 生成计划，item_completed 表示计划已生成、
-                    // 等待用户确认/回答后才继续执行。
-                    out.phase = eventType == "item_started" ? .thinking : .waiting
-                    out.info.action = eventType == "item_started" ? "正在生成计划" : "已生成计划，等待确认"
+                    // In default mode a Plan item is an execution progress update, not a pause.
+                    let awaitsConfirmation = eventType == "item_completed" && collaborationMode != "default"
+                    out.phase = awaitsConfirmation ? .waiting : .thinking
+                    out.info.action = awaitsConfirmation ? "已生成计划，等待确认"
+                        : (eventType == "item_started" ? "正在生成计划" : "计划已更新，继续执行")
                 }
             case "task_complete":
+                out.info.turnID = payload["turn_id"] as? String ?? activeTurnID
+                out.info.completedAt = parseISO8601(object["timestamp"] as? String)
                 if let error = nonNull(payload["error"]) {
                     out.phase = .failed
                     out.info.action = "失败：\(errorMessage(error) ?? "任务执行失败")"
@@ -97,6 +124,8 @@ enum TaskExtractors {
                     out.info.action = "任务已完成"
                 }
             case "task_failed", "turn_failed", "error":
+                out.info.turnID = payload["turn_id"] as? String ?? activeTurnID
+                out.info.completedAt = parseISO8601(object["timestamp"] as? String)
                 out.phase = .failed
                 out.info.action = "任务执行失败"
             case "task_cancelled", "turn_aborted":
@@ -107,6 +136,7 @@ enum TaskExtractors {
             }
         }
 
+        if out.phase != .done && out.phase != .failed { out.info.completedAt = nil }
         out.detail = out.info.action
         return out
     }

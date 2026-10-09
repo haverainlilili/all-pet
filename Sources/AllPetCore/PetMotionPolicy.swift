@@ -1,6 +1,6 @@
 import Foundation
 
-/// 降低动态效果时统一冻结任务气泡的 spinner 和平台轮播。
+/// 降低动态效果时统一冻结任务气泡的 spinner、平台与任务名称轮播。
 public struct PetMotionPlan: Equatable {
     public let spinsStatus: Bool
     public let rotatesPlatforms: Bool
@@ -16,11 +16,12 @@ public enum PetMotionPolicy {
         reduceMotion: Bool,
         stageIsCollapsed: Bool,
         hasActiveTask: Bool,
-        unfinishedPlatformCount: Int
+        unfinishedPlatformCount: Int,
+        unfinishedTaskCount: Int = 0
     ) -> PetMotionPlan {
         PetMotionPlan(
             spinsStatus: !reduceMotion && hasActiveTask,
-            rotatesPlatforms: !reduceMotion && stageIsCollapsed && unfinishedPlatformCount > 1
+            rotatesPlatforms: !reduceMotion && stageIsCollapsed && max(unfinishedPlatformCount, unfinishedTaskCount) > 1
         )
     }
 }

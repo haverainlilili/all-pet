@@ -8,9 +8,10 @@
     const stageIsCollapsed = !!(options && options.stageIsCollapsed)
     const hasActiveTask = !!(options && options.hasActiveTask)
     const unfinishedPlatformCount = Number(options && options.unfinishedPlatformCount) || 0
+    const unfinishedTaskCount = Number(options && options.unfinishedTaskCount) || 0
     return {
       spinsStatus: !reduceMotion && hasActiveTask,
-      rotatesPlatforms: !reduceMotion && stageIsCollapsed && unfinishedPlatformCount > 1
+      rotatesPlatforms: !reduceMotion && stageIsCollapsed && Math.max(unfinishedPlatformCount, unfinishedTaskCount) > 1
     }
   }
   function animationForStatuses(statuses) {
