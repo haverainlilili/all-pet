@@ -1,0 +1,115 @@
+{
+  "version": "1.5.4",
+  "tag": "v1.5.4",
+  "sourceCommit": "0e06d46d9975020fff66a3ee32133847bdd45ada",
+  "mergeCommit": "d2124a1ae6c47e3534cc5ccd7ad6092d76c699a6",
+  "releaseId": 407651557,
+  "releaseURL": "https://github.com/haverainlilili/all-pet/releases/tag/v1.5.4",
+  "publishedAt": "2026-10-09T07:42:53Z",
+  "publishedAtAsiaShanghai": "2026-10-09T15:42:53+08:00",
+  "latest": true,
+  "draft": false,
+  "prerelease": false,
+  "validation": {
+    "ci": {
+      "runId": 37899476965,
+      "conclusion": "success",
+      "checksPassed": 7
+    },
+    "release": {
+      "runId": 37899547617,
+      "conclusion": "success",
+      "platformsPassed": [
+        "macOS arm64",
+        "Windows x64",
+        "Linux x64"
+      ]
+    },
+    "nodeTests": 143,
+    "installerTests": 14,
+    "coreSelfTests": 136,
+    "macZipDownloadedHash": "verified against GitHub asset digest",
+    "oneCommand": {
+      "command": "npx --yes github:haverainlilili/all-pet --dry-run",
+      "latestVersion": "1.5.4",
+      "asset": "AllPet-1.5.4-arm64-mac.zip",
+      "target": "/Applications/AllPet.app",
+      "noAppChanges": true
+    }
+  },
+  "digestSource": "GitHub uploaded asset SHA-256; Mac ZIP additionally downloaded and hashed independently",
+  "assets": [
+    {
+      "name": "AllPet-1.5.4-arm64-mac.zip",
+      "size": 136920035,
+      "digest": "sha256:fd76e220258dfa29052acae84c26617ce62edd74bb79f03d2a021985cc9d9eff",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64-mac.zip"
+    },
+    {
+      "name": "AllPet-1.5.4-arm64-mac.zip.blockmap",
+      "size": 144596,
+      "digest": "sha256:8c110367154c6a7524af6ad763a62ec7b6c733d96eae07fbeeb6527289cb8b7b",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64-mac.zip.blockmap"
+    },
+    {
+      "name": "AllPet-1.5.4-arm64.dmg",
+      "size": 137011259,
+      "digest": "sha256:d79151df85afb29a1067cc5f9172ba5c34dea785b9ee7a512c4117f7a09db9ec",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64.dmg"
+    },
+    {
+      "name": "AllPet-1.5.4-arm64.dmg.blockmap",
+      "size": 143706,
+      "digest": "sha256:81a926034f7a2a76af11a19b820635c6f06e4792feaaa3694b1af81242764def",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64.dmg.blockmap"
+    },
+    {
+      "name": "AllPet-1.5.4.AppImage",
+      "size": 159464048,
+      "digest": "sha256:9071356312ac45fa1b91c67a3433cc01497a9e12010fdc1c9d515fc7b6b79a47",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4.AppImage"
+    },
+    {
+      "name": "allpet-desktop_1.5.4_amd64.deb",
+      "size": 126759260,
+      "digest": "sha256:5f9b2fdeac0fce21022cb66dd153e48212077189b356a56b4343af818a377b94",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/allpet-desktop_1.5.4_amd64.deb"
+    },
+    {
+      "name": "AllPet-Setup-1.5.4.exe",
+      "size": 322737273,
+      "digest": "sha256:5ebc774e4bfd84c5e970f5af950e49a534e9b37f60e6ccfe8a7f3ed2817e43f7",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-Setup-1.5.4.exe"
+    },
+    {
+      "name": "AllPet-Setup-1.5.4.exe.blockmap",
+      "size": 338097,
+      "digest": "sha256:68d24b047f5e6d01e5c4e808e71bb8cf39e2b0ad2a72d235be7aca84ac5fbd28",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-Setup-1.5.4.exe.blockmap"
+    },
+    {
+      "name": "latest-linux.yml",
+      "size": 525,
+      "digest": "sha256:abd9953f83b24cf7a6bba17f3d5d45ca2a563e2b57e14ab66eab725c54e767aa",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/latest-linux.yml"
+    },
+    {
+      "name": "latest-mac.yml",
+      "size": 502,
+      "digest": "sha256:69c17298030c1eaba83a8dff0fce5d257abd06760b99749129a158f1bd493a35",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/latest-mac.yml"
+    },
+    {
+      "name": "latest.yml",
+      "size": 341,
+      "digest": "sha256:378cf516459410a5baf7f110a6e03d6f32768e9aa9d5ffbcc24ca39eb140492f",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/latest.yml"
+    },
+    {
+      "name": "SHA256SUMS",
+      "size": 995,
+      "digest": "sha256:a5b77944988a44af1017832298836c77ca7fd29edf24f8366b2c30a1404304d6",
+      "url": "https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/SHA256SUMS"
+    }
+  ]
+}
