@@ -24,7 +24,7 @@ try {
   })
   if (result.status !== 0 || result.error) throw new Error([result.error?.message, result.stdout, result.stderr, `Electron exited ${result.status}`].filter(Boolean).join('\n'))
   const report = JSON.parse(fs.readFileSync(output, 'utf8'))
-  for (const key of ['ok', 'continuousPlatformClicks', 'allPlatforms', 'continuousScale', 'petSelection', 'visibility', 'refresh', 'sameWindow', 'thumbnails', 'invalidActionRejected', 'escapeCloses', 'blurCloses']) {
+  for (const key of ['ok', 'statusIconVisible', 'trayClickOpens', 'continuousPlatformClicks', 'allPlatforms', 'continuousScale', 'petSelection', 'visibility', 'refresh', 'sameWindow', 'thumbnails', 'invalidActionRejected', 'escapeCloses', 'blurCloses']) {
     if (report[key] !== true) throw new Error(`Menu smoke failed: ${key}`)
   }
   console.log(JSON.stringify({ platform: process.platform, ...report, output }, null, 2))

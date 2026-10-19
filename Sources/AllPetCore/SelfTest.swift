@@ -178,6 +178,48 @@ public enum AllPetSelfTest {
             expect(status.task?.sessionName == "DSH 完成会话"
                     && Set(status.tasks.compactMap(\.phase)) == Set([.running, .done]),
                    "DSH multi-session keeps preferred order and per-task phase")
+
+            // Migration keeps the legacy file beside v4; monitor one current log per session.
+            let v4Path = runningDir.appendingPathComponent("session.v4.jsonl.zstd")
+            try Data("""
+            {"type":"session","version":4,"id":"session-running","cwd":"/tmp/v4"}
+            {"type":"session/title","data":{"title":"DSH v4 会话"}}
+            {"type":"user/message","data":{"source":{"kind":"user"},"content":[{"type":"text","text":"新版任务"}]}}
+            {"type":"turn/start","seq":1,"data":{"turn":1}}
+            {"type":"tool/call","seq":2,"data":{"name":"bash","arguments":{"command":"echo v4"}}}
+            """.utf8).write(to: v4Path)
+            // Generation wins even when the legacy file has the newer modification time.
+            try FileManager.default.setAttributes([.modificationDate: fixtureNow.addingTimeInterval(-4)], ofItemAtPath: v4Path.path)
+            let childDir = dshMultiRoot.appendingPathComponent("child-uuid", isDirectory: true)
+            try FileManager.default.createDirectory(at: childDir, withIntermediateDirectories: true)
+            try Data(#"{"type":"turn/start","data":{"turn":1}}"#.utf8)
+                .write(to: childDir.appendingPathComponent("session.v4.jsonl.zstd"))
+            let v4Monitor = DSHMonitor(
+                roots: [dshMultiRoot.path],
+                decoder: DSHTranscriptDecoder(executableOverride: "/bin/cat", timeoutOverride: 2),
+                preferredSessionPath: runningPath.path
+            )
+            let migrated = v4Monitor.snapshot(config: WatchConfig(), now: fixtureNow)
+            expect(migrated.activeSessions == 2 && migrated.tasks.count == 2,
+                   "DSH migrated sessions are not duplicated and v4 subagents stay excluded")
+            expect(migrated.task?.sourcePath == v4Path.path && migrated.task?.sessionName == "DSH v4 会话",
+                   "DSH v4 replaces legacy history and preserves preferred session selection")
+            expect(migrated.task?.sessionID == "session-running" && migrated.task?.title == "新版任务"
+                    && migrated.task?.phase == .running && migrated.task?.toolName == "bash",
+                   "DSH v4 exposes exact identity, task name and current tool")
+            try Data("""
+            {"type":"session","version":4,"id":"session-running"}
+            {"type":"session/title","data":{"title":"DSH v4 会话"}}
+            {"type":"turn/end","data":{"turn":1,"reason":{"kind":"completed"}}}
+            """.utf8).write(to: v4Path)
+            try FileManager.default.setAttributes([.modificationDate: fixtureNow], ofItemAtPath: v4Path.path)
+            let completed = DSHMonitor(
+                roots: [dshMultiRoot.path],
+                decoder: DSHTranscriptDecoder(executableOverride: "/bin/cat", timeoutOverride: 2),
+                preferredSessionPath: v4Path.path
+            ).snapshot(config: WatchConfig(), now: fixtureNow)
+            expect(completed.task?.phase == .done && completed.task?.sourcePath == v4Path.path,
+                   "DSH v4 completion updates the same task")
         } catch {
             expect(false, "DSH multi-session fixture")
         }

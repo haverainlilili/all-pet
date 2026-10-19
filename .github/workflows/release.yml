@@ -22,7 +22,8 @@ jobs:
       - uses: SwiftyLab/setup-swift@latest
         with:
           swift-version: '6.2.4'
-          update-sdk-modules: true
+          # Keep SDK definitions paired with Swift 6.2.4; upstream main requires newer headers.
+          update-sdk-modules: false
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -108,6 +109,8 @@ jobs:
           codesign --verify --deep --strict "${apps[0]}"
           test -d "${apps[0]}/Contents/Resources/sidecar/AllPet_AllPetCore.bundle"
           ALLPET_APP_BINARY="$PWD/${apps[0]}/Contents/MacOS/AllPet" node scripts/verify-manual-view.js
+          ALLPET_APP_BINARY="$PWD/${apps[0]}/Contents/MacOS/AllPet" \
+            ALLPET_TRAY_PANEL_OUTPUT="$RUNNER_TEMP/tray-panel/menu.json" node scripts/verify-tray-panel.js
 
       - name: Windows 成品菜单连续点击与失焦关闭
         if: runner.os == 'Windows'
@@ -147,11 +150,11 @@ jobs:
           path: ${{ runner.temp }}/edge-dock/
           if-no-files-found: ignore
 
-      - name: 保存 Windows 成品菜单验收
-        if: always() && runner.os == 'Windows'
+      - name: 保存 macOS / Windows 成品菜单验收
+        if: always() && (runner.os == 'Windows' || runner.os == 'macOS')
         uses: actions/upload-artifact@v5
         with:
-          name: packaged-menu-windows
+          name: packaged-menu-${{ runner.os }}
           path: ${{ runner.temp }}/tray-panel/
           if-no-files-found: ignore
 

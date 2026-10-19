@@ -1,6 +1,8 @@
 # AllPet Electron 桌宠（v1.5.4）
 
-[下载 v1.5.4](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.4) · [发布说明](../docs/releases/v1.5.4.md)。发布内容含 v1.5.1–v1.5.3 的 Codex 状态、已读确认和 DSH 修复；会话内容导出未包含。
+v1.5.5 修复 DSH v4 日志迁移后的任务识别，以及正式包空白菜单栏/托盘图标；图标点击与持续菜单交互沿用原设计。
+
+[下载 v1.5.5](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.5) · [发布说明](../docs/releases/v1.5.5.md)。包含 v1.5.4 既有功能和本次两项修复；会话内容导出未包含。
 
 v1.5.4 补齐单平台多任务每 3.2 秒轮换名称，保留多平台半透明后卡；完成/关闭移出，展开暂停，降低动态效果冻结。真实渲染器与原生视图验收通过。
 
@@ -21,7 +23,7 @@ Electron 通过 `allpet watch --json` 复用 Swift AllPetCore，macOS/Windows/Li
 
 Electron 已接入运行期间的终端绑定、点击定位和每 500 ms 的查看检查。各终端的条件与限制见 [终端接入说明](integrations/README.md)：VS Code/Cursor 需要扩展，WezTerm 需要 Lua 接入，kitty 需要本地控制 socket，Linux 部分路径依赖辅助功能或 X11。接口存在不等于所有版本均已实测，也不构成无条件两秒内确认的保证。
 
-当前安装包见 [v1.5.4 GitHub Release](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.4)。
+当前安装包见 [v1.5.5 GitHub Release](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.5)。
 
 已有 Node.js 24.18+ / npm 11.16+ 和 Git 的用户，可用 `npx --yes github:haverainlilili/all-pet` 安装或更新最新正式版。安装后的路径、系统提示及重复执行行为见 [一行命令安装](../docs/一行命令安装.md)。这只是安装入口，桌宠运行时使用安装包自带的 Electron/Swift 运行时。
 

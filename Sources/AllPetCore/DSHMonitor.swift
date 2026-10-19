@@ -1,12 +1,13 @@
 import Foundation
 
-/// DeepSeek Harness（DSH）：监控 `~/.dsh/sessions/**/session.jsonl.zstd`。
+/// DeepSeek Harness（DSH）：监控顶层会话的 v4 / 旧版压缩日志，每个会话只读最新代际。
 /// 可用 zstdcat/zstd 时会解析当前任务、工具、Todo 进度与完成/错误状态；否则退回 mtime。
 public struct DSHMonitor: PlatformMonitor {
     public let platform: PlatformKind = .dsh
     public let roots: [String]
     private let decoder: DSHTranscriptDecoder
     private let preferredSessionPath: String?
+    private static let logNames = ["session.v4.jsonl.zstd", "session.jsonl.zstd"]
 
     public init(roots: [String]) {
         self.roots = roots.map(PathExpander.expand)
@@ -25,13 +26,20 @@ public struct DSHMonitor: PlatformMonitor {
         let scan = ActivityScanner.scan(
             roots: roots,
             isIncluded: { path in
-                ((path as NSString).lastPathComponent) == "session.jsonl.zstd"
-                    && Self.isTopLevelSessionPath(path)
+                guard Self.isTopLevelSessionPath(path),
+                      let generation = Self.logNames.firstIndex(of: (path as NSString).lastPathComponent) else { return false }
+                let directory = URL(fileURLWithPath: path).deletingLastPathComponent()
+                // Migration retains old generations; never count them as separate tasks.
+                return !Self.logNames.prefix(generation).contains {
+                    FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path)
+                }
             },
             recentWindow: config.waitingWindowSeconds,
             now: now,
             selectionPriority: { path in
-                if path == preferredSessionPath { return 3 }
+                if let preferredSessionPath,
+                   URL(fileURLWithPath: path).deletingLastPathComponent()
+                    == URL(fileURLWithPath: preferredSessionPath).deletingLastPathComponent() { return 3 }
                 let parent = ((path as NSString).deletingLastPathComponent as NSString).lastPathComponent
                 return parent.hasPrefix("session-") ? 2 : 0
             },

@@ -18,7 +18,8 @@ jobs:
       - uses: SwiftyLab/setup-swift@latest
         with:
           swift-version: '6.2.4'
-          update-sdk-modules: true
+          # Keep SDK definitions paired with Swift 6.2.4; upstream main requires newer headers.
+          update-sdk-modules: false
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -97,7 +98,8 @@ jobs:
         if: runner.os != 'Linux'
         with:
           swift-version: '6.2.4'
-          update-sdk-modules: true
+          # Keep SDK definitions paired with Swift 6.2.4; upstream main requires newer headers.
+          update-sdk-modules: false
       - name: 构建菜单冒烟 sidecar
         if: runner.os != 'Linux'
         run: |
@@ -147,7 +149,8 @@ jobs:
       - uses: SwiftyLab/setup-swift@latest
         with:
           swift-version: '6.2.4'
-          update-sdk-modules: true
+          # Keep SDK definitions paired with Swift 6.2.4; upstream main requires newer headers.
+          update-sdk-modules: false
       - uses: actions/setup-node@v5
         with:
           node-version: 24

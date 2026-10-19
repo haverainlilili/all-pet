@@ -8,6 +8,7 @@ const path = require('node:path')
 const { spawn, spawnSync } = require('node:child_process')
 const { DatabaseSync } = require('node:sqlite')
 const crypto = require('node:crypto')
+const { zstdCompressSync } = require('node:zlib')
 let binary = process.env.ALLPET_BINARY
 if (!binary) {
   const query = spawnSync('swift', ['build', '-c', 'release', '--show-bin-path'], { encoding: 'utf8', timeout: 30000 })
@@ -16,6 +17,8 @@ if (!binary) {
 }
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'allpet-integrations-'))
 const environment = { ...process.env, ALLPET_HOME: home,
+  ALLPET_ZSTD_EXECUTABLE: process.execPath,
+  ALLPET_ZSTD_PREFIX_JSON: JSON.stringify([path.resolve(__dirname, 'zstdcat.js')]),
   ALLPET_SQLITE_EXECUTABLE: process.env.ALLPET_ELECTRON_BINARY || process.execPath,
   ALLPET_SQLITE_SCRIPT: path.resolve(__dirname, 'sqlite-read.js') }
 function run(args, input) {
@@ -82,9 +85,32 @@ async function main() {
   db.exec("INSERT INTO todo VALUES ('z-main','completed'),('z-main','pending')")
   const hash = () => crypto.createHash('sha256').update(fs.readFileSync(database)).update(fs.readFileSync(database + '-wal')).digest('hex')
   const beforeHash = hash()
+  for (const [file, rows] of [
+    ['session-dsh-v4/session.jsonl.zstd', [{ type: 'turn/end', data: { reason: { kind: 'completed' } } }]],
+    ['session-dsh-v4/session.v4.jsonl.zstd', [
+      { type: 'session', version: 4, id: 'session-dsh-v4' },
+      { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'DSH v4 current task' }] } },
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'tool/call', data: { name: 'bash', arguments: { command: 'echo fixture' } } }
+    ]],
+    ['session-dsh-legacy/session.jsonl.zstd', [
+      { type: 'session', id: 'session-dsh-legacy' },
+      { type: 'turn/end', data: { reason: { kind: 'completed' } } }
+    ]],
+    ['child-uuid/session.v4.jsonl.zstd', [{ type: 'turn/start', data: { turn: 1 } }]]
+  ]) {
+    const filePath = write(`.dsh/sessions/project/${file}`, rows)
+    fs.writeFileSync(filePath, zstdCompressSync(fs.readFileSync(filePath)))
+  }
   const snapshot = JSON.parse(run(['status', '--json']))
   const platforms = Object.fromEntries(snapshot.platforms.map(row => [row.platform, row]))
   assert.equal(snapshot.platforms.length, 9)
+  assert.deepEqual(platforms.dsh.tasks.map(row => row.sessionID).sort(), ['session-dsh-legacy', 'session-dsh-v4'])
+  const dshV4 = platforms.dsh.tasks.find(row => row.sessionID === 'session-dsh-v4')
+  assert.equal(dshV4.title, 'DSH v4 current task')
+  assert.equal(dshV4.phase, 'running')
+  assert.equal(path.basename(dshV4.sourcePath), 'session.v4.jsonl.zstd')
+  assert.equal(platforms.dsh.tasks.find(row => row.sessionID === 'session-dsh-legacy').phase, 'done')
   assert.equal(platforms.workbuddy.tasks.length, 1)
   assert.equal(platforms.workbuddy.task.sessionName, 'WorkBuddy stable title')
   assert.equal(platforms.workbuddy.task.phase, 'done')
@@ -126,7 +152,7 @@ async function main() {
       }
     })
   })
-  console.log('Native integrations verified: nine platforms, five native formats, hook merge/privacy/idempotence, cross-platform child-path filtering, read-only SQLite, live WAL invalidation.')
+  console.log('Native integrations verified: nine platforms, DSH v4/legacy migration, hook merge/privacy/idempotence, cross-platform child-path filtering, read-only SQLite, live WAL invalidation.')
 }
 main().finally(async () => {
   if (watcher?.pid && watcher.exitCode === null && watcher.signalCode === null) {
