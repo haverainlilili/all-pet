@@ -2,6 +2,8 @@
 
 # AllPet 🐾
 
+本地修订（2026-10-19，v1.5.4，尚未发布）：兼容 DSH 的 `session.v4.jsonl.zstd` 与旧 `session.jsonl.zstd`。同一会话目录优先读取 v4，即使旧日志的修改时间更晚也不重复展示；只有旧日志的会话继续使用原流程。新版沿用同一套任务名、工具与完成状态解析及气泡点击行为；子代理仍不单独显示。本机修订包不改变 GitHub v1.5.4 正式资产。
+
 本地修订（2026-10-09，仍为 v1.5.4）：修复正式包菜单栏/托盘图标读取路径。打包运行时从 `Resources/tray/icon.png` 加载，开发运行从 `desktop/assets/icon.png` 加载；资源缺失或解码失败时使用内置黄色爪印，禁止创建空白图标。点击或右键爪印打开/收起原菜单，连续平台勾选、缩放、换宠物仍保持菜单打开；辅助功能授权不影响菜单栏图标显示。本机使用此修订测试包，GitHub v1.5.4 标签及资产保持原样，一行安装仍选择已发布的正式包。
 
 一只 AI 编码桌面宠物，同时查看 **Codex、Claude Code / Desktop、DeepSeek Harness（DSH）、Grok、Cursor、WorkBuddy、Qoder、pi 和 Z Code** 的任务状态。原生宠物 GUI 仅 macOS；跨平台 Electron 壳（`desktop/`）可在 macOS / Linux / Windows 显示宠物并提供图形化宠物管理。核心监控与 `status`/`watch` 等 CLI 支持全平台。

@@ -1,5 +1,7 @@
 # AllPet 🐾
 
+Local revision (2026-10-19, v1.5.4; unpublished): DSH monitoring now reads `session.v4.jsonl.zstd` alongside legacy logs. Each session uses its v4 generation when present, preventing stale completion state and duplicate bubbles after migration. Task parsing and click behavior use the existing shared pipeline. Published GitHub assets are unchanged.
+
 Local revision (2026-10-09, v1.5.4): packaged builds now load the tray paw from `Resources/tray/icon.png`, with an embedded paw fallback if the asset is missing or unreadable. Left/right click opens the existing persistent menu. This local test build does not replace the published v1.5.4 assets; the one-command installer still selects the public release.
 
 **One desktop pet that watches all your AI coding agents — Codex, Claude Code / Desktop, DeepSeek Harness (DSH), Grok, Cursor, WorkBuddy, Qoder, pi and Z Code — with a cross-platform status / watch CLI.**
