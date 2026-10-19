@@ -11,6 +11,8 @@
 
 ## v1.5.5 更新：DSH v4 识别与菜单栏图标
 
+[三系统 CI 7 项](https://github.com/haverainlilili/all-pet/actions/runs/39232593366)、[三平台打包 3 项](https://github.com/haverainlilili/all-pet/actions/runs/39232603544) 均通过；[安装包与摘要](docs/releases/v1.5.5-assets.json)。
+
 修复 DSH 升级为 v4 日志后运行任务没有气泡、停留在旧完成状态的问题；同一会话只读取最新代际，避免重复通知。修复正式安装包的空白菜单栏/托盘图标，点击爪印打开原有持续操作菜单。
 
 [下载 v1.5.5](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.5) · [发布说明](docs/releases/v1.5.5.md) · [验收与能力边界](docs/平台行为验收.md)

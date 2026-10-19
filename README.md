@@ -15,6 +15,8 @@ The pet switches animation based on what your agents are doing — idle, running
 
 ## v1.5.5: DSH v4 compatibility and visible tray icons
 
+Release verified: [7 CI checks](https://github.com/haverainlilili/all-pet/actions/runs/39232593366), [3 platform packages](https://github.com/haverainlilili/all-pet/actions/runs/39232603544); [asset checksums](docs/releases/v1.5.5-assets.json).
+
 Restores task monitoring after DSH migrates to v4 logs. Each session uses its latest supported generation, preventing stale completion state and duplicate bubbles. Packaged apps display the paw in the menu bar / system tray; clicking it opens the existing persistent menu.
 
 [Download v1.5.5](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.5) · [Release notes](docs/releases/v1.5.5.md) · [Verification and limits](docs/平台行为验收.md)
