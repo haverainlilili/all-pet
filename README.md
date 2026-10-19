@@ -1,9 +1,5 @@
 # AllPet 🐾
 
-Local revision (2026-10-19, v1.5.4; unpublished): DSH monitoring now reads `session.v4.jsonl.zstd` alongside legacy logs. Each session uses its v4 generation when present, preventing stale completion state and duplicate bubbles after migration. Task parsing and click behavior use the existing shared pipeline. Published GitHub assets are unchanged.
-
-Local revision (2026-10-09, v1.5.4): packaged builds now load the tray paw from `Resources/tray/icon.png`, with an embedded paw fallback if the asset is missing or unreadable. Left/right click opens the existing persistent menu. This local test build does not replace the published v1.5.4 assets; the one-command installer still selects the public release.
-
 **One desktop pet that watches all your AI coding agents — Codex, Claude Code / Desktop, DeepSeek Harness (DSH), Grok, Cursor, WorkBuddy, Qoder, pi and Z Code — with a cross-platform status / watch CLI.**
 
 > The native pet GUI is macOS; the cross-platform Electron shell (`desktop/`) shows the pet plus a graphical pet manager on macOS, Linux, and Windows. Core monitoring and the `status` / `watch` CLI build and run everywhere.
@@ -16,6 +12,12 @@ The pet switches animation based on what your agents are doing — idle, running
 
 ---
 
+
+## v1.5.5: DSH v4 compatibility and visible tray icons
+
+Restores task monitoring after DSH migrates to v4 logs. Each session uses its latest supported generation, preventing stale completion state and duplicate bubbles. Packaged apps display the paw in the menu bar / system tray; clicking it opens the existing persistent menu.
+
+[Download v1.5.5](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.5) · [Release notes](docs/releases/v1.5.5.md) · [Verification and limits](docs/平台行为验收.md)
 
 ## What’s new in v1.5.4
 
@@ -79,14 +81,14 @@ Installers bundle the Swift core, runtime and five built-in pets; no Node.js or 
 
 ### Choose the correct installer — humans and AI agents
 
-**Latest stable release: v1.5.4.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
+**Latest stable release: v1.5.5.** Match both the operating system and CPU architecture exactly. These are direct asset URLs, so an AI assistant can return the one matching download link without asking users to browse the release page.
 
 | User device | Architecture / supported models | Download | Choose this when |
 | --- | --- | --- | --- |
-| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.5.4-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64-mac.zip) | Mac with an Apple M-series chip |
-| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.5.4.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-Setup-1.5.4.exe) | Typical Intel / AMD Windows PC |
-| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.5.4.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4.AppImage) | Portable install on most x64 Linux distributions |
-| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.5.4_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/allpet-desktop_1.5.4_amd64.deb) | Debian / Ubuntu and compatible distributions |
+| macOS 14+ | **Apple Silicon arm64** — M1 / M2 / M3 / M4 / M5 | [DMG — AllPet-1.5.5-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.5.5/AllPet-1.5.5-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.5.5/AllPet-1.5.5-arm64-mac.zip) | Mac with an Apple M-series chip |
+| Windows 10 / 11 | **x64** — Intel 64-bit / AMD 64-bit | [EXE — AllPet-Setup-1.5.5.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.5.5/AllPet-Setup-1.5.5.exe) | Typical Intel / AMD Windows PC |
+| Linux — most x64 distributions | **x64** — Intel 64-bit / AMD 64-bit | [AppImage — AllPet-1.5.5.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.5.5/AllPet-1.5.5.AppImage) | Portable install on most x64 Linux distributions |
+| Debian / Ubuntu Linux | **x64** — Intel 64-bit / AMD 64-bit | [DEB — allpet-desktop_1.5.5_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.5.5/allpet-desktop_1.5.5_amd64.deb) | Debian / Ubuntu and compatible distributions |
 
 **Not packaged yet:** Intel Mac (`x86_64`), Windows on ARM, and Linux ARM (`aarch64`) do not currently have ready-made installers. Build from source or contribute a package build.
 

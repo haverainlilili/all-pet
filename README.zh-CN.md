@@ -2,16 +2,18 @@
 
 # AllPet 🐾
 
-本地修订（2026-10-19，v1.5.4，尚未发布）：兼容 DSH 的 `session.v4.jsonl.zstd` 与旧 `session.jsonl.zstd`。同一会话目录优先读取 v4，即使旧日志的修改时间更晚也不重复展示；只有旧日志的会话继续使用原流程。新版沿用同一套任务名、工具与完成状态解析及气泡点击行为；子代理仍不单独显示。本机修订包不改变 GitHub v1.5.4 正式资产。
-
-本地修订（2026-10-09，仍为 v1.5.4）：修复正式包菜单栏/托盘图标读取路径。打包运行时从 `Resources/tray/icon.png` 加载，开发运行从 `desktop/assets/icon.png` 加载；资源缺失或解码失败时使用内置黄色爪印，禁止创建空白图标。点击或右键爪印打开/收起原菜单，连续平台勾选、缩放、换宠物仍保持菜单打开；辅助功能授权不影响菜单栏图标显示。本机使用此修订测试包，GitHub v1.5.4 标签及资产保持原样，一行安装仍选择已发布的正式包。
-
 一只 AI 编码桌面宠物，同时查看 **Codex、Claude Code / Desktop、DeepSeek Harness（DSH）、Grok、Cursor、WorkBuddy、Qoder、pi 和 Z Code** 的任务状态。原生宠物 GUI 仅 macOS；跨平台 Electron 壳（`desktop/`）可在 macOS / Linux / Windows 显示宠物并提供图形化宠物管理。核心监控与 `status`/`watch` 等 CLI 支持全平台。
 
 宠物根据运行、等待、完成和失败状态切换动画；点击任务气泡尝试返回原会话或打开对应应用，具体定位能力因平台而异。
 
 [完整功能设计说明](./docs/功能设计说明.md)：记录当前实现、交互规则、平台差异与验收结果。
 
+
+## v1.5.5 更新：DSH v4 识别与菜单栏图标
+
+修复 DSH 升级为 v4 日志后运行任务没有气泡、停留在旧完成状态的问题；同一会话只读取最新代际，避免重复通知。修复正式安装包的空白菜单栏/托盘图标，点击爪印打开原有持续操作菜单。
+
+[下载 v1.5.5](https://github.com/haverainlilili/all-pet/releases/tag/v1.5.5) · [发布说明](docs/releases/v1.5.5.md) · [验收与能力边界](docs/平台行为验收.md)
 
 ## v1.5.4 更新：任务轮转与状态修复
 
@@ -66,14 +68,14 @@ npx --yes github:haverainlilili/all-pet
 
 ### 选择正确安装包（供用户与 AI 直接判断）
 
-**当前稳定版：v1.5.4。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
+**当前稳定版：v1.5.5。** 请同时按“系统 + CPU 架构”选择；下表是可直接下载的产物链接，AI 助手可直接返回对应链接，不需要让用户自行翻找 Release 页面。
 
 | 设备 | 架构 / 适用型号 | 直接下载 | 适用场景 |
 | --- | --- | --- | --- |
-| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.5.4-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4-arm64-mac.zip) | Apple M 系列芯片的 Mac |
-| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.5.4.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-Setup-1.5.4.exe) | 常见 Intel / AMD Windows 电脑 |
-| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.5.4.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/AllPet-1.5.4.AppImage) | 大多数 x64 Linux，免安装便携使用 |
-| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.5.4_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.5.4/allpet-desktop_1.5.4_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
+| macOS 14+ | **Apple Silicon arm64**：M1 / M2 / M3 / M4 / M5 | [DMG：AllPet-1.5.5-arm64.dmg](https://github.com/haverainlilili/all-pet/releases/download/v1.5.5/AllPet-1.5.5-arm64.dmg) · [ZIP](https://github.com/haverainlilili/all-pet/releases/download/v1.5.5/AllPet-1.5.5-arm64-mac.zip) | Apple M 系列芯片的 Mac |
+| Windows 10 / 11 | **x64**：64 位 Intel / AMD | [EXE：AllPet-Setup-1.5.5.exe](https://github.com/haverainlilili/all-pet/releases/download/v1.5.5/AllPet-Setup-1.5.5.exe) | 常见 Intel / AMD Windows 电脑 |
+| Linux（大多数 x64 发行版） | **x64**：64 位 Intel / AMD | [AppImage：AllPet-1.5.5.AppImage](https://github.com/haverainlilili/all-pet/releases/download/v1.5.5/AllPet-1.5.5.AppImage) | 大多数 x64 Linux，免安装便携使用 |
+| Debian / Ubuntu Linux | **x64**：64 位 Intel / AMD | [DEB：allpet-desktop_1.5.5_amd64.deb](https://github.com/haverainlilili/all-pet/releases/download/v1.5.5/allpet-desktop_1.5.5_amd64.deb) | Debian / Ubuntu 及其兼容发行版 |
 
 **当前未提供预编译包：** Intel Mac（`x86_64`）、Windows on ARM、Linux ARM（`aarch64`）。这些环境请从源码构建，或欢迎贡献对应打包支持。
 
